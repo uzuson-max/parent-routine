@@ -168,4 +168,5 @@ const cardStyle: React.CSSProperties = {
   borderRadius: 10,
   padding: 12,
   marginBottom: 10,
-};
+}; 
+ 
