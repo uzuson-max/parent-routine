@@ -11,8 +11,9 @@ export async function GET(request: Request) {
   const now = new Date();
   const currentTime = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Seoul' }).slice(0, 5);
   const currentDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul' }).format(now);
+  const currentWeekday = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' })).getDay(); // 0=일 ~ 6=토
 
-  const { data: dueRoutines, error } = await supabase
+  const { data: candidates, error } = await supabase
     .from('routines')
     .select('*')
     .like('call_time', `${currentTime}%`)
@@ -20,7 +21,14 @@ export async function GET(request: Request) {
     .or(`last_run_date.is.null,last_run_date.neq.${currentDate}`);
 
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  if (!dueRoutines?.length) return NextResponse.json({ message: 'no routines due', time: currentTime });
+
+  const dueRoutines = (candidates || []).filter(r => {
+    if (r.is_one_time) return r.schedule_date === currentDate;
+    const days: number[] = r.repeat_days || [];
+    return days.length === 0 || days.includes(currentWeekday); // 빈 배열 = 매일
+  });
+
+  if (!dueRoutines.length) return NextResponse.json({ message: 'no routines due', time: currentTime });
 
   const results = [];
   for (const routine of dueRoutines) {
