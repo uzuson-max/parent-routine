@@ -3,7 +3,6 @@ import { supabase } from '@/lib/supabase';
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   const body = await request.json();
-
   const { data, error } = await supabase
     .from('routines')
     .update(body)
