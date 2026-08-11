@@ -1,3 +1,5 @@
+import './globals.css';
+
 export const metadata = {
   title: '부모님 안부 케어 시스템',
 };
