@@ -8,6 +8,16 @@ function requireEnv(name: string): string {
   return value;
 }
 
+// 010-1234-5678, 01012345678, 8210... 등 다양한 입력을 +8210...으로 통일
+function normalizePhoneNumber(raw: string): string {
+  const digitsOnly = raw.replace(/[^0-9+]/g, '');
+
+  if (digitsOnly.startsWith('+')) return digitsOnly;
+  if (digitsOnly.startsWith('82')) return `+${digitsOnly}`;
+  if (digitsOnly.startsWith('0')) return `+82${digitsOnly.slice(1)}`;
+  return `+82${digitsOnly}`;
+}
+
 interface CallParams {
   routineId: string;
   phoneNumber: string;
@@ -22,15 +32,13 @@ export async function sendRoutineCall({ routineId, phoneNumber, message }: CallP
 
   const baseUrl = requireEnv('APP_BASE_URL');
   const fromNumber = requireEnv('TWILIO_PHONE_NUMBER');
-
-  // 트라이얼 계정이 웹훅 설정을 막아두었으므로, URL을 명시적으로 강제 주입합니다.
-  const twimlUrl = `${baseUrl}/api/twiml/call-script?msg=${encodeURIComponent(message)}`;
+  const toNumber = normalizePhoneNumber(phoneNumber);
 
   try {
     const call = await client.calls.create({
-      to: phoneNumber,
+      to: toNumber,
       from: fromNumber,
-      url: twimlUrl, // 이 부분이 트라이얼 기본 안내 대신 우리 서버를 바라보게 강제합니다.
+      url: `${baseUrl}/api/twiml/call-script?msg=${encodeURIComponent(message)}`,
       statusCallback: `${baseUrl}/api/webhook/call-status?routineId=${routineId}`,
       statusCallbackEvent: ['completed', 'no-answer', 'busy', 'failed'],
     });
