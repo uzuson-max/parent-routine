@@ -1,13 +1,20 @@
 import { NextResponse } from 'next/server';
 
+// POST 대신 GET으로 변경 (혹은 export async function GET...)
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const message = searchParams.get('msg') || '오늘 루틴을 확인할 시간이에요.';
+  const msg = searchParams.get('msg') || '안부 전화입니다.';
 
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Say language="ko-KR">${message}</Say>
-</Response>`;
+  // 트릴리오가 읽어갈 TwiML XML 응답 생성
+  const twiml = `
+    <Response>
+      <Say language="ko-KR">${msg}</Say>
+    </Response>
+  `;
 
-  return new NextResponse(twiml, { headers: { 'Content-Type': 'text/xml' } });
+  return new NextResponse(twiml, {
+    headers: {
+      'Content-Type': 'text/xml',
+    },
+  });
 }
