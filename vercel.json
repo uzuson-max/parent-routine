@@ -1,6 +1,3 @@
 {
-  "crons": [
-    { "path": "/api/cron/check-routines", "schedule": "* * * * *" }
-  ]
+  "framework": "nextjs"
 }
- 
