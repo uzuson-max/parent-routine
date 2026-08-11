@@ -15,7 +15,6 @@ interface CallParams {
 }
 
 export async function sendRoutineCall({ routineId, phoneNumber, message }: CallParams) {
-  // 클라이언트를 함수 호출 시점에 생성 (빌드 시점에 실행되지 않도록)
   const client = twilio(
     requireEnv('TWILIO_ACCOUNT_SID'),
     requireEnv('TWILIO_AUTH_TOKEN')
@@ -24,11 +23,14 @@ export async function sendRoutineCall({ routineId, phoneNumber, message }: CallP
   const baseUrl = requireEnv('APP_BASE_URL');
   const fromNumber = requireEnv('TWILIO_PHONE_NUMBER');
 
+  // 트라이얼 계정이 웹훅 설정을 막아두었으므로, URL을 명시적으로 강제 주입합니다.
+  const twimlUrl = `${baseUrl}/api/twiml/call-script?msg=${encodeURIComponent(message)}`;
+
   try {
     const call = await client.calls.create({
       to: phoneNumber,
       from: fromNumber,
-      url: `${baseUrl}/api/twiml/call-script?msg=${encodeURIComponent(message)}`,
+      url: twimlUrl, // 이 부분이 트라이얼 기본 안내 대신 우리 서버를 바라보게 강제합니다.
       statusCallback: `${baseUrl}/api/webhook/call-status?routineId=${routineId}`,
       statusCallbackEvent: ['completed', 'no-answer', 'busy', 'failed'],
     });
