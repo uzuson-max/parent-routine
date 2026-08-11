@@ -8,11 +8,6 @@ function requireEnv(name: string): string {
   return value;
 }
 
-const client = twilio(
-  requireEnv('TWILIO_ACCOUNT_SID'),
-  requireEnv('TWILIO_AUTH_TOKEN')
-);
-
 interface CallParams {
   routineId: string;
   phoneNumber: string;
@@ -20,6 +15,12 @@ interface CallParams {
 }
 
 export async function sendRoutineCall({ routineId, phoneNumber, message }: CallParams) {
+  // 클라이언트를 함수 호출 시점에 생성 (빌드 시점에 실행되지 않도록)
+  const client = twilio(
+    requireEnv('TWILIO_ACCOUNT_SID'),
+    requireEnv('TWILIO_AUTH_TOKEN')
+  );
+
   const baseUrl = requireEnv('APP_BASE_URL');
   const fromNumber = requireEnv('TWILIO_PHONE_NUMBER');
 
