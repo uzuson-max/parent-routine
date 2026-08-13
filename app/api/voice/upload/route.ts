@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { transcribeAudio } from '@/lib/openai';
+import { analyzeAndSchedule } from '@/lib/analysis';
 
 export async function POST(request: Request) {
   const formData = await request.formData();
@@ -23,7 +25,7 @@ export async function POST(request: Request) {
 
   const audioUrl = supabase.storage.from('voice-recordings').getPublicUrl(fileName).data.publicUrl;
 
-  const { data, error } = await supabase
+  const { data: entry, error } = await supabase
     .from('voice_entries')
     .insert({ user_phone: phone, audio_url: audioUrl, call_state: 'pending' })
     .select()
@@ -33,5 +35,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ success: true, data });
+  // STT + 분석 + 발신 예약까지 이어서 처리 (실패해도 녹음 자체는 저장된 상태 유지)
+  try {
+    const transcript = await transcribeAudio(audioUrl);
+    await supabase.from('voice_entries').update({ transcript }).eq('id', entry.id);
+
+    await analyzeAndSchedule(entry.id, transcript, phone);
+  } catch (err: any) {
+    console.error('STT/분석 실패:', err.message);
+    await supabase.from('voice_entries').update({ call_state: 'analysis_failed' }).eq('id', entry.id);
+  }
+
+  return NextResponse.json({ success: true, data: entry });
 }
