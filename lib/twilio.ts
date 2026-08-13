@@ -1,3 +1,6 @@
+import twilio from 'twilio';
+import { requireEnv, normalizePhoneNumber } from '@/lib/utils';
+
 interface CallParams {
   routineId: string;
   phoneNumber: string;
