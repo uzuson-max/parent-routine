@@ -38,5 +38,12 @@ export async function GET(request: Request) {
     results.push({ id: entry.id, ...callResult });
   }
 
+const callResult = await sendRoutineCall({
+  routineId: entry.id,
+  phoneNumber: entry.user_phone,
+  message: entry.call_message,
+  statusCallbackPath: '/api/webhook/voice-call-status',
+});
+
   return NextResponse.json({ success: true, processed: results });
 }
