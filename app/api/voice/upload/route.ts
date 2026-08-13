@@ -1,10 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { supabase } from '@/lib/supabase';
 
 export async function POST(request: Request) {
   const formData = await request.formData();
@@ -18,7 +13,7 @@ export async function POST(request: Request) {
   const fileName = `${Date.now()}-${crypto.randomUUID()}.webm`;
   const buffer = Buffer.from(await audio.arrayBuffer());
 
-  const { error: uploadError } = await supabaseAdmin.storage
+  const { error: uploadError } = await supabase.storage
     .from('voice-recordings')
     .upload(fileName, buffer, { contentType: 'audio/webm' });
 
@@ -26,9 +21,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: uploadError.message }, { status: 500 });
   }
 
-  const audioUrl = supabaseAdmin.storage.from('voice-recordings').getPublicUrl(fileName).data.publicUrl;
+  const audioUrl = supabase.storage.from('voice-recordings').getPublicUrl(fileName).data.publicUrl;
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('voice_entries')
     .insert({ user_phone: phone, audio_url: audioUrl, call_state: 'pending' })
     .select()
