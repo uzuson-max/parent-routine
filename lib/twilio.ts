@@ -1,20 +1,37 @@
 import twilio from 'twilio';
-import { requireEnv, normalizePhoneNumber } from '@/lib/utils';
 
 interface CallParams {
   routineId: string;
   phoneNumber: string;
   message: string;
-  statusCallbackPath?: string; // 기본값: routines용 webhook
+  statusCallbackPath?: string;
+}
+
+// 환경변수 체크를 안전하게 해주는 함수
+function getEnv(key: string): string {
+  const value = process.env[key];
+  if (!value) throw new Error(`Missing environment variable: ${key}`);
+  return value;
+}
+
+// 전화번호 정규화 함수 (국내 번호 기준 예외처리)
+function normalizePhoneNumber(phone: string): string {
+  let cleaned = phone.replace(/[^0-9+]/g, '');
+  if (cleaned.startsWith('0')) {
+    cleaned = '+82' + cleaned.slice(1);
+  }
+  return cleaned;
 }
 
 export async function sendRoutineCall({
-  routineId, phoneNumber, message,
+  routineId,
+  phoneNumber,
+  message,
   statusCallbackPath = '/api/webhook/call-status',
 }: CallParams) {
-  const client = twilio(requireEnv('TWILIO_ACCOUNT_SID'), requireEnv('TWILIO_AUTH_TOKEN'));
-  const baseUrl = requireEnv('APP_BASE_URL');
-  const fromNumber = requireEnv('TWILIO_PHONE_NUMBER');
+  const client = twilio(getEnv('TWILIO_ACCOUNT_SID'), getEnv('TWILIO_AUTH_TOKEN'));
+  const baseUrl = getEnv('APP_BASE_URL');
+  const fromNumber = getEnv('TWILIO_PHONE_NUMBER');
   const toNumber = normalizePhoneNumber(phoneNumber);
 
   try {
