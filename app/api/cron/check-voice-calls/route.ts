@@ -20,12 +20,15 @@ export async function GET(request: Request) {
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   if (!dueEntries?.length) return NextResponse.json({ message: 'no calls due' });
 
-  const callResult = await sendRoutineCall({
-  routineId: entry.id,
-  phoneNumber: entry.user_phone,
-  message: entry.call_message,
-  statusCallbackPath: '/api/webhook/voice-call-status',
-});
+  const results = [];
+
+  for (const entry of dueEntries) {
+    const callResult = await sendRoutineCall({
+      routineId: entry.id,
+      phoneNumber: entry.user_phone,
+      message: entry.call_message,
+      statusCallbackPath: '/api/webhook/voice-call-status',
+    });
 
     await supabase
       .from('voice_entries')
@@ -36,3 +39,6 @@ export async function GET(request: Request) {
 
     results.push({ id: entry.id, ...callResult });
   }
+
+  return NextResponse.json({ success: true, results });
+}
