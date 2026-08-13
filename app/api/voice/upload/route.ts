@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export async function POST(request: Request) {
   const formData = await request.formData();
@@ -13,7 +18,7 @@ export async function POST(request: Request) {
   const fileName = `${Date.now()}-${crypto.randomUUID()}.webm`;
   const buffer = Buffer.from(await audio.arrayBuffer());
 
-  const { error: uploadError } = await supabase.storage
+  const { error: uploadError } = await supabaseAdmin.storage
     .from('voice-recordings')
     .upload(fileName, buffer, { contentType: 'audio/webm' });
 
@@ -21,9 +26,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: uploadError.message }, { status: 500 });
   }
 
-  const audioUrl = supabase.storage.from('voice-recordings').getPublicUrl(fileName).data.publicUrl;
+  const audioUrl = supabaseAdmin.storage.from('voice-recordings').getPublicUrl(fileName).data.publicUrl;
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from('voice_entries')
     .insert({ user_phone: phone, audio_url: audioUrl, call_state: 'pending' })
     .select()
@@ -33,6 +38,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 
-  // Day 2에서 여기에 STT(Whisper) 호출이 이어붙습니다.
   return NextResponse.json({ success: true, data });
 }
