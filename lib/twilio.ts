@@ -48,3 +48,14 @@ export async function sendRoutineCall({
     return { success: false, error: err.message };
   }
 }
+export async function sendPenaltySms(penaltyPhone: string, userPhone: string) {
+  const client = twilio(requireEnv('TWILIO_ACCOUNT_SID'), requireEnv('TWILIO_AUTH_TOKEN'));
+  const fromNumber = requireEnv('TWILIO_PHONE_NUMBER');
+  const to = normalizePhoneNumber(penaltyPhone);
+
+  await client.messages.create({
+    to,
+    from: fromNumber,
+    body: `[긴급] 사용자님이 오늘도 핑계를 대며 기상에 실패했습니다. 벌칙 수행을 독려해 주세요.`,
+  });
+}
