@@ -1,66 +1,37 @@
-// backend/routes/journal.js
-const express = require("express");
-const router = express.Router();
-const db = require("../db");
-const twilioClient = require("twilio")(process.env.TWILIO_SID, process.env.TWILIO_AUTH);
-const { analyzeTranscript } = require("../services/aiAnalysis");
-const { transcribeAudio } = require("../services/stt"); // 기존 STT 인프라 재사용
+import { NextResponse } from "next/server";
+import db from "@/lib/supabase"; // 또는 프로젝트의 db 연결 파일 경로
+import { analyzeTranscript } from "@/lib/aiAnalysis";
+// 기존 STT 함수가 있는 위치에 맞게 수정하세요 (예: "@/lib/aiAnalysis" 등)
 
-// 1) 녹음 업로드 → STT → 분석 → 저장
-router.post("/journal", async (req, res) => {
-  const { userId, audioUrl } = req.body;
+export async function POST(req) {
+  try {
+    const { userId, audioUrl } = await req.json();
 
-  const transcript = await transcribeAudio(audioUrl);
-  const analysis = await analyzeTranscript(transcript);
+    // 임시로 STT 및 분석 처리 (기존 인프라에 맞게 함수 연결)
+    // const transcript = await transcribeAudio(audioUrl);
+    const transcript = "오늘도 핑계를 대며 미루었다."; 
+    const analysis = await analyzeTranscript(transcript);
 
-  const { rows } = await db.query(
-    `INSERT INTO journal_entries
-       (user_id, audio_url, transcript, excuses, intentions, contradictions, ai_callout)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-    [
-      userId,
-      audioUrl,
-      transcript,
-      analysis.excuses,
-      analysis.intentions,
-      analysis.contradictions,
-      analysis.ai_callout_seed,
-    ]
-  );
+    const { data, error } = await db
+      .from("journal_entries")
+      .insert([
+        {
+          user_id: userId,
+          audio_url: audioUrl,
+          transcript: transcript,
+          excuses: analysis.excuses,
+          intentions: analysis.intentions,
+          contradictions: analysis.contradictions,
+          ai_callout: analysis.ai_callout_seed,
+        },
+      ])
+      .select()
+      .single();
 
-  // "방금 네 얘기를 듣고, 할 말이 생겼어" 화면에서 바로 이 id를 들고 다음 단계(전화번호 입력)로 이동
-  res.json({ entryId: rows[0].id, hookReady: true });
-});
+    if (error) throw error;
 
-// 2) 전화번호 입력 후 실제 발신
-router.post("/journal/:id/call", async (req, res) => {
-  const { id } = req.params;
-  const { phoneNumber } = req.body;
-
-  const call = await twilioClient.calls.create({
-    to: phoneNumber,
-    from: process.env.TWILIO_FROM_NUMBER,
-    url: `${process.env.BASE_URL}/webhook/twilio/voice?entryId=${id}`,
-    statusCallback: `${process.env.BASE_URL}/webhook/twilio/status?entryId=${id}`,
-    statusCallbackEvent: ["completed"],
-  });
-
-  await db.query(
-    `UPDATE journal_entries SET call_status = 'ringing', call_sid = $1 WHERE id = $2`,
-    [call.sid, id]
-  );
-
-  res.json({ callStatus: "ringing", callSid: call.sid });
-});
-
-// 3) 결과 & 히스토리 조회
-router.get("/journal", async (req, res) => {
-  const { userId } = req.query;
-  const { rows } = await db.query(
-    `SELECT * FROM journal_entries WHERE user_id = $1 ORDER BY created_at DESC LIMIT 30`,
-    [userId]
-  );
-  res.json(rows);
-});
-
-module.exports = router;
+    return NextResponse.json({ entryId: data.id, hookReady: true });
+  } catch (err) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
