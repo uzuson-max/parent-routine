@@ -48,9 +48,10 @@ export async function sendRoutineCall({
     return { success: false, error: err.message };
   }
 }
+
 export async function sendPenaltySms(penaltyPhone: string, userPhone: string) {
-  const client = twilio(requireEnv('TWILIO_ACCOUNT_SID'), requireEnv('TWILIO_AUTH_TOKEN'));
-  const fromNumber = requireEnv('TWILIO_PHONE_NUMBER');
+  const client = twilio(getEnv('TWILIO_ACCOUNT_SID'), getEnv('TWILIO_AUTH_TOKEN'));
+  const fromNumber = getEnv('TWILIO_PHONE_NUMBER');
   const to = normalizePhoneNumber(penaltyPhone);
 
   await client.messages.create({
