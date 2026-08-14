@@ -10,8 +10,8 @@ import ResultScreen from "./screens/ResultScreen";
 
 export default function App() {
   const [step, setStep] = useState("landing");
-  const [entryId, setEntryId] = useState(null);
-  const [result, setResult] = useState(null);
+  const [entryId, setEntryId] = useState<string | null>(null);
+  const [result, setResult] = useState<any>(null);
 
   return (
     <div style={{ minHeight: "100vh", background: "#0b0b0f" }}>
@@ -19,7 +19,7 @@ export default function App() {
 
       {step === "recording" && (
         <RecordingScreen
-          onFinish={async (audioBlob) => {
+          onFinish={async (audioBlob: Blob) => {
             setStep("analyzing");
             const audioUrl = await uploadAudio(audioBlob);
             const res = await fetch("/api/journal", {
@@ -37,7 +37,7 @@ export default function App() {
 
       {step === "phone_input" && (
         <PhoneInputScreen
-          onSubmit={async (phoneNumber) => {
+          onSubmit={async (phoneNumber: string) => {
             setStep("calling");
             await fetch(`/api/journal/${entryId}/call`, {
               method: "POST",
@@ -49,7 +49,7 @@ export default function App() {
       )}
 
       {step === "calling" && (
-        <CallingScreen entryId={entryId} onCallEnded={(finishedEntry) => { setResult(finishedEntry); setStep("result"); }} />
+        <CallingScreen entryId={entryId} onCallEnded={(finishedEntry: any) => { setResult(finishedEntry); setStep("result"); }} />
       )}
 
       {step === "result" && <ResultScreen result={result} onRestart={() => setStep("landing")} />}
@@ -57,13 +57,13 @@ export default function App() {
   );
 }
 
-async function uploadAudio(blob) {
+async function uploadAudio(blob: Blob): Promise<string> {
   const form = new FormData();
   form.append("audio", blob);
   const res = await fetch("/api/upload-audio", { method: "POST", body: form }).then((r) => r.json());
   return res.audioUrl;
 }
 
-function getUserId() {
-  return localStorage.getItem("userId") || "default-user-id";
+function getUserId(): string {
+  return typeof window !== "undefined" ? localStorage.getItem("userId") || "default-user-id" : "default-user-id";
 }
