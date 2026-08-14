@@ -1,4 +1,5 @@
-// frontend/App.jsx
+"use client";
+
 import { useState } from "react";
 import LandingScreen from "./screens/LandingScreen";
 import RecordingScreen from "./screens/RecordingScreen";
@@ -7,7 +8,6 @@ import PhoneInputScreen from "./screens/PhoneInputScreen";
 import CallingScreen from "./screens/CallingScreen";
 import ResultScreen from "./screens/ResultScreen";
 
-// 화면 상태: landing -> recording -> analyzing -> phone_input -> calling -> result
 export default function App() {
   const [step, setStep] = useState("landing");
   const [entryId, setEntryId] = useState(null);
@@ -49,18 +49,10 @@ export default function App() {
       )}
 
       {step === "calling" && (
-        <CallingScreen
-          entryId={entryId}
-          onCallEnded={(finishedEntry) => {
-            setResult(finishedEntry);
-            setStep("result");
-          }}
-        />
+        <CallingScreen entryId={entryId} onCallEnded={(finishedEntry) => { setResult(finishedEntry); setStep("result"); }} />
       )}
 
-      {step === "result" && (
-        <ResultScreen result={result} onRestart={() => setStep("landing")} />
-      )}
+      {step === "result" && <ResultScreen result={result} onRestart={() => setStep("landing")} />}
     </div>
   );
 }
@@ -73,5 +65,5 @@ async function uploadAudio(blob) {
 }
 
 function getUserId() {
-  return localStorage.getItem("userId"); // 기존 인증 로직 재사용
+  return localStorage.getItem("userId") || "default-user-id";
 }
