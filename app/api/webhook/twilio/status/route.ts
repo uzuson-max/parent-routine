@@ -1,25 +1,26 @@
-import { getSupabaseClient } from "@/lib/supabase";
-import { updateUserMemory } from "@/lib/memoryEngine";
+import { supabase } from "@/lib/supabase";
 
 export async function POST(request: Request) {
   const url = new URL(request.url);
   const entryId = url.searchParams.get("entryId")!;
 
   const formData = await request.formData();
-  const callStatus = formData.get("CallStatus") as string;
-  const callDuration = formData.get("CallDuration") as string;
+  const twilioStatus = formData.get("CallStatus") as string; // Twilio 원시 상태
 
-  const supabase = getSupabaseClient();
-  const { data: entry } = await supabase
-    .from("journal_entries")
-    .update({ call_status: callStatus, call_duration: Number(callDuration) || null })
-    .eq("id", entryId)
-    .select()
-    .single();
+  // call_status: Twilio 원시 값 그대로 저장
+  // call_state: 우리 앱 흐름 상태로 매핑 (completed/no_answer/failed만 프론트가 폴링에서 감지)
+  const stateMap: Record<string, string> = {
+    completed: "completed",
+    "no-answer": "no_answer",
+    failed: "failed",
+    busy: "failed",
+    canceled: "failed",
+  };
 
-  if (entry && callStatus === "completed") {
-    await updateUserMemory(entry.user_id);
-  }
+  await supabase
+    .from("voice_entries")
+    .update({ call_status: twilioStatus, call_state: stateMap[twilioStatus] ?? "ringing" })
+    .eq("id", entryId);
 
   return new Response(null, { status: 200 });
 }
