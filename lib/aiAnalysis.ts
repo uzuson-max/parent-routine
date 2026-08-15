@@ -9,7 +9,7 @@ const ANALYSIS_SYSTEM_PROMPT = `
   "excuses": string[],
   "intentions": string[],
   "contradictions": string[],
-  "ai_callout_seed": string
+  "callout": string
 }
 `;
 
@@ -17,9 +17,10 @@ export type AnalysisResult = {
   excuses: string[];
   intentions: string[];
   contradictions: string[];
-  ai_callout_seed: string;
+  callout: string;
 };
 
+// voice_entries.analysis(jsonb) 컬럼 하나에 통째로 저장할 형태
 export async function analyzeTranscript(transcript: string): Promise<AnalysisResult> {
   const res = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
@@ -37,10 +38,11 @@ function safeParseJson(raw: string): AnalysisResult {
   try {
     return JSON.parse(raw.replace(/```json|```/g, "").trim());
   } catch {
-    return { excuses: [], intentions: [], contradictions: [], ai_callout_seed: "" };
+    return { excuses: [], intentions: [], contradictions: [], callout: "" };
   }
 }
 
+// voice_entries.call_message 컬럼에 저장할 실제 팩폭 멘트 생성
 export async function generateCallout({
   userSpeech,
   contradictions,
