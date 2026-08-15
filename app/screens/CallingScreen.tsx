@@ -1,7 +1,14 @@
-// frontend/screens/CallingScreen.jsx
+"use client";
+
 import { useEffect } from "react";
 
-export default function CallingScreen({ entryId, onCallEnded }) {
+export default function CallingScreen({
+  entryId,
+  onCallEnded,
+}: {
+  entryId: string;
+  onCallEnded: (entry: any) => void;
+}) {
   useEffect(() => {
     const poll = setInterval(async () => {
       const entry = await fetch(`/api/journal/${entryId}`).then((r) => r.json());
@@ -20,12 +27,7 @@ export default function CallingScreen({ entryId, onCallEnded }) {
   );
 }
 
-const styles = {
-  container: {
-    height: "100vh",
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-  },
+const styles: { [key: string]: React.CSSProperties } = {
+  container: { height: "100vh", display: "flex", justifyContent: "center", alignItems: "center" },
   copy: { color: "#fff", fontSize: 20, textAlign: "center", whiteSpace: "pre-line" },
 };
