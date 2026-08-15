@@ -1,5 +1,6 @@
-// frontend/screens/ResultScreen.jsx
-export default function ResultScreen({ result, onRestart }) {
+"use client";
+
+export default function ResultScreen({ result, onRestart }: { result: any; onRestart: () => void }) {
   if (!result) return null;
 
   return (
@@ -18,14 +19,12 @@ export default function ResultScreen({ result, onRestart }) {
         </div>
       )}
 
-      <button style={styles.restartButton} onClick={onRestart}>
-        오늘도 한마디 하기
-      </button>
+      <button style={styles.restartButton} onClick={onRestart}>오늘도 한마디 하기</button>
     </div>
   );
 }
 
-function Card({ label, value, highlight }) {
+function Card({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div style={{ ...styles.card, ...(highlight ? styles.cardHighlight : {}) }}>
       <p style={styles.cardLabel}>{label}</p>
@@ -34,7 +33,7 @@ function Card({ label, value, highlight }) {
   );
 }
 
-const styles = {
+const styles: { [key: string]: React.CSSProperties } = {
   container: { minHeight: "100vh", padding: 24, display: "flex", flexDirection: "column", gap: 12 },
   title: { color: "#fff", fontSize: 20, marginBottom: 8 },
   card: { background: "#1a1a1f", borderRadius: 12, padding: 16 },
