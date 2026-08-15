@@ -17,24 +17,43 @@ export default function Home() {
   const [phone, setPhone] = useState<string>("");
   const [minutesDelay, setMinutesDelay] = useState<number>(0);
   const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <div style={{ minHeight: "100vh", background: "#0b0b0f" }}>
+      {error && (
+        <div style={errorBannerStyle}>
+          문제가 생겼어요: {error}
+          <button style={{ marginLeft: 12 }} onClick={() => { setError(null); setStep("landing"); }}>
+            처음으로
+          </button>
+        </div>
+      )}
+
       {step === "landing" && <LandingScreen onStart={() => setStep("recording")} />}
 
       {step === "recording" && (
         <RecordingScreen
           onFinish={async (audioBlob: Blob) => {
             setStep("analyzing");
-            const audioUrl = await uploadAudio(audioBlob);
-            const res = await fetch("/api/journal", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ userId: getUserId(), audioUrl }),
-            }).then((r) => r.json());
-            setEntryId(res.entryId);
-            // 여기서 바로 phone_input으로 넘어가지 않고, HookScreen에서
-            // 사용자가 [전화 받기]를 누를 때까지 대기함 (아래 onContinue)
+            try {
+              const audioUrl = await uploadAudio(audioBlob);
+              const res = await fetch("/api/journal", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ audioUrl }),
+              });
+              if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                throw new Error(body.error || `journal API ${res.status}`);
+              }
+              const data = await res.json();
+              setEntryId(data.entryId);
+            } catch (e: any) {
+              console.error("[Home] recording->journal flow failed:", e.message);
+              setError(e.message);
+              setStep("landing");
+            }
           }}
         />
       )}
@@ -55,11 +74,21 @@ export default function Home() {
           onSelect={async (minutes) => {
             setMinutesDelay(minutes);
             setStep("calling");
-            await fetch(`/api/journal/${entryId}/call`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ phoneNumber: phone, minutesDelay: minutes }),
-            });
+            try {
+              const res = await fetch(`/api/journal/${entryId}/call`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ phoneNumber: phone, minutesDelay: minutes }),
+              });
+              if (!res.ok) {
+                const body = await res.json().catch(() => ({}));
+                throw new Error(body.error || `call API ${res.status}`);
+              }
+            } catch (e: any) {
+              console.error("[Home] call trigger failed:", e.message);
+              setError(e.message);
+              setStep("landing");
+            }
           }}
         />
       )}
@@ -80,13 +109,29 @@ export default function Home() {
   );
 }
 
-async function uploadAudio(blob: Blob) {
+async function uploadAudio(blob: Blob): Promise<string> {
   const form = new FormData();
-  form.append("audio", blob);
-  const res = await fetch("/api/upload-audio", { method: "POST", body: form }).then((r) => r.json());
-  return res.audioUrl;
+  form.append("audio", blob, "recording.webm");
+
+  const res = await fetch("/api/upload-audio", { method: "POST", body: form });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    console.error("[uploadAudio] upload failed:", body.error || res.status);
+    throw new Error(body.error || `upload-audio API ${res.status}`);
+  }
+  const data = await res.json();
+  return data.audioUrl;
 }
 
-function getUserId() {
-  return localStorage.getItem("userId");
-}
+const errorBannerStyle: React.CSSProperties = {
+  position: "fixed",
+  top: 0,
+  left: 0,
+  right: 0,
+  background: "#ff3b30",
+  color: "#fff",
+  padding: "12px 16px",
+  fontSize: 14,
+  zIndex: 999,
+  textAlign: "center",
+};
