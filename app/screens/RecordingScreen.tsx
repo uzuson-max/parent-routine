@@ -30,7 +30,6 @@ export default function RecordingScreen({ onFinish }: { onFinish: (blob: Blob) =
     recorder.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: "audio/webm" });
       setPhase("finished");
-      // "잘 들었습니다"를 잠깐 보여준 뒤 다음 단계(Hook 화면)로 넘어감
       setTimeout(() => onFinish(blob), 900);
     };
   };
@@ -38,9 +37,9 @@ export default function RecordingScreen({ onFinish }: { onFinish: (blob: Blob) =
   if (phase === "idle") {
     return (
       <div style={styles.container}>
-        <button style={styles.micButton} onClick={start} aria-label="녹음 시작">🎙️</button>
+        <button style={styles.micButton} onClick={start} aria-label="말하기">🎙️</button>
         <p style={styles.mainCopy}>준비됐으면 말해보세요.</p>
-        <p style={styles.subCopy}>10초든 5분이든 상관없어요.</p>
+        <p style={styles.subCopy}>10초든 5분이든 상관없어요.{"\n"}생각나는 대로.</p>
       </div>
     );
   }
@@ -51,12 +50,11 @@ export default function RecordingScreen({ onFinish }: { onFinish: (blob: Blob) =
         <p style={styles.timer}>{formatTime(seconds)}</p>
         <button style={styles.recordingButton} onClick={stop} aria-label="녹음 종료">🔴</button>
         <p style={styles.mainCopy}>듣고 있어요.</p>
-        <p style={styles.subCopy}>생각나는 대로 말하세요.{"\n"}멈추고 싶으면 다시 눌러주세요.</p>
+        <p style={styles.subCopy}>생각나는 대로 말하세요.{"\n"}정리해서 말할 필요 없어요.</p>
       </div>
     );
   }
 
-  // finished
   return (
     <div style={styles.container}>
       <p style={styles.mainCopy}>잘 들었습니다.</p>
