@@ -39,7 +39,6 @@ export async function POST(request: NextRequest) {
         console.error("[journal POST] analysis UPDATE failed:", updateError.message);
       }
     } catch (analysisErr: any) {
-      // 분석 실패해도 entryId는 있으므로 사용자 흐름은 계속 진행되게 함
       console.error("[journal POST] STT/analysis step failed:", analysisErr.message);
     }
 
