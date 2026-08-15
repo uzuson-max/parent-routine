@@ -33,12 +33,13 @@ export default function Home() {
               body: JSON.stringify({ userId: getUserId(), audioUrl }),
             }).then((r) => r.json());
             setEntryId(res.entryId);
-            setStep("phone_input");
+            // 여기서 바로 phone_input으로 넘어가지 않고, HookScreen에서
+            // 사용자가 [전화 받기]를 누를 때까지 대기함 (아래 onContinue)
           }}
         />
       )}
 
-      {step === "analyzing" && <HookScreen />}
+      {step === "analyzing" && <HookScreen onContinue={() => setStep("phone_input")} />}
 
       {step === "phone_input" && (
         <PhoneInputScreen
