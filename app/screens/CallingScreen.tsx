@@ -1,4 +1,3 @@
-// app/screens/CallingScreen.tsx
 "use client";
 
 import { useEffect } from "react";
