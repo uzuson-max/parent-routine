@@ -2,8 +2,10 @@
 
 import { useRef, useState } from "react";
 
+type Phase = "idle" | "recording" | "finished";
+
 export default function RecordingScreen({ onFinish }: { onFinish: (blob: Blob) => void }) {
-  const [recording, setRecording] = useState(false);
+  const [phase, setPhase] = useState<Phase>("idle");
   const [seconds, setSeconds] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -16,7 +18,7 @@ export default function RecordingScreen({ onFinish }: { onFinish: (blob: Blob) =
     recorder.ondataavailable = (e) => chunksRef.current.push(e.data);
     recorder.start();
     mediaRecorderRef.current = recorder;
-    setRecording(true);
+    setPhase("recording");
     setSeconds(0);
     timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
   };
@@ -27,18 +29,37 @@ export default function RecordingScreen({ onFinish }: { onFinish: (blob: Blob) =
     recorder.stop();
     recorder.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-      onFinish(blob);
+      setPhase("finished");
+      // "잘 들었습니다"를 잠깐 보여준 뒤 다음 단계(Hook 화면)로 넘어감
+      setTimeout(() => onFinish(blob), 900);
     };
-    setRecording(false);
   };
 
+  if (phase === "idle") {
+    return (
+      <div style={styles.container}>
+        <button style={styles.micButton} onClick={start} aria-label="녹음 시작">🎙️</button>
+        <p style={styles.mainCopy}>준비됐으면 말해보세요.</p>
+        <p style={styles.subCopy}>10초든 5분이든 상관없어요.</p>
+      </div>
+    );
+  }
+
+  if (phase === "recording") {
+    return (
+      <div style={styles.container}>
+        <p style={styles.timer}>{formatTime(seconds)}</p>
+        <button style={styles.recordingButton} onClick={stop} aria-label="녹음 종료">🔴</button>
+        <p style={styles.mainCopy}>듣고 있어요.</p>
+        <p style={styles.subCopy}>생각나는 대로 말하세요.{"\n"}멈추고 싶으면 다시 눌러주세요.</p>
+      </div>
+    );
+  }
+
+  // finished
   return (
     <div style={styles.container}>
-      <p style={styles.timer}>{formatTime(seconds)}</p>
-      <button style={{ ...styles.micButton, background: recording ? "#ff3b30" : "#ff5f6d" }} onClick={recording ? stop : start}>
-        {recording ? "■" : "🎤"}
-      </button>
-      <p style={styles.hint}>{recording ? "말 다 했으면 눌러서 끝내기" : "눌러서 녹음 시작"}</p>
+      <p style={styles.mainCopy}>잘 들었습니다.</p>
     </div>
   );
 }
@@ -50,8 +71,10 @@ function formatTime(s: number) {
 }
 
 const styles: { [key: string]: React.CSSProperties } = {
-  container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center" },
-  timer: { color: "#fff", fontSize: 32, marginBottom: 32 },
-  micButton: { width: 120, height: 120, borderRadius: "50%", border: "none", fontSize: 40, color: "#fff", cursor: "pointer" },
-  hint: { color: "#999", marginTop: 24, fontSize: 14 },
+  container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 32px", textAlign: "center" },
+  timer: { color: "#fff", fontSize: 32, marginBottom: 24, fontVariantNumeric: "tabular-nums" },
+  micButton: { width: 120, height: 120, borderRadius: "50%", border: "none", background: "linear-gradient(135deg,#ff5f6d,#ffc371)", fontSize: 48, marginBottom: 32, cursor: "pointer" },
+  recordingButton: { width: 120, height: 120, borderRadius: "50%", border: "none", background: "#ff3b30", fontSize: 40, marginBottom: 32, cursor: "pointer" },
+  mainCopy: { color: "#fff", fontSize: 20, fontWeight: 600, marginBottom: 8 },
+  subCopy: { color: "#999", fontSize: 14, whiteSpace: "pre-line", lineHeight: 1.5 },
 };
