@@ -8,8 +8,10 @@ import PhoneInputScreen from "./screens/PhoneInputScreen";
 import CallingScreen from "./screens/CallingScreen";
 import ResultScreen from "./screens/ResultScreen";
 
-export default function App() {
-  const [step, setStep] = useState("landing");
+type Step = "landing" | "recording" | "analyzing" | "phone_input" | "calling" | "result";
+
+export default function Home() {
+  const [step, setStep] = useState<Step>("landing");
   const [entryId, setEntryId] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
 
@@ -48,8 +50,14 @@ export default function App() {
         />
       )}
 
-      {step === "calling" && (
-        <CallingScreen entryId={entryId} onCallEnded={(finishedEntry: any) => { setResult(finishedEntry); setStep("result"); }} />
+      {step === "calling" && entryId && (
+        <CallingScreen
+          entryId={entryId}
+          onCallEnded={(finishedEntry) => {
+            setResult(finishedEntry);
+            setStep("result");
+          }}
+        />
       )}
 
       {step === "result" && <ResultScreen result={result} onRestart={() => setStep("landing")} />}
@@ -57,13 +65,13 @@ export default function App() {
   );
 }
 
-async function uploadAudio(blob: Blob): Promise<string> {
+async function uploadAudio(blob: Blob) {
   const form = new FormData();
   form.append("audio", blob);
   const res = await fetch("/api/upload-audio", { method: "POST", body: form }).then((r) => r.json());
   return res.audioUrl;
 }
 
-function getUserId(): string {
-  return typeof window !== "undefined" ? localStorage.getItem("userId") || "default-user-id" : "default-user-id";
+function getUserId() {
+  return localStorage.getItem("userId");
 }
