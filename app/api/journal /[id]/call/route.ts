@@ -7,22 +7,22 @@ export async function POST(request: Request, { params }: { params: { id: string 
   const { phoneNumber, minutesDelay } = await request.json();
   const delay = Number(minutesDelay) || 0;
 
-  // 예약(3분/10분 뒤): pending으로 저장, cron이 나중에 집행 (Task는 아직 이 경로 미완성 상태 유지)
+  // 예약(3분/10분 뒤)
   if (delay > 0) {
     const scheduledAt = new Date(Date.now() + delay * 60 * 1000).toISOString();
     await supabase
       .from("voice_entries")
-      .update({ phone_number: phoneNumber, call_state: "pending", scheduled_at: scheduledAt })
+      .update({ user_phone: phoneNumber, call_state: "pending", scheduled_at: scheduledAt })
       .eq("id", params.id);
     return NextResponse.json({ callState: "pending", scheduledAt });
   }
 
-  // "지금 전화하기" (delay === 0)
-  await supabase.from("voice_entries").update({ phone_number: phoneNumber }).eq("id", params.id);
+  // "지금 전화하기"
+  await supabase.from("voice_entries").update({ user_phone: phoneNumber }).eq("id", params.id);
 
   const twilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER);
 
-  // Plan A: Twilio 실제 발신 시도
+  // Plan A: Twilio 실제 발신
   if (twilioConfigured) {
     try {
       const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
@@ -34,26 +34,26 @@ export async function POST(request: Request, { params }: { params: { id: string 
         statusCallbackEvent: ["completed"],
       });
 
-      await supabase.from("voice_entries").update({ call_state: "ringing", call_sid: call.sid }).eq("id", params.id);
-      return NextResponse.json({ callState: "ringing", callSid: call.sid });
+      // call_sid 저장할 컬럼이 없으므로 call_status에 Twilio 원시 상태를 기록
+      await supabase.from("voice_entries").update({ call_state: "ringing", call_status: call.status }).eq("id", params.id);
+      return NextResponse.json({ callState: "ringing" });
     } catch (e: any) {
       console.error("Twilio call failed, falling back to TTS:", e.message);
-      // Twilio 설정은 있지만 실제 발신 실패 → 아래 Plan B로 이어짐
     }
   }
 
-  // Plan B: 실제 전화 연동이 없거나 실패 → 브라우저 내 TTS 재생용 팩폭 멘트를 즉시 생성
+  // Plan B: 브라우저 TTS 폴백
   const { data: entry } = await supabase.from("voice_entries").select("*").eq("id", params.id).single();
 
   const callout =
-    entry?.ai_callout ||
+    entry?.call_message ||
     (await generateCallout({
       userSpeech: entry?.transcript || "",
-      contradictions: entry?.contradictions || [],
+      contradictions: entry?.analysis?.contradictions || [],
       intensity: "low",
     }));
 
-  await supabase.from("voice_entries").update({ ai_callout: callout, call_state: "fallback_ready" }).eq("id", params.id);
+  await supabase.from("voice_entries").update({ call_message: callout, call_state: "fallback_ready" }).eq("id", params.id);
 
   return NextResponse.json({ callState: "fallback_ready", callout });
 }
