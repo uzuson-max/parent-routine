@@ -4,9 +4,16 @@ let _client: SupabaseClient | null = null;
 
 function getClient(): SupabaseClient {
   if (!_client) {
-    const url = process.env.SUPABASE_URL;
+    // 서버사이드 라우트에서는 NEXT_PUBLIC_ 접두어 없어도 됨 (Vercel 서버 환경변수로 충분)
+    // 다만 프로젝트에 따라 이름이 다를 수 있어 둘 다 체크
+    const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
     if (!url || !key) {
+      console.error(
+        "[supabase] env vars missing at runtime:",
+        `SUPABASE_URL/NEXT_PUBLIC_SUPABASE_URL=${!!url}, SUPABASE_SERVICE_ROLE_KEY=${!!key}`
+      );
       throw new Error("Supabase env vars are missing at runtime");
     }
     _client = createClient(url, key);
@@ -14,9 +21,6 @@ function getClient(): SupabaseClient {
   return _client;
 }
 
-// 기존 코드 전체가 `import { supabase } from '@/lib/supabase'` 형태로 쓰고 있으므로
-// 이름은 그대로 유지하되, 실제 속성 접근 시점(런타임)에만 클라이언트를 생성하도록 Proxy로 감쌈.
-// → 빌드 타임엔 절대 실행되지 않아서 env 없어도 빌드는 통과함.
 export const supabase = new Proxy({} as SupabaseClient, {
   get(_target, prop) {
     const client = getClient();
@@ -24,7 +28,6 @@ export const supabase = new Proxy({} as SupabaseClient, {
   },
 });
 
-// 제가 이전에 lib/aiAnalysis.ts, memoryEngine.ts 등에서 쓴 함수형 이름도 계속 동작하도록 별칭 유지
 export function getSupabaseClient(): SupabaseClient {
   return supabase;
 }
