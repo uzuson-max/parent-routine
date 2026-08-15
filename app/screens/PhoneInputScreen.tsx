@@ -1,29 +1,67 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-export default function PhoneInputScreen({ onSubmit }: { onSubmit: (phone: string) => void }) {
-  const [phone, setPhone] = useState("");
+export default function CallingScreen({
+  entryId,
+  minutesDelay,
+  onCallEnded,
+}: {
+  entryId: string;
+  minutesDelay: number;
+  onCallEnded: (entry: any) => void;
+}) {
+  const [status, setStatus] = useState<"preparing" | "ringing" | "playing_tts">("preparing");
+  const spokenRef = useRef(false); // TTS 중복 재생 방지
+
+  useEffect(() => {
+    const poll = setInterval(async () => {
+      const entry = await fetch(`/api/journal/${entryId}`).then((r) => r.json());
+
+      // Plan A: 실제 전화가 끝난 경우
+      if (["completed", "no_answer", "failed"].includes(entry.call_state)) {
+        clearInterval(poll);
+        onCallEnded(entry);
+        return;
+      }
+
+      // Plan A: 벨 울리는 중
+      if (entry.call_state === "ringing") {
+        setStatus("ringing");
+        return;
+      }
+
+      // Plan B: 실제 전화 연동이 안 돼서 브라우저 TTS로 대체 재생
+      if (entry.call_state === "fallback_ready" && !spokenRef.current && entry.ai_callout) {
+        spokenRef.current = true;
+        clearInterval(poll);
+        setStatus("playing_tts");
+
+        const utterance = new SpeechSynthesisUtterance(entry.ai_callout);
+        utterance.lang = "ko-KR";
+        utterance.onend = async () => {
+          await fetch(`/api/journal/${entryId}/mark-completed`, { method: "POST" }).catch(() => {});
+          onCallEnded({ ...entry, call_state: "completed" });
+        };
+        window.speechSynthesis.speak(utterance);
+      }
+    }, 1500);
+
+    return () => clearInterval(poll);
+  }, [entryId, onCallEnded]);
 
   return (
     <div style={styles.container}>
-      <p style={styles.headline}>방금 한 얘기를 가지고</p>
-      <p style={styles.headline}>전화할게요.</p>
-      <p style={styles.subhead}>전화번호를 알려주세요.</p>
-
-      <input style={styles.input} type="tel" placeholder="010-0000-0000" value={phone} onChange={(e) => setPhone(e.target.value)} />
-      <p style={styles.privacy}>🔒 전화 연결을 위해서만 사용하며, 공개되지 않습니다.</p>
-
-      <button style={styles.button} disabled={!phone} onClick={() => onSubmit(phone)}>전화 받기</button>
+      <p style={styles.copy}>
+        {status === "preparing" && "전화 연결 준비 중..."}
+        {status === "ringing" && (minutesDelay > 0 ? `${minutesDelay}분 뒤에 전화드릴게요.\n기다려주세요 📞` : "전화 가고 있어요.\n받아주세요 📞")}
+        {status === "playing_tts" && "지금 바로 들려드릴게요 🔊"}
+      </p>
     </div>
   );
 }
 
 const styles: { [key: string]: React.CSSProperties } = {
-  container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 32px" },
-  headline: { color: "#fff", fontSize: 22, fontWeight: 700, textAlign: "center", margin: 0 },
-  subhead: { color: "#999", fontSize: 15, marginTop: 8, marginBottom: 32 },
-  input: { width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "1px solid #333", background: "#1a1a1f", color: "#fff", fontSize: 16 },
-  privacy: { color: "#666", fontSize: 12, marginTop: 10, marginBottom: 24 },
-  button: { width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "none", background: "#ff5f6d", color: "#fff", fontSize: 16, fontWeight: 600 },
+  container: { height: "100vh", display: "flex", justifyContent: "center", alignItems: "center" },
+  copy: { color: "#fff", fontSize: 20, textAlign: "center", whiteSpace: "pre-line" },
 };
