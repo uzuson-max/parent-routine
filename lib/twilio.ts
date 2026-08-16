@@ -7,11 +7,6 @@ interface CallParams {
   statusCallbackPath?: string;
 }
 
-// 안전하게 환경변수를 가져오는 함수 (없을 경우 빈 문자열 반환)
-function getEnv(key: string): string {
-  return process.env[key] || '';
-}
-
 // 전화번호 정규화 함수 (국내 번호 기준 예외처리)
 function normalizePhoneNumber(phone: string): string {
   let cleaned = phone.replace(/[^0-9+]/g, '');
@@ -27,12 +22,17 @@ export async function sendRoutineCall({
   message,
   statusCallbackPath = '/api/webhook/call-status',
 }: CallParams) {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID || process.env.NEXT_PUBLIC_TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN || process.env.NEXT_PUBLIC_TWILIO_AUTH_TOKEN;
-  const baseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL || '';
-  
-  // 🔥 핵심 수정: undefined가 절대 들어가지 않도록 빈 문자열이나 기본 번호를 확실히 잡아줍니다.
+  // 🔥 확실하게 읽어오도록 지정
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const baseUrl = process.env.APP_BASE_URL || 'https://parent-routine-67sc2a7ko-uzuson.vercel.app';
   const fromNumber = process.env.TWILIO_FROM_NUMBER || process.env.TWILIO_PHONE_NUMBER || '';
+
+  // 🔍 서버 로그로 값이 잘 들어오는지 확인 (Vercel 로그에서 확인 가능)
+  console.log("=== TWILIO DEBUG ===");
+  console.log("accountSid length:", accountSid ? accountSid.length : 0);
+  console.log("authToken length:", authToken ? authToken.length : 0);
+  console.log("fromNumber:", fromNumber);
 
   if (!accountSid || !authToken) {
     console.error('Twilio 인증 정보(ACCOUNT_SID 또는 AUTH_TOKEN)가 설정되지 않았습니다.');
@@ -45,7 +45,7 @@ export async function sendRoutineCall({
   try {
     const call = await client.calls.create({
       to: toNumber,
-      from: fromNumber, // 이제 무조건 string 타입이므로 에러가 사라집니다!
+      from: fromNumber,
       url: `${baseUrl}/api/twiml/call-script?msg=${encodeURIComponent(message)}`,
       statusCallback: `${baseUrl}${statusCallbackPath}?routineId=${routineId}`,
       statusCallbackEvent: ['completed', 'no-answer', 'busy', 'failed'],
@@ -58,9 +58,9 @@ export async function sendRoutineCall({
 }
 
 export async function sendPenaltySms(penaltyPhone: string, userPhone: string) {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID || process.env.NEXT_PUBLIC_TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN || process.env.NEXT_PUBLIC_TWILIO_AUTH_TOKEN;
-  const fromNumber = process.env.TWILIO_FROM_NUMBER || process.env.TWILIO_PHONE_NUMBER;
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const fromNumber = process.env.TWILIO_FROM_NUMBER || process.env.TWILIO_PHONE_NUMBER || '';
 
   if (!accountSid || !authToken) {
     throw new Error('Twilio credentials missing');
