@@ -1,7 +1,7 @@
+// app/api/journal/[id]/call/route.ts
 import { NextResponse } from "next/server";
 import twilio from "twilio";
 import { supabase } from "@/lib/supabase";
-import { generateCallout } from "@/lib/aiAnalysis";
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
@@ -13,7 +13,6 @@ export async function POST(request: Request, { params }: { params: { id: string 
       return NextResponse.json({ success: false, error: "phoneNumber is required" }, { status: 400 });
     }
 
-    // 예약(3분/10분 뒤)
     if (delay > 0) {
       const scheduledAt = new Date(Date.now() + delay * 60 * 1000).toISOString();
       const { error } = await supabase
@@ -28,7 +27,6 @@ export async function POST(request: Request, { params }: { params: { id: string 
       return NextResponse.json({ callState: "pending", scheduledAt });
     }
 
-    // "지금 전화하기"
     await supabase.from("voice_entries").update({ user_phone: phoneNumber }).eq("id", params.id);
 
     const twilioConfigured = !!(
@@ -59,7 +57,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
       }
     }
 
-    // Plan B: 브라우저 TTS 폴백
+    // Plan B: 브라우저 TTS 폴백 — Anthropic 호출 없이 이미 저장된 call_message만 사용
     const { data: entry, error: fetchError } = await supabase
       .from("voice_entries")
       .select("*")
@@ -71,13 +69,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
       return NextResponse.json({ success: false, error: fetchError.message }, { status: 500 });
     }
 
-    const callout =
-      entry?.call_message ||
-      (await generateCallout({
-        userSpeech: entry?.transcript || "",
-        contradictions: entry?.analysis?.contradictions || [],
-        intensity: "low",
-      }));
+    const callout = entry?.call_message || "오늘도 미루기만 하네. 나중에 진짜 얘기하자.";
 
     await supabase
       .from("voice_entries")
