@@ -1,7 +1,8 @@
+// app/api/journal/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { analyzeTranscript } from "@/lib/aiAnalysis";
-import { transcribeAudio } from "@/lib/stt";
+
+const ANALYSIS_ENABLED = !!process.env.ANTHROPIC_API_KEY;
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,20 +27,27 @@ export async function POST(request: NextRequest) {
 
     console.log("[journal POST] inserted voice_entries row:", inserted.id);
 
-    try {
-      const transcript = await transcribeAudio(audioUrl);
-      const analysis = await analyzeTranscript(transcript);
+    if (ANALYSIS_ENABLED) {
+      try {
+        const { transcribeAudio } = await import("@/lib/stt");
+        const { analyzeTranscript } = await import("@/lib/aiAnalysis");
 
-      const { error: updateError } = await supabase
-        .from("voice_entries")
-        .update({ transcript, analysis, call_message: analysis.callout })
-        .eq("id", inserted.id);
+        const transcript = await transcribeAudio(audioUrl);
+        const analysis = await analyzeTranscript(transcript);
 
-      if (updateError) {
-        console.error("[journal POST] analysis UPDATE failed:", updateError.message);
+        await supabase
+          .from("voice_entries")
+          .update({ transcript, analysis, call_message: analysis.callout })
+          .eq("id", inserted.id);
+      } catch (analysisErr: any) {
+        console.error("[journal POST] STT/analysis step failed:", analysisErr.message);
       }
-    } catch (analysisErr: any) {
-      console.error("[journal POST] STT/analysis step failed:", analysisErr.message);
+    } else {
+      // ANTHROPIC_API_KEY 없을 때: 분석 건너뛰고 임시 멘트로 대체
+      await supabase
+        .from("voice_entries")
+        .update({ call_message: "오늘도 미루기만 하네. 나중에 진짜 얘기하자." })
+        .eq("id", inserted.id);
     }
 
     return NextResponse.json({ entryId: inserted.id, hookReady: true });
