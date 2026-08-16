@@ -29,8 +29,10 @@ export async function sendRoutineCall({
 }: CallParams) {
   const accountSid = process.env.TWILIO_ACCOUNT_SID || process.env.NEXT_PUBLIC_TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN || process.env.NEXT_PUBLIC_TWILIO_AUTH_TOKEN;
-  const baseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL;
-  const fromNumber = process.env.TWILIO_FROM_NUMBER || process.env.TWILIO_PHONE_NUMBER;
+  const baseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL || '';
+  
+  // 🔥 핵심 수정: undefined가 절대 들어가지 않도록 빈 문자열이나 기본 번호를 확실히 잡아줍니다.
+  const fromNumber = process.env.TWILIO_FROM_NUMBER || process.env.TWILIO_PHONE_NUMBER || '';
 
   if (!accountSid || !authToken) {
     console.error('Twilio 인증 정보(ACCOUNT_SID 또는 AUTH_TOKEN)가 설정되지 않았습니다.');
@@ -43,7 +45,7 @@ export async function sendRoutineCall({
   try {
     const call = await client.calls.create({
       to: toNumber,
-      from: fromNumber,
+      from: fromNumber, // 이제 무조건 string 타입이므로 에러가 사라집니다!
       url: `${baseUrl}/api/twiml/call-script?msg=${encodeURIComponent(message)}`,
       statusCallback: `${baseUrl}${statusCallbackPath}?routineId=${routineId}`,
       statusCallbackEvent: ['completed', 'no-answer', 'busy', 'failed'],
