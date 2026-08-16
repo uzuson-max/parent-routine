@@ -7,11 +7,9 @@ interface CallParams {
   statusCallbackPath?: string;
 }
 
-// 환경변수 체크를 안전하게 해주는 함수
+// 안전하게 환경변수를 가져오는 함수 (없을 경우 빈 문자열 반환)
 function getEnv(key: string): string {
-  const value = process.env[key];
-  if (!value) throw new Error(`Missing environment variable: ${key}`);
-  return value;
+  return process.env[key] || '';
 }
 
 // 전화번호 정규화 함수 (국내 번호 기준 예외처리)
@@ -29,9 +27,17 @@ export async function sendRoutineCall({
   message,
   statusCallbackPath = '/api/webhook/call-status',
 }: CallParams) {
-  const client = twilio(getEnv('TWILIO_ACCOUNT_SID'), getEnv('TWILIO_AUTH_TOKEN'));
-  const baseUrl = getEnv('APP_BASE_URL');
-  const fromNumber = process.env.TWILIO_FROM_NUMBER || getEnv('TWILIO_PHONE_NUMBER');
+  const accountSid = process.env.TWILIO_ACCOUNT_SID || process.env.NEXT_PUBLIC_TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN || process.env.NEXT_PUBLIC_TWILIO_AUTH_TOKEN;
+  const baseUrl = process.env.APP_BASE_URL || process.env.NEXT_PUBLIC_APP_BASE_URL;
+  const fromNumber = process.env.TWILIO_FROM_NUMBER || process.env.TWILIO_PHONE_NUMBER;
+
+  if (!accountSid || !authToken) {
+    console.error('Twilio 인증 정보(ACCOUNT_SID 또는 AUTH_TOKEN)가 설정되지 않았습니다.');
+    return { success: false, error: 'Twilio credentials missing' };
+  }
+
+  const client = twilio(accountSid, authToken);
   const toNumber = normalizePhoneNumber(phoneNumber);
 
   try {
@@ -50,8 +56,15 @@ export async function sendRoutineCall({
 }
 
 export async function sendPenaltySms(penaltyPhone: string, userPhone: string) {
-  const client = twilio(getEnv('TWILIO_ACCOUNT_SID'), getEnv('TWILIO_AUTH_TOKEN'));
-  const fromNumber = process.env.TWILIO_FROM_NUMBER || getEnv('TWILIO_PHONE_NUMBER');
+  const accountSid = process.env.TWILIO_ACCOUNT_SID || process.env.NEXT_PUBLIC_TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN || process.env.NEXT_PUBLIC_TWILIO_AUTH_TOKEN;
+  const fromNumber = process.env.TWILIO_FROM_NUMBER || process.env.TWILIO_PHONE_NUMBER;
+
+  if (!accountSid || !authToken) {
+    throw new Error('Twilio credentials missing');
+  }
+
+  const client = twilio(accountSid, authToken);
   const to = normalizePhoneNumber(penaltyPhone);
 
   await client.messages.create({
