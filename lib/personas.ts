@@ -1,4 +1,3 @@
-// lib/personas.ts
 export type Persona = "fact" | "friend" | "nag";
 
 export const PERSONA_PROMPTS: Record<Persona, string> = {
