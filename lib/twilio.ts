@@ -60,7 +60,7 @@ export async function sendRoutineCall({
 export async function sendPenaltySms(penaltyPhone: string, userPhone: string) {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const fromNumber = process.env.TWILIO_FROM_NUMBER || process.env.TWILIO_PHONE_NUMBER || '';
+  const fromNumber = process.env.TWILIO_PHONE_NUMBER || '';
 
   if (!accountSid || !authToken) {
     throw new Error('Twilio credentials missing');
