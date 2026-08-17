@@ -1,3 +1,4 @@
+// app/page.tsx
 "use client";
 
 import { useState } from "react";
@@ -14,6 +15,7 @@ type Step = "landing" | "recording" | "analyzing" | "phone_input" | "schedule" |
 export default function Home() {
   const [step, setStep] = useState<Step>("landing");
   const [entryId, setEntryId] = useState<string | null>(null);
+  const [entryReady, setEntryReady] = useState(false);
   const [phone, setPhone] = useState<string>("");
   const [minutesDelay, setMinutesDelay] = useState<number>(0);
   const [result, setResult] = useState<any>(null);
@@ -36,6 +38,8 @@ export default function Home() {
         <RecordingScreen
           onFinish={async (audioBlob: Blob) => {
             setStep("analyzing");
+            setEntryReady(false);
+            setEntryId(null);
             try {
               const audioUrl = await uploadAudio(audioBlob);
               const res = await fetch("/api/journal", {
@@ -48,7 +52,9 @@ export default function Home() {
                 throw new Error(body.error || `journal API ${res.status}`);
               }
               const data = await res.json();
+              if (!data.entryId) throw new Error("entryId missing from response");
               setEntryId(data.entryId);
+              setEntryReady(true);
             } catch (e: any) {
               console.error("[Home] recording->journal flow failed:", e.message);
               setError(e.message);
@@ -58,7 +64,9 @@ export default function Home() {
         />
       )}
 
-      {step === "analyzing" && <HookScreen onContinue={() => setStep("phone_input")} />}
+      {step === "analyzing" && (
+        <HookScreen ready={entryReady} onContinue={() => setStep("phone_input")} />
+      )}
 
       {step === "phone_input" && (
         <PhoneInputScreen
@@ -72,6 +80,12 @@ export default function Home() {
       {step === "schedule" && (
         <CallScheduleScreen
           onSelect={async (minutes) => {
+            if (!entryId) {
+              console.error("[Home] tried to schedule call with no entryId");
+              setError("녹음 저장이 아직 끝나지 않았어요. 다시 시도해주세요.");
+              setStep("landing");
+              return;
+            }
             setMinutesDelay(minutes);
             setStep("calling");
             try {
