@@ -38,8 +38,8 @@ export default function RecordingScreen({ onFinish }: { onFinish: (blob: Blob) =
     return (
       <div style={styles.container}>
         <button style={styles.micButton} onClick={start} aria-label="말하기">🎙️</button>
-        <p style={styles.mainCopy}>준비됐으면 말해보세요.</p>
-        <p style={styles.subCopy}>10초든 5분이든 상관없어요.{"\n"}생각나는 대로.</p>
+       <p style={styles.mainCopy}>지금 생각나는 대로 말해보세요.</p>
+       <p style={styles.subCopy}>잘 말하려고 하지 않아도 됩니다.</p>
       </div>
     );
   }
