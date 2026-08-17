@@ -1,7 +1,7 @@
 // app/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import LandingScreen from "./screens/LandingScreen";
 import RecordingScreen from "./screens/RecordingScreen";
 import HookScreen from "./screens/HookScreen";
@@ -20,6 +20,13 @@ export default function Home() {
   const [minutesDelay, setMinutesDelay] = useState<number>(0);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // entryId의 항상 최신값을 참조하기 위한 ref. state 클로저 문제를 원천 차단.
+  const entryIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    entryIdRef.current = entryId;
+    console.log("[Home] entryId updated ->", entryId);
+  }, [entryId]);
 
   return (
     <div style={{ minHeight: "100vh", background: "#0b0b0f" }}>
@@ -40,6 +47,7 @@ export default function Home() {
             setStep("analyzing");
             setEntryReady(false);
             setEntryId(null);
+            entryIdRef.current = null;
             try {
               const audioUrl = await uploadAudio(audioBlob);
               const res = await fetch("/api/journal", {
@@ -53,6 +61,8 @@ export default function Home() {
               }
               const data = await res.json();
               if (!data.entryId) throw new Error("entryId missing from response");
+              console.log("[Home] journal saved, entryId =", data.entryId);
+              entryIdRef.current = data.entryId;
               setEntryId(data.entryId);
               setEntryReady(true);
             } catch (e: any) {
@@ -80,8 +90,11 @@ export default function Home() {
       {step === "schedule" && (
         <CallScheduleScreen
           onSelect={async (minutes) => {
-            if (!entryId) {
-              console.error("[Home] tried to schedule call with no entryId");
+            const currentEntryId = entryIdRef.current;
+            console.log("[Home] schedule clicked, entryIdRef.current =", currentEntryId);
+
+            if (!currentEntryId) {
+              console.error("[Home] tried to schedule call with no entryId (ref check)");
               setError("녹음 저장이 아직 끝나지 않았어요. 다시 시도해주세요.");
               setStep("landing");
               return;
@@ -89,7 +102,7 @@ export default function Home() {
             setMinutesDelay(minutes);
             setStep("calling");
             try {
-              const res = await fetch(`/api/journal/${entryId}/call`, {
+              const res = await fetch(`/api/journal/${currentEntryId}/call`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ phoneNumber: phone, minutesDelay: minutes }),
