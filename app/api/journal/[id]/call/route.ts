@@ -3,9 +3,17 @@ import { NextResponse } from "next/server";
 import twilio from "twilio";
 import { supabase } from "@/lib/supabase";
 
+
 export async function POST(request: Request, { params }: { params: { id: string } }) {
   try {
+    if (!params.id || params.id === "null" || params.id === "undefined") {
+      console.error("[journal/[id]/call POST] invalid id param:", params.id);
+      return NextResponse.json({ success: false, error: "invalid entry id" }, { status: 400 });
+    }
+
     const { phoneNumber, minutesDelay } = await request.json();
+    // ... 이하 기존 코드 그대로
+  
     const delay = Number(minutesDelay) || 0;
 
     if (!phoneNumber) {
