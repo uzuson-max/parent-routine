@@ -1,20 +1,27 @@
+// app/screens/HookScreen.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 
-// stage 0: "잠깐만..." (긴장감, 자동 전환)
-// stage 1: "음... 할 말이 생겼는데. 전화할게." + [전화 받기] 버튼 (사용자 액션 대기)
-export default function HookScreen({ onContinue }: { onContinue: () => void }) {
-  const [stage, setStage] = useState<0 | 1>(0);
+export default function HookScreen({
+  ready,
+  onContinue,
+}: {
+  ready: boolean;
+  onContinue: () => void;
+}) {
+  const [minTimeElapsed, setMinTimeElapsed] = useState(false);
 
   useEffect(() => {
-    const t = setTimeout(() => setStage(1), 2200); // 1~3초 사이 긴장감
+    const t = setTimeout(() => setMinTimeElapsed(true), 1200);
     return () => clearTimeout(t);
   }, []);
 
+  const showButton = ready && minTimeElapsed;
+
   return (
     <div style={styles.container}>
-      {stage === 0 ? (
+      {!showButton ? (
         <>
           <p style={styles.copy}>잠깐만.</p>
           <p style={styles.copy}>방금 한 말 좀 생각해볼게.</p>
