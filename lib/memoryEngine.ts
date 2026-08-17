@@ -1,3 +1,4 @@
+// lib/memoryEngine.ts
 import { supabase } from "@/lib/supabase";
 import Anthropic from "@anthropic-ai/sdk";
 
@@ -58,11 +59,11 @@ export async function updateUserMemory(userPhone: string) {
     const { data: existing } = await supabase
       .from("user_memory")
       .select("entry_count")
-      .eq("user_phone", userPhone)
+      .eq("user_id", userPhone) // ← user_phone에서 user_id로 변경
       .maybeSingle();
 
     const { error: upsertError } = await supabase.from("user_memory").upsert({
-      user_phone: userPhone,
+      user_id: userPhone, // ← user_phone에서 user_id로 변경
       recurring_excuses: parsed.recurring_excuses ?? [],
       recurring_topics: parsed.recurring_topics ?? [],
       pattern_summary: parsed.pattern_summary ?? "",
@@ -99,7 +100,7 @@ export async function buildCallOpening(
     const { data: memory, error } = await supabase
       .from("user_memory")
       .select("*")
-      .eq("user_phone", userPhone)
+      .eq("user_id", userPhone) // ← user_phone에서 user_id로 변경
       .maybeSingle();
 
     if (error) {
