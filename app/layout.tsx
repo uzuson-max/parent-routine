@@ -1,7 +1,7 @@
 
 
 export const metadata = {
-  title: '부모님 안부 케어 시스템',
+  title: '참견이',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
