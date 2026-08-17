@@ -9,9 +9,12 @@ export async function POST(request: Request) {
   const entryId = url.searchParams.get("entryId")!;
 
   const supabase = getSupabaseClient();
-  const { data: entry } = await supabase.from("journal_entries").select("*").eq("id", entryId).single();
+  
+  // 💡 1. journal_entries -> voice_entries 로 테이블명 변경 반영
+  const { data: entry } = await supabase.from("voice_entries").select("*").eq("id", entryId).single();
 
-  const { opening_line, intensity } = await buildCallOpening(entry.user_id, entry);
+  // 💡 2. entry.user_id -> entry.user_phone 으로 필드명 변경 반영
+  const { opening_line, intensity } = await buildCallOpening(entry.user_phone, entry);
 
   const twiml = new VoiceResponse();
   const gather = twiml.gather({
