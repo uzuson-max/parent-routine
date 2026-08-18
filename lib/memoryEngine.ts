@@ -1,8 +1,7 @@
-// lib/memoryEngine.ts
 import { supabase } from "@/lib/supabase";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 
-const anthropic = new Anthropic();
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // 통화 종료 후: 최근 voice_entries.analysis(jsonb)를 모아 user_memory를 재요약 (overwrite, append 아님)
 // userPhone 기준으로 동작 — voice_entries에는 user_id가 없고 user_phone만 있음.
@@ -35,12 +34,16 @@ export async function updateUserMemory(userPhone: string) {
       return; // 아직 분석된 과거 기록이 없으면 요약할 게 없음
     }
 
-    const summaryRes = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
+    const summaryRes = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
       max_tokens: 300,
-      system: `최근 핑계/모순/패턴/주제 목록을 보고 (1) 반복되는 핑계 3개 이내, (2) 반복 주제 3개 이내,
-      (3) 한두 문장짜리 전체 패턴 요약을 JSON으로만 응답: {"recurring_excuses":[], "recurring_topics":[], "pattern_summary":""}`,
+      response_format: { type: "json_object" },
       messages: [
+        {
+          role: "system",
+          content: `최근 핑계/모순/패턴/주제 목록을 보고 (1) 반복되는 핑계 3개 이내, (2) 반복 주제 3개 이내,
+      (3) 한두 문장짜리 전체 패턴 요약을 JSON으로만 응답: {"recurring_excuses":[], "recurring_topics":[], "pattern_summary":""}`,
+        },
         {
           role: "user",
           content: JSON.stringify({
@@ -53,17 +56,17 @@ export async function updateUserMemory(userPhone: string) {
       ],
     });
 
-    const block = summaryRes.content.find((b) => b.type === "text");
-    const parsed = JSON.parse((block && "text" in block ? block.text : "{}").replace(/```json|```/g, "").trim());
+    const raw = summaryRes.choices[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
 
     const { data: existing } = await supabase
       .from("user_memory")
       .select("entry_count")
-      .eq("user_id", userPhone) // ← user_phone에서 user_id로 변경
+      .eq("user_id", userPhone)
       .maybeSingle();
 
     const { error: upsertError } = await supabase.from("user_memory").upsert({
-      user_id: userPhone, // ← user_phone에서 user_id로 변경
+      user_id: userPhone,
       recurring_excuses: parsed.recurring_excuses ?? [],
       recurring_topics: parsed.recurring_topics ?? [],
       pattern_summary: parsed.pattern_summary ?? "",
@@ -100,7 +103,7 @@ export async function buildCallOpening(
     const { data: memory, error } = await supabase
       .from("user_memory")
       .select("*")
-      .eq("user_id", userPhone) // ← user_phone에서 user_id로 변경
+      .eq("user_id", userPhone)
       .maybeSingle();
 
     if (error) {
@@ -111,12 +114,15 @@ export async function buildCallOpening(
     const entryCount = memory?.entry_count ?? 0;
     const intensity = entryCount >= 7 ? "high" : entryCount >= 3 ? "medium" : "low";
 
-    const res = await anthropic.messages.create({
-      model: "claude-sonnet-4-6",
+    const res = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
       max_tokens: 200,
-      system: `너는 반말로 참견하는 AI 친구다. intensity(low/medium/high)에 따라 강도를 조절해서
-      통화 시작 첫 멘트 1~2문장을 만든다. high일수록 과거 패턴을 더 직접적으로 지적한다. 문장만 출력.`,
       messages: [
+        {
+          role: "system",
+          content: `너는 반말로 참견하는 AI 친구다. intensity(low/medium/high)에 따라 강도를 조절해서
+      통화 시작 첫 멘트 1~2문장을 만든다. high일수록 과거 패턴을 더 직접적으로 지적한다. 문장만 출력.`,
+        },
         {
           role: "user",
           content: JSON.stringify({
@@ -129,9 +135,9 @@ export async function buildCallOpening(
       ],
     });
 
-    const block = res.content.find((b) => b.type === "text");
+    const text = res.choices[0]?.message?.content?.trim() ?? "";
     return {
-      opening_line: (block && "text" in block ? block.text.trim() : "") || fallback.opening_line,
+      opening_line: text || fallback.opening_line,
       intensity,
       show_pro_banner: entryCount >= 7,
     };
