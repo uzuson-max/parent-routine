@@ -2,7 +2,7 @@
   "framework": "nextjs",
   "crons": [
     {
-      "path": "/api/check-commitments",
+      "path": "/api/check-voice-calls",
       "schedule": "*/10 * * * *"
     }
   ]
