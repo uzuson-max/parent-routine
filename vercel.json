@@ -2,7 +2,7 @@
   "framework": "nextjs",
   "crons": [
     {
-      "path": "/api/check-voice-calls",
+      "path": "/api/cron/check-voice-calls",
       "schedule": "*/10 * * * *"
     }
   ]
