@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { sendRoutineCall } from '@/lib/twilio';
+import { expireOldCommitments } from '@/lib/analysis';
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
@@ -8,8 +9,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  const now = new Date().toISOString();
+  await expireOldCommitments(); // 마감 지난 약속 정리 (매 크론 실행 시 같이)
 
+  const now = new Date().toISOString();
   const { data: dueEntries, error } = await supabase
     .from('voice_entries')
     .select('*')
@@ -21,7 +23,6 @@ export async function GET(request: Request) {
   if (!dueEntries?.length) return NextResponse.json({ message: 'no calls due' });
 
   const results = [];
-
   for (const entry of dueEntries) {
     const callResult = await sendRoutineCall({
       routineId: entry.id,
@@ -29,14 +30,10 @@ export async function GET(request: Request) {
       message: entry.call_message,
       statusCallbackPath: '/api/webhook/voice-call-status',
     });
-
     await supabase
       .from('voice_entries')
-      .update({
-        call_state: callResult.success ? 'awaiting_result' : 'call_failed',
-      })
+      .update({ call_state: callResult.success ? 'awaiting_result' : 'call_failed' })
       .eq('id', entry.id);
-
     results.push({ id: entry.id, ...callResult });
   }
 
