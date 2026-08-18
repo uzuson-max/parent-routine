@@ -2,8 +2,8 @@
   "framework": "nextjs",
   "crons": [
     {
-      "path": "/api/cron/call",
-      "schedule": "0 0 * * *"
+      "path": "/api/check-commitments",
+      "schedule": "*/10 * * * *"
     }
   ]
 }
