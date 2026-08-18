@@ -13,7 +13,8 @@ export default function CallingScreen({
   useEffect(() => {
     const poll = setInterval(async () => {
       const entry = await fetch(`/api/voice/${entryId}`).then((r) => r.json());
-      if (["completed", "no_answer", "call_failed"].includes(entry.call_state)) {
+
+      if (entry.call_state === "done") {
         clearInterval(poll);
         setStatus("done");
         onCallEnded(entry);
