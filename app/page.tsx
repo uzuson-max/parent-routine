@@ -1,32 +1,23 @@
-// app/page.tsx
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import LandingScreen from "./screens/LandingScreen";
 import RecordingScreen from "./screens/RecordingScreen";
-import HookScreen from "./screens/HookScreen";
+import GoalInputScreen from "./screens/GoalInputScreen";
 import PhoneInputScreen from "./screens/PhoneInputScreen";
-import CallScheduleScreen from "./screens/CallScheduleScreen";
 import CallingScreen from "./screens/CallingScreen";
 import ResultScreen from "./screens/ResultScreen";
 
-type Step = "landing" | "recording" | "analyzing" | "phone_input" | "schedule" | "calling" | "result";
+type Step = "landing" | "recording" | "goal_input" | "phone_input" | "uploading" | "calling" | "result";
 
 export default function Home() {
   const [step, setStep] = useState<Step>("landing");
-  const [entryId, setEntryId] = useState<string | null>(null);
-  const [entryReady, setEntryReady] = useState(false);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [targetGoal, setTargetGoal] = useState<string>("");
   const [phone, setPhone] = useState<string>("");
-  const [minutesDelay, setMinutesDelay] = useState<number>(0);
+  const [entryId, setEntryId] = useState<string | null>(null);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-
-  // entryId의 항상 최신값을 참조하기 위한 ref. state 클로저 문제를 원천 차단.
-  const entryIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    entryIdRef.current = entryId;
-    console.log("[Home] entryId updated ->", entryId);
-  }, [entryId]);
 
   return (
     <div style={{ minHeight: "100vh", background: "#0b0b0f" }}>
@@ -43,76 +34,54 @@ export default function Home() {
 
       {step === "recording" && (
         <RecordingScreen
-          onFinish={async (audioBlob: Blob) => {
-            setStep("analyzing");
-            setEntryReady(false);
-            setEntryId(null);
-            entryIdRef.current = null;
-            try {
-              const audioUrl = await uploadAudio(audioBlob);
-              const res = await fetch("/api/journal", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ audioUrl }),
-              });
-              if (!res.ok) {
-                const body = await res.json().catch(() => ({}));
-                throw new Error(body.error || `journal API ${res.status}`);
-              }
-              const data = await res.json();
-              if (!data.entryId) throw new Error("entryId missing from response");
-              console.log("[Home] journal saved, entryId =", data.entryId);
-              entryIdRef.current = data.entryId;
-              setEntryId(data.entryId);
-              setEntryReady(true);
-            } catch (e: any) {
-              console.error("[Home] recording->journal flow failed:", e.message);
-              setError(e.message);
-              setStep("landing");
-            }
+          onFinish={(blob: Blob) => {
+            setAudioBlob(blob);
+            setStep("goal_input");
           }}
         />
       )}
 
-      {step === "analyzing" && (
-        <HookScreen ready={entryReady} onContinue={() => setStep("phone_input")} />
+      {step === "goal_input" && (
+        <GoalInputScreen
+          onSubmit={(goal: string) => {
+            setTargetGoal(goal);
+            setStep("phone_input");
+          }}
+        />
       )}
 
       {step === "phone_input" && (
         <PhoneInputScreen
-          onSubmit={(phoneNumber) => {
+          onSubmit={async (phoneNumber: string) => {
             setPhone(phoneNumber);
-            setStep("schedule");
-          }}
-        />
-      )}
+            setStep("uploading");
 
-      {step === "schedule" && (
-        <CallScheduleScreen
-          onSelect={async (minutes) => {
-            const currentEntryId = entryIdRef.current;
-            console.log("[Home] schedule clicked, entryIdRef.current =", currentEntryId);
-
-            if (!currentEntryId) {
-              console.error("[Home] tried to schedule call with no entryId (ref check)");
-              setError("녹음 저장이 아직 끝나지 않았어요. 다시 시도해주세요.");
+            if (!audioBlob) {
+              setError("녹음 데이터가 없어요. 다시 시도해주세요.");
               setStep("landing");
               return;
             }
-            setMinutesDelay(minutes);
-            setStep("calling");
+
             try {
-              const res = await fetch(`/api/journal/${currentEntryId}/call`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ phoneNumber: phone, minutesDelay: minutes }),
-              });
+              const form = new FormData();
+              form.append("audio", audioBlob, "recording.webm");
+              form.append("phone", phoneNumber);
+              form.append("target_goal", targetGoal);
+              form.append("persona", "coach");
+
+              const res = await fetch("/api/voice/upload", { method: "POST", body: form });
               if (!res.ok) {
                 const body = await res.json().catch(() => ({}));
-                throw new Error(body.error || `call API ${res.status}`);
+                throw new Error(body.error || `upload API ${res.status}`);
               }
+              const body = await res.json();
+              if (!body.success || !body.data?.id) {
+                throw new Error(body.error || "entry id missing from response");
+              }
+              setEntryId(body.data.id);
+              setStep("calling");
             } catch (e: any) {
-              console.error("[Home] call trigger failed:", e.message);
+              console.error("[Home] upload flow failed:", e.message);
               setError(e.message);
               setStep("landing");
             }
@@ -123,7 +92,6 @@ export default function Home() {
       {step === "calling" && entryId && (
         <CallingScreen
           entryId={entryId}
-          minutesDelay={minutesDelay}
           onCallEnded={(finishedEntry) => {
             setResult(finishedEntry);
             setStep("result");
@@ -131,23 +99,21 @@ export default function Home() {
         />
       )}
 
-      {step === "result" && <ResultScreen result={result} onRestart={() => setStep("landing")} />}
+      {step === "result" && (
+        <ResultScreen
+          result={result}
+          onRestart={() => {
+            setAudioBlob(null);
+            setTargetGoal("");
+            setPhone("");
+            setEntryId(null);
+            setResult(null);
+            setStep("landing");
+          }}
+        />
+      )}
     </div>
   );
-}
-
-async function uploadAudio(blob: Blob): Promise<string> {
-  const form = new FormData();
-  form.append("audio", blob, "recording.webm");
-
-  const res = await fetch("/api/upload-audio", { method: "POST", body: form });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    console.error("[uploadAudio] upload failed:", body.error || res.status);
-    throw new Error(body.error || `upload-audio API ${res.status}`);
-  }
-  const data = await res.json();
-  return data.audioUrl;
 }
 
 const errorBannerStyle: React.CSSProperties = {
