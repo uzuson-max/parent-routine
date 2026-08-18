@@ -1,7 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
+// lib/aiAnalysis.ts
+import OpenAI from "openai";
 import { PERSONA_PROMPTS, DEFAULT_PERSONA, resolvePersona, type Persona } from "./personas";
 
-const anthropic = new Anthropic();
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const ANALYSIS_SYSTEM_PROMPT = `
 너는 사용자의 하루 음성 일기를 분석하는 AI다. 다음 JSON 스키마로만 응답한다 (설명 금지, JSON만):
@@ -66,15 +67,17 @@ function emptyAnalysisResult(): AnalysisResult {
 
 // voice_entries.analysis(jsonb) 컬럼 하나에 통째로 저장할 형태
 export async function analyzeTranscript(transcript: string): Promise<AnalysisResult> {
-  const res = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
+  const res = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
     max_tokens: 700,
-    system: ANALYSIS_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: transcript }],
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: ANALYSIS_SYSTEM_PROMPT },
+      { role: "user", content: transcript },
+    ],
   });
 
-  const block = res.content.find((b) => b.type === "text");
-  const raw = block && "text" in block ? block.text : "{}";
+  const raw = res.choices[0]?.message?.content ?? "{}";
   return safeParseJson(raw);
 }
 
@@ -105,20 +108,23 @@ export async function generateCallout({
   const resolvedPersona: Persona = resolvePersona(persona);
   const personaInstruction = PERSONA_PROMPTS[resolvedPersona];
 
-  const res = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
+  const res = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
     max_tokens: 200,
-    system: `${personaInstruction}
+    messages: [
+      {
+        role: "system",
+        content: `${personaInstruction}
 사용자의 방금 변명과 과거 모순/패턴 기록을 연결해서 2~3문장짜리 통화용 멘트를 만든다.
 intensity가 high일수록 더 직설적으로. TTS로 읽히므로 이모지/특수문자 없이 자연스러운 구어체로.
 사용자를 지속적으로 모욕하거나 자존감을 훼손하는 표현은 쓰지 않는다. 문장만 출력.`,
-    messages: [
+      },
       {
         role: "user",
         content: JSON.stringify({ userSpeech, contradictions, intensity, pastPatterns: pastPatterns ?? [] }),
       },
     ],
   });
-  const block = res.content.find((b) => b.type === "text");
-  return block && "text" in block ? block.text.trim() : "";
+
+  return res.choices[0]?.message?.content?.trim() ?? "";
 }
