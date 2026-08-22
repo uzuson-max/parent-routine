@@ -1,3 +1,4 @@
+// lib/analysis.ts
 import { supabase } from '@/lib/supabase';
 
 interface AnalysisResult {
@@ -8,6 +9,9 @@ interface AnalysisResult {
   contradictions: string[];       // 오늘 발화 안에서 발견된 모순 (ResultScreen 표시용)
   goal_matched: boolean;          // 오늘 발화가 과거 활성 약속 중 하나를 건드렸는가
   matched_commitment_id: string | null; // 어떤 과거 약속(voice_entries.id)을 지적했는가
+  new_commitments: string[];      // 오늘 발화에서 새로 확인된 "하겠다"는 확정적 약속들
+  context_facts: string[];        // 나중에 참견할 때 유용한 개인적 맥락/사실
+  detected_pattern: string | null; // 반복되는 이야기로 보이는 것 (있으면 하나, 없으면 null)
 }
 
 const PERSONA_PROMPTS: Record<string, string> = {
@@ -31,7 +35,7 @@ function toKoreanWeekday(iso: string): string {
   return days[d.getDay()] + '요일';
 }
 
-// 같은 user_phone의 아직 안 끝난(active) 과거 약속들을 조회
+// 같은 user_phone의 아직 안 끝난(active) 과거 약속들을 조회 (voice_entries 기반 — 통화 스케줄링용, 기존 로직 그대로 유지)
 async function fetchActiveCommitments(phone: string, excludeEntryId?: string): Promise<ActiveCommitment[]> {
   const now = new Date().toISOString();
   let query = supabase
@@ -63,11 +67,46 @@ async function fetchActiveCommitments(phone: string, excludeEntryId?: string): P
   }));
 }
 
+// 아직 안 지킨(fulfilled=false) 과거 commitment_memory 기록 조회 — 참견 멘트에 풍부한 기억을 더해주는 용도
+async function fetchUnfulfilledCommitmentMemories(phone: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('commitment_memory')
+    .select('commitment')
+    .eq('user_phone', phone)
+    .eq('fulfilled', false)
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+  if (error) {
+    console.error('[analysis] fetchUnfulfilledCommitmentMemories failed:', error.message);
+    return [];
+  }
+  return (data ?? []).map((r: any) => r.commitment).filter(Boolean);
+}
+
+// 자주 반복되는 패턴 조회 — occurrence_count 높은 순
+async function fetchTopPatterns(phone: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('pattern_memory')
+    .select('pattern, occurrence_count')
+    .eq('user_phone', phone)
+    .order('occurrence_count', { ascending: false })
+    .limit(3);
+
+  if (error) {
+    console.error('[analysis] fetchTopPatterns failed:', error.message);
+    return [];
+  }
+  return (data ?? []).map((r: any) => r.pattern).filter(Boolean);
+}
+
 async function callGPT(
   transcript: string,
   targetGoal: string,
   persona: string,
-  activeCommitments: ActiveCommitment[]
+  activeCommitments: ActiveCommitment[],
+  unfulfilledMemories: string[],
+  topPatterns: string[]
 ): Promise<AnalysisResult> {
   const personaInstruction = PERSONA_PROMPTS[persona] || PERSONA_PROMPTS.coach;
 
@@ -75,13 +114,27 @@ async function callGPT(
     ? activeCommitments.map(c => `- (${c.said_at}에 한 약속, id=${c.id}) "${c.goal}"`).join('\n')
     : '(아직 안 끝난 과거 약속 없음)';
 
+  const memoryBlock = unfulfilledMemories.length > 0
+    ? unfulfilledMemories.map(m => `- "${m}"`).join('\n')
+    : '(기록된 과거 약속 없음)';
+
+  const patternBlock = topPatterns.length > 0
+    ? topPatterns.map(p => `- "${p}"`).join('\n')
+    : '(아직 감지된 반복 패턴 없음)';
+
   const systemPrompt = `${personaInstruction}
 
 너의 임무는 사용자가 "아직 안 지킨 과거 약속들" 목록과, 방금 한 말(핑계/상태)을 대조해서
 가장 관련 있는 약속 하나를 콕 집어 모순을 지적하는 것이야.
 
-아직 안 지킨 과거 약속 목록:
+아직 안 지킨 과거 약속 목록 (스케줄용):
 ${commitmentsBlock}
+
+과거에 기록된, 아직 이행 여부가 불확실한 약속들 (참고용 기억):
+${memoryBlock}
+
+이 사용자에게서 반복적으로 감지된 패턴:
+${patternBlock}
 
 방금 한 말이 오늘 새로 세운 목표(target_goal)라면 그건 약속 목록과 대조할 필요 없어 (아직 안 어겼으니까).
 방금 한 말이 위 목록 중 하나와 관련된 핑계/회피/모순으로 보이면:
@@ -92,6 +145,11 @@ ${commitmentsBlock}
 관련된 과거 약속이 하나도 없으면 goal_matched는 false, matched_commitment_id는 null로 하고,
 call_line은 오늘 발화 자체에 대한 가벼운 반응으로만 만들어라 (없는 모순을 억지로 만들지 마라).
 
+추가로 아래 세 가지도 오늘 발화만 보고 판단해라 (없으면 빈 배열/null로):
+- new_commitments: 사용자가 오늘 새로 확정적으로 "하겠다"고 한 것들 (목표보다 구체적/확정적인 것만, 애매한 다짐은 제외)
+- context_facts: 나중에 참견할 때 참고하면 좋을 개인적 사실/상황 (예: 이직 준비 중이다, 요즘 잠을 못 잔다 등)
+- detected_pattern: 오늘 발화가 기존에 반복되던 패턴과 같은 이야기로 보이면 그 패턴을 한 문장으로, 아니면 null
+
 반드시 아래 JSON 형식으로만 답해. 다른 텍스트 없이 JSON만:
 {
   "type": "excuse|contradiction|repetition|none",
@@ -100,7 +158,10 @@ call_line은 오늘 발화 자체에 대한 가벼운 반응으로만 만들어�
   "tone": "playful|firm",
   "contradictions": ["오늘 발화 안에서 발견된 모순들"],
   "goal_matched": true or false,
-  "matched_commitment_id": "위 목록의 id 중 하나 또는 null"
+  "matched_commitment_id": "위 목록의 id 중 하나 또는 null",
+  "new_commitments": ["오늘 새로 확정한 약속들"],
+  "context_facts": ["기억해둘 맥락들"],
+  "detected_pattern": "반복 패턴 한 문장 또는 null"
 }`;
 
   const userPrompt = `사용자가 오늘 새로 말한 목표(있다면): "${targetGoal || '(없음)'}"
@@ -125,7 +186,80 @@ call_line은 오늘 발화 자체에 대한 가벼운 반응으로만 만들어�
 
   if (!res.ok) throw new Error('분석 실패: ' + (await res.text()));
   const json = await res.json();
-  return JSON.parse(json.choices[0].message.content) as AnalysisResult;
+  const parsed = JSON.parse(json.choices[0].message.content);
+
+  // 필드 누락 방어 (GPT가 새 필드를 빠뜨려도 기본값으로 채움)
+  return {
+    type: parsed.type ?? 'none',
+    summary: parsed.summary ?? '',
+    call_line: parsed.call_line ?? '',
+    tone: parsed.tone ?? 'playful',
+    contradictions: parsed.contradictions ?? [],
+    goal_matched: parsed.goal_matched ?? false,
+    matched_commitment_id: parsed.matched_commitment_id ?? null,
+    new_commitments: parsed.new_commitments ?? [],
+    context_facts: parsed.context_facts ?? [],
+    detected_pattern: parsed.detected_pattern ?? null,
+  };
+}
+
+// 오늘 분석 결과를 commitment_memory / event_memory / pattern_memory에 저장
+// 이 세 테이블은 Supabase에 이미 존재했지만 지금까지 어떤 코드도 쓰지 않고 있었음 — 이번에 처음 연결.
+async function storeStructuredMemories(
+  entryId: string,
+  phone: string,
+  analysis: AnalysisResult
+) {
+  // 1. 새 약속들 -> commitment_memory
+  if (analysis.new_commitments.length > 0) {
+    const rows = analysis.new_commitments.map((c) => ({
+      voice_entry_id: entryId,
+      user_phone: phone,
+      commitment: c,
+      fulfilled: false,
+    }));
+    const { error } = await supabase.from('commitment_memory').insert(rows);
+    if (error) console.error('[analysis] commitment_memory insert failed:', error.message);
+  }
+
+  // 2. 맥락 사실들 -> event_memory
+  if (analysis.context_facts.length > 0) {
+    const rows = analysis.context_facts.map((c) => ({
+      voice_entry_id: entryId,
+      user_phone: phone,
+      content: c,
+    }));
+    const { error } = await supabase.from('event_memory').insert(rows);
+    if (error) console.error('[analysis] event_memory insert failed:', error.message);
+  }
+
+  // 3. 반복 패턴 -> pattern_memory (이미 같은 문구가 있으면 occurrence_count 증가, 없으면 새로 생성)
+  if (analysis.detected_pattern) {
+    const { data: existing, error: fetchError } = await supabase
+      .from('pattern_memory')
+      .select('id, occurrence_count')
+      .eq('user_phone', phone)
+      .eq('pattern', analysis.detected_pattern)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('[analysis] pattern_memory fetch failed:', fetchError.message);
+    } else if (existing) {
+      const { error } = await supabase
+        .from('pattern_memory')
+        .update({ occurrence_count: (existing.occurrence_count ?? 0) + 1, updated_at: new Date().toISOString() })
+        .eq('id', existing.id);
+      if (error) console.error('[analysis] pattern_memory update failed:', error.message);
+    } else {
+      const { error } = await supabase.from('pattern_memory').insert({
+        user_phone: phone,
+        pattern: analysis.detected_pattern,
+        occurrence_count: 1,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) console.error('[analysis] pattern_memory insert failed:', error.message);
+    }
+  }
 }
 
 export async function analyzeAndSchedule(
@@ -135,45 +269,17 @@ export async function analyzeAndSchedule(
   targetGoal: string,
   persona: string
 ) {
-  // 1. 아직 안 끝난 과거 약속 조회 (핵심 신규 로직)
+  // 1. 아직 안 끝난 과거 약속(스케줄용) + 기억 메모리(참고용) + 반복 패턴 조회
   const activeCommitments = await fetchActiveCommitments(phone, entryId);
+  const unfulfilledMemories = await fetchUnfulfilledCommitmentMemories(phone);
+  const topPatterns = await fetchTopPatterns(phone);
 
-  // 2. GPT 분석 (과거 약속 목록을 명시적으로 대조)
-  const analysis = await callGPT(transcript, targetGoal, persona, activeCommitments);
+  // 2. GPT 분석 (과거 약속 + 기억 + 패턴을 명시적으로 대조)
+  const analysis = await callGPT(transcript, targetGoal, persona, activeCommitments, unfulfilledMemories, topPatterns);
 
   // 3. 발신 스케줄
   const delayMinutes = 1 + Math.floor(Math.random() * 5);
   const scheduledAt = new Date(Date.now() + delayMinutes * 60 * 1000);
 
   // 4. 이번 발화 자체가 새 목표라면, 이번 항목을 새로운 활성 약속으로 등록 (기본 7일)
-  const commitmentUntil = targetGoal
-    ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
-    : null;
-
-  await supabase
-    .from('voice_entries')
-    .update({
-      analysis,
-      call_message: analysis.call_line,
-      scheduled_at: scheduledAt.toISOString(),
-      call_state: 'pending',
-      commitment_until: commitmentUntil,
-      goal_status: targetGoal ? 'active' : 'n/a',
-    })
-    .eq('id', entryId);
-
-  // 5. 이번 발화가 과거 약속을 "지적"했다면, 그 과거 약속은 지금 이 순간 판단 근거로 쓰인 것.
-  //    "위반이 확정됐다"고 자동으로 broken 처리하지는 않음 (오탐 위험) — 사람이 나중에 결과 보고 판단하는 걸 기본값으로 둠.
-  //    다만 완전히 지나간 약속(commitment_until < now)은 별도 정리 크론에서 expired로 정리 (PART 4-1 참고)
-}
-
-// 마감 지난 활성 약속들을 expired로 정리 (선택 — 크론에 붙이거나 analyzeAndSchedule 호출 시 같이 돌려도 됨)
-export async function expireOldCommitments() {
-  const now = new Date().toISOString();
-  const { error } = await supabase
-    .from('voice_entries')
-    .update({ goal_status: 'expired' })
-    .eq('goal_status', 'active')
-    .lt('commitment_until', now);
-  if (error) console.error('[analysis] expireOldCommitments failed:', error.message);
-}
+  const commitmentUntil =
