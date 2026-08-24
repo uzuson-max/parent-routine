@@ -1,6 +1,7 @@
 export async function transcribeAudioBuffer(audioBuffer: Buffer): Promise<string> {
-  // Blob 대신 버퍼를 직접 FormData에 담아 전송
-  const blob = new Blob([audioBuffer], { type: 'audio/webm' });
+  // Buffer를 Uint8Array로 변환하여 BlobPart 타입 에러 해결
+  const uint8Array = new Uint8Array(audioBuffer);
+  const blob = new Blob([uint8Array], { type: 'audio/webm' });
   
   const formData = new FormData();
   formData.append('file', blob, 'audio.webm');
