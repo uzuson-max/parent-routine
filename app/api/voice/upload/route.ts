@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { transcribeAudioBuffer } from '@/lib/openai';
 import { analyzeAndSchedule } from '@/lib/analysis';
+import OpenAI from 'openai';
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 export async function POST(request: Request) {
   try {
@@ -38,8 +42,8 @@ export async function POST(request: Request) {
       deadlineAt = new Date(`${today}T${deadlineTime}:00`).toISOString();
     }
 
-    // 2. 초기 DB 레코드 생성
-    const { data: entry, error } = await supabase
+    // 2. 먼저 기본 DB 레코드 생성 (오디오 URL 확보)
+    const { data: entry, error: insertError } = await supabase
       .from('voice_entries')
       .insert({
         user_phone: phone,
@@ -53,35 +57,60 @@ export async function POST(request: Request) {
       .select()
       .single();
 
-    if (error) {
-      console.error('DB 생성 실패:', error.message);
-      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    if (insertError || !entry) {
+      console.error('DB 생성 실패:', insertError?.message);
+      return NextResponse.json({ success: false, error: insertError?.message }, { status: 500 });
     }
 
-    // 3. STT 및 AI 분석 실행 (메모리 버퍼 직접 전달)
+    // 3. Whisper STT 변환 시도 (실패해도 녹음은 유지되도록 try-catch 처리)
+    let transcript = '';
     try {
-      console.log('Whisper STT 변환 시작...');
-      const transcript = await transcribeAudioBuffer(buffer);
-      console.log('STT 변환 완료:', transcript);
-
-      // DB에 transcript 업데이트
-      await supabase.from('voice_entries').update({ transcript }).eq('id', entry.id);
-
-      // AI 분석 및 스케줄링 실행
-      await analyzeAndSchedule(entry.id, transcript, phone, targetGoal, persona);
-      console.log('AI 분석 및 스케줄링 완료');
-
-    } catch (err: any) {
-      console.error('STT/AI 분석 중 에러 발생:', err);
-      await supabase.from('voice_entries').update({ call_state: 'analysis_failed' }).eq('id', entry.id);
-      
-      return NextResponse.json({ 
-        success: false, 
-        error: `업로드는 되었으나 AI 분석 중 오류 발생: ${err.message}` 
-      }, { status: 500 });
+      const fileObj = new File([buffer], fileName, { type: 'audio/webm' });
+      const transcription = await openai.audio.transcriptions.create({
+        file: fileObj,
+        model: 'whisper-1',
+        language: 'ko',
+      });
+      transcript = transcription.text || '';
+    } catch (sttErr: any) {
+      console.error('STT 변환 중 에러 (무시하고 진행):', sttErr?.message);
+      transcript = '(음성 변환 실패)';
     }
 
-    return NextResponse.json({ success: true, data: entry });
+    // 4. AI 분석 및 스케줄링 실행 (실패해도 녹음과 텍스트는 유지)
+    let analysisResult: any = null;
+    let scheduledAt: string | null = null;
+    let commitmentUntil: string | null = null;
+
+    try {
+      const result = await analyzeAndSchedule(entry.id, transcript, phone, targetGoal, persona);
+      analysisResult = result.analysis;
+      scheduledAt = result.scheduledAt.toISOString();
+      commitmentUntil = result.commitmentUntil;
+    } catch (analysisErr: any) {
+      console.error('AI 분석 중 에러 (무시하고 진행):', analysisErr?.message);
+    }
+
+    // 5. 최종 결과 업데이트 (transcript, analysis, call_message 등 반영)
+    const updateData: any = {
+      transcript,
+      analysis: analysisResult,
+      call_message: analysisResult?.call_line || null,
+      scheduled_at: scheduledAt,
+      commitment_until: commitmentUntil,
+      call_state: analysisResult ? 'fallback_ready' : 'saved_only',
+    };
+
+    const { error: updateError } = await supabase
+      .from('voice_entries')
+      .update(updateData)
+      .eq('id', entry.id);
+
+    if (updateError) {
+      console.error('DB 업데이트 실패:', updateError.message);
+    }
+
+    return NextResponse.json({ success: true, data: { ...entry, ...updateData } });
   } catch (globalErr: any) {
     console.error('서버 에러:', globalErr);
     return NextResponse.json({ success: false, error: globalErr.message }, { status: 500 });
