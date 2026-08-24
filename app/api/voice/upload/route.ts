@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
-import { transcribeAudioBuffer } from '@/lib/openai'; // 버퍼를 직접 받는 함수 권장 (또는 기존 함수 내부 로직 점검)
+import { transcribeAudioBuffer } from '@/lib/openai';
 import { analyzeAndSchedule } from '@/lib/analysis';
 
 export async function POST(request: Request) {
@@ -26,13 +26,12 @@ export async function POST(request: Request) {
       .upload(fileName, buffer, { contentType: 'audio/webm' });
 
     if (uploadError) {
-      console.error('Supabase 스토리지 업로드 실패:', uploadError.message);
+      console.error('Supabase 업로드 실패:', uploadError.message);
       return NextResponse.json({ success: false, error: uploadError.message }, { status: 500 });
     }
 
     const audioUrl = supabase.storage.from('voice-recordings').getPublicUrl(fileName).data.publicUrl;
 
-    // 페널티 데드라인 계산
     let deadlineAt: string | null = null;
     if (penaltyPhone && deadlineTime) {
       const today = new Date().toISOString().slice(0, 10);
@@ -55,39 +54,36 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
-      console.error('DB 레코드 생성 실패:', error.message);
+      console.error('DB 생성 실패:', error.message);
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
-    // 3. STT 및 AI 분석 비동기 또는 동기 처리 (여기서 에러 발생 시 로그 추적)
+    // 3. STT 및 AI 분석 실행 (메모리 버퍼 직접 전달)
     try {
-      // URL 방식 대신 버퍼를 직접 전송하거나, lib/openai 내부 구현을 점검합니다.
-      // 만약 transcribeAudio가 파일을 다운로드하는 방식이라면 버퍼 기반 처리로 변경하는 것이 안전합니다.
-      const transcript = await transcribeAudio(audioUrl); 
-      
-      console.log('STT 변환 성공:', transcript);
+      console.log('Whisper STT 변환 시작...');
+      const transcript = await transcribeAudioBuffer(buffer);
+      console.log('STT 변환 완료:', transcript);
 
       // DB에 transcript 업데이트
       await supabase.from('voice_entries').update({ transcript }).eq('id', entry.id);
 
       // AI 분석 및 스케줄링 실행
       await analyzeAndSchedule(entry.id, transcript, phone, targetGoal, persona);
-      
       console.log('AI 분석 및 스케줄링 완료');
+
     } catch (err: any) {
-      console.error('STT 또는 AI 분석 중 치명적 에러 발생:', err);
+      console.error('STT/AI 분석 중 에러 발생:', err);
       await supabase.from('voice_entries').update({ call_state: 'analysis_failed' }).eq('id', entry.id);
       
-      // 에러 내용을 클라이언트가 인지할 수 있도록 상세 반환 가능
       return NextResponse.json({ 
         success: false, 
-        error: `오디오는 업로드되었으나 AI 분석 중 오류가 발생했습니다: ${err.message}` 
+        error: `업로드는 되었으나 AI 분석 중 오류 발생: ${err.message}` 
       }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, data: entry });
   } catch (globalErr: any) {
-    console.error('서버 업로드 처리 중 예외 발생:', globalErr);
+    console.error('서버 에러:', globalErr);
     return NextResponse.json({ success: false, error: globalErr.message }, { status: 500 });
   }
 }
