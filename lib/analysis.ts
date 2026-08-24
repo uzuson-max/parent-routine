@@ -166,39 +166,55 @@ call_line은 오늘 발화 자체에 대한 가벼운 반응으로만 만들어�
   const userPrompt = `사용자가 오늘 새로 말한 목표(있다면): "${targetGoal || '(없음)'}"
 방금 녹음한 말: "${transcript}"`;
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.8,
-    }),
-  });
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.8,
+      }),
+    });
 
-  if (!res.ok) throw new Error('분석 실패: ' + (await res.text()));
-  const json = await res.json();
-  const parsed = JSON.parse(json.choices[0].message.content);
+    if (!res.ok) throw new Error('분석 실패: ' + (await res.text()));
+    const json = await res.json();
+    const parsed = JSON.parse(json.choices[0].message.content);
 
-  return {
-    type: parsed.type ?? 'none',
-    summary: parsed.summary ?? '',
-    call_line: parsed.call_line ?? '',
-    tone: parsed.tone ?? 'playful',
-    contradictions: parsed.contradictions ?? [],
-    goal_matched: parsed.goal_matched ?? false,
-    matched_commitment_id: parsed.matched_commitment_id ?? null,
-    new_commitments: parsed.new_commitments ?? [],
-    context_facts: parsed.context_facts ?? [],
-    detected_pattern: parsed.detected_pattern ?? null,
-  };
+    return {
+      type: parsed.type ?? 'none',
+      summary: parsed.summary ?? '',
+      call_line: parsed.call_line ?? '',
+      tone: parsed.tone ?? 'playful',
+      contradictions: parsed.contradictions ?? [],
+      goal_matched: parsed.goal_matched ?? false,
+      matched_commitment_id: parsed.matched_commitment_id ?? null,
+      new_commitments: parsed.new_commitments ?? [],
+      context_facts: parsed.context_facts ?? [],
+      detected_pattern: parsed.detected_pattern ?? null,
+    };
+  } catch (err) {
+    console.error('[callGPT] 분석 중 오류 발생:', err);
+    return {
+      type: 'none',
+      summary: transcript ? `${transcript.slice(0, 20)}...` : '내용 없음',
+      call_line: '오늘도 고생 많았어. 내일은 더 힘내자!',
+      tone: 'playful',
+      contradictions: [],
+      goal_matched: false,
+      matched_commitment_id: null,
+      new_commitments: [],
+      context_facts: [],
+      detected_pattern: null,
+    };
+  }
 }
 
 async function storeStructuredMemories(
