@@ -5,7 +5,7 @@ interface AnalysisResult {
   summary: string;
   call_line: string;
   tone: 'playful' | 'firm';
-  contradictions: string[];        // 오늘 발화 안에서 발견된 모순 (ResultScreen 표시용)
+  contradictions: string[];         // 오늘 발화 안에서 발견된 모순 (ResultScreen 표시용)
   goal_matched: boolean;          // 오늘 발화가 과거 활성 약속 중 하나를 건드렸는가
   matched_commitment_id: string | null; // 어떤 과거 약속(voice_entries.id)을 지적했는가
   new_commitments: string[];      // 오늘 발화에서 새로 확인된 "하겠다"는 확정적 약속들
