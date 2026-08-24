@@ -2,12 +2,12 @@
   "name": "parent-routine",
   "version": "0.2.0",
   "private": true,
- "scripts": {
-  "dev": "next dev",
-  "build": "next build",
-  "start": "next start",
-  "lint": "next lint"
-}
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "@supabase/supabase-js": "^2.0.0",
@@ -25,6 +25,3 @@
     "typescript": "^5"
   }
 }
-
-
- 
