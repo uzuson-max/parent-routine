@@ -5,7 +5,7 @@ interface AnalysisResult {
   summary: string;
   call_line: string;
   tone: 'playful' | 'firm';
-  contradictions: string[];       // 오늘 발화 안에서 발견된 모순 (ResultScreen 표시용)
+  contradictions: string[];        // 오늘 발화 안에서 발견된 모순 (ResultScreen 표시용)
   goal_matched: boolean;          // 오늘 발화가 과거 활성 약속 중 하나를 건드렸는가
   matched_commitment_id: string | null; // 어떤 과거 약속(voice_entries.id)을 지적했는가
   new_commitments: string[];      // 오늘 발화에서 새로 확인된 "하겠다"는 확정적 약속들
@@ -24,7 +24,7 @@ const PERSONA_PROMPTS: Record<string, string> = {
 interface ActiveCommitment {
   id: string;
   goal: string;
-  said_at: string;         // 언제 이 약속을 했는지 (요일 표현으로 변환해서 넘김)
+  said_at: string;          // 언제 이 약속을 했는지 (요일 표현으로 변환해서 넘김)
   commitment_until: string;
 }
 
@@ -187,7 +187,6 @@ call_line은 오늘 발화 자체에 대한 가벼운 반응으로만 만들어�
   const json = await res.json();
   const parsed = JSON.parse(json.choices[0].message.content);
 
-  // 필드 누락 방어 (GPT가 새 필드를 빠뜨려도 기본값으로 채움)
   return {
     type: parsed.type ?? 'none',
     summary: parsed.summary ?? '',
@@ -202,14 +201,11 @@ call_line은 오늘 발화 자체에 대한 가벼운 반응으로만 만들어�
   };
 }
 
-// 오늘 분석 결과를 commitment_memory / event_memory / pattern_memory에 저장
-// 이 세 테이블은 Supabase에 이미 존재했지만 지금까지 어떤 코드도 쓰지 않고 있었음 — 이번에 처음 연결.
 async function storeStructuredMemories(
   entryId: string,
   phone: string,
   analysis: AnalysisResult
 ) {
-  // 1. 새 약속들 -> commitment_memory
   if (analysis.new_commitments.length > 0) {
     const rows = analysis.new_commitments.map((c) => ({
       voice_entry_id: entryId,
@@ -221,7 +217,6 @@ async function storeStructuredMemories(
     if (error) console.error('[analysis] commitment_memory insert failed:', error.message);
   }
 
-  // 2. 맥락 사실들 -> event_memory
   if (analysis.context_facts.length > 0) {
     const rows = analysis.context_facts.map((c) => ({
       voice_entry_id: entryId,
@@ -232,7 +227,6 @@ async function storeStructuredMemories(
     if (error) console.error('[analysis] event_memory insert failed:', error.message);
   }
 
-  // 3. 반복 패턴 -> pattern_memory (이미 같은 문구가 있으면 occurrence_count 증가, 없으면 새로 생성)
   if (analysis.detected_pattern) {
     const { data: existing, error: fetchError } = await supabase
       .from('pattern_memory')
@@ -268,17 +262,22 @@ export async function analyzeAndSchedule(
   targetGoal: string,
   persona: string
 ) {
-  // 1. 아직 안 끝난 과거 약속(스케줄용) + 기억 메모리(참고용) + 반복 패턴 조회
   const activeCommitments = await fetchActiveCommitments(phone, entryId);
   const unfulfilledMemories = await fetchUnfulfilledCommitmentMemories(phone);
   const topPatterns = await fetchTopPatterns(phone);
 
-  // 2. GPT 분석 (과거 약속 + 기억 + 패턴을 명시적으로 대조)
   const analysis = await callGPT(transcript, targetGoal, persona, activeCommitments, unfulfilledMemories, topPatterns);
 
-  // 3. 발신 스케줄
   const delayMinutes = 1 + Math.floor(Math.random() * 5);
   const scheduledAt = new Date(Date.now() + delayMinutes * 60 * 1000);
 
-  // 4. 이번 발화 자체가 새 목표라면, 이번 항목을 새로운 활성 약속으로 등록 (기본 7일)
-  const commitmentUntil =
+  const commitmentUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  await storeStructuredMemories(entryId, phone, analysis);
+
+  return {
+    analysis,
+    scheduledAt,
+    commitmentUntil,
+  };
+}
