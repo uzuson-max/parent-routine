@@ -1,6 +1,5 @@
-"crons": [
-    {
-      "path": "/api/cron/check-voice-calls",
-      "schedule": "*/10 * * * *"
-    }
-  ]
+{
+  "buildCommand": "next build",
+  "outputDirectory": ".next",
+  "framework": "nextjs"
+}
