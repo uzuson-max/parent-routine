@@ -281,3 +281,17 @@ export async function analyzeAndSchedule(
     commitmentUntil,
   };
 }
+
+// 만료된 약속 상태를 업데이트하는 함수 (cron 라우트용)
+export async function expireOldCommitments() {
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from('voice_entries')
+    .update({ goal_status: 'expired' })
+    .eq('goal_status', 'active')
+    .lt('commitment_until', now);
+
+  if (error) {
+    console.error('[analysis] expireOldCommitments failed:', error.message);
+  }
+}
