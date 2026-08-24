@@ -1,10 +1,9 @@
-export async function transcribeAudio(audioUrl: string): Promise<string> {
-  // 오디오 파일을 fetch해서 Whisper API로 전달
-  const audioRes = await fetch(audioUrl);
-  const audioBlob = await audioRes.blob();
-
+export async function transcribeAudioBuffer(audioBuffer: Buffer): Promise<string> {
+  // Blob 대신 버퍼를 직접 FormData에 담아 전송
+  const blob = new Blob([audioBuffer], { type: 'audio/webm' });
+  
   const formData = new FormData();
-  formData.append('file', audioBlob, 'audio.webm');
+  formData.append('file', blob, 'audio.webm');
   formData.append('model', 'whisper-1');
   formData.append('language', 'ko');
 
@@ -14,7 +13,11 @@ export async function transcribeAudio(audioUrl: string): Promise<string> {
     body: formData,
   });
 
-  if (!res.ok) throw new Error('STT 실패: ' + (await res.text()));
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error('STT 실패: ' + errorText);
+  }
+  
   const json = await res.json();
   return json.text as string;
 }
