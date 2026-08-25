@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { analyzeAndSchedule } from '@/lib/analysis';
+import { sendRoutineCall } from '@/lib/twilio'; // 트윌로 발신 함수 추가
 import OpenAI from 'openai';
 
 const openai = new OpenAI({
@@ -91,14 +92,35 @@ export async function POST(request: Request) {
       console.error('AI 분석 중 에러 (무시하고 진행):', analysisErr?.message);
     }
 
-    // 5. 최종 결과 업데이트 (transcript, analysis, call_message 등 반영)
+    // 5. 최종 결과 업데이트 및 즉시 전화 발신 트리거
+    let currentCallState = analysisResult ? 'fallback_ready' : 'saved_only';
+
+    if (analysisResult?.call_line) {
+      try {
+        const callResult = await sendRoutineCall({
+          routineId: entry.id,
+          phoneNumber: phone,
+          message: analysisResult.call_line,
+        });
+
+        if (callResult.success) {
+          currentCallState = 'calling_sent';
+          console.log('트윌로 전화 발신 성공:', callResult.sid);
+        } else {
+          console.error('트윌로 전화 발신 실패:', callResult.error);
+        }
+      } catch (callErr: any) {
+        console.error('전화 발신 중 예외 발생:', callErr?.message);
+      }
+    }
+
     const updateData: any = {
       transcript,
       analysis: analysisResult,
       call_message: analysisResult?.call_line || null,
       scheduled_at: scheduledAt,
       commitment_until: commitmentUntil,
-      call_state: analysisResult ? 'fallback_ready' : 'saved_only',
+      call_state: currentCallState,
     };
 
     const { error: updateError } = await supabase
