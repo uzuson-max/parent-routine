@@ -1,4 +1,3 @@
-// lib/analysis.ts
 import { supabase } from '@/lib/supabase';
 
 interface AnalysisResult {
