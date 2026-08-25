@@ -116,14 +116,16 @@ export default function Home() {
         />
       )}
 
-      {step === "awaiting_confirmation" && uploadData?.analysis && (
+     {step === "awaiting_confirmation" && uploadData?.analysis && (
         <ConfirmScreen
           commitment={uploadData.analysis.commitment}
           commitmentType={uploadData.analysis.commitment_type}
           commitmentConfidence={uploadData.analysis.commitment_confidence}
           entryId={entryId!}
           phone={phone}
-          onDone={(kept: boolean) => setStep("confirmed_" as any) || setStep(kept ? "confirmed" : "no_action")}
+          onDone={(kept: boolean) => {
+            setStep(kept ? "confirmed" : "no_action");
+          }}
         />
       )}
 
