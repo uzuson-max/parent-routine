@@ -1,4 +1,3 @@
-// app/screens/LandingScreen.tsx
 "use client";
 
 export default function LandingScreen({ onStart }: { onStart: () => void }) {
