@@ -159,4 +159,200 @@ call_line은 오늘 발화 자체에 대한 가벼운 반응으로만 만들어�
 - intervention_needed: 지금 팩폭/참견이 필요한 상황인가 (true/false)
 - new_commitments: 사용자가 오늘 새로 확정적으로 "하겠다"고 한 것들 전체 목록 (commitment와 겹쳐도 됨)
 - context_facts: 나중에 참견할 때 참고하면 좋을 개인적 사실/상황
-- detected_pattern: 오늘 발화가 기존에 반복되던 패턴과 같은 이야기로 보이면 그 패턴을 한
+- detected_pattern: 오늘 발화가 기존에 반복되던 패턴과 같은 이야기로 보이면 그 패턴을 한 문장으로, 아니면 null
+- fulfilled_commitments: 위에서 설명한 대로, 완료 확인된 과거 약속 원문들
+
+반드시 아래 JSON 형식으로만 답해. 다른 텍스트 없이 JSON만:
+{
+  "type": "excuse|contradiction|repetition|none",
+  "summary": "오늘 상황 요약 한 문장",
+  "goal": "..." or null,
+  "commitment": "..." or null,
+  "excuse": "..." or null,
+  "emotion": "...",
+  "intervention_needed": true or false,
+  "call_line": "전화로 읽을 멘트, 2~3문장",
+  "tone": "playful|firm",
+  "contradictions": [],
+  "goal_matched": true or false,
+  "matched_commitment_id": "..." or null,
+  "new_commitments": [],
+  "context_facts": [],
+  "detected_pattern": "..." or null,
+  "fulfilled_commitments": []
+}`;
+
+  const userPrompt = `사용자가 오늘 새로 말한 목표(있다면): "${targetGoal || '(없음)'}"
+방금 녹음한 말: "${transcript}"`;
+
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.8,
+      }),
+    });
+
+    if (!res.ok) throw new Error('분석 실패: ' + (await res.text()));
+    const json = await res.json();
+    const parsed = JSON.parse(json.choices[0].message.content);
+
+    return {
+      type: parsed.type ?? 'none',
+      summary: parsed.summary ?? '',
+      goal: parsed.goal ?? null,
+      commitment: parsed.commitment ?? null,
+      excuse: parsed.excuse ?? null,
+      emotion: parsed.emotion ?? null,
+      intervention_needed: parsed.intervention_needed ?? false,
+      call_line: parsed.call_line ?? '',
+      tone: parsed.tone ?? 'playful',
+      contradictions: parsed.contradictions ?? [],
+      goal_matched: parsed.goal_matched ?? false,
+      matched_commitment_id: parsed.matched_commitment_id ?? null,
+      new_commitments: parsed.new_commitments ?? [],
+      context_facts: parsed.context_facts ?? [],
+      detected_pattern: parsed.detected_pattern ?? null,
+      fulfilled_commitments: parsed.fulfilled_commitments ?? [],
+    };
+  } catch (err) {
+    console.error('[callGPT] 분석 중 오류 발생:', err);
+    return {
+      type: 'none',
+      summary: transcript ? `${transcript.slice(0, 20)}...` : '내용 없음',
+      goal: null,
+      commitment: null,
+      excuse: null,
+      emotion: null,
+      intervention_needed: false,
+      call_line: '오늘도 고생 많았어. 내일은 더 힘내자!',
+      tone: 'playful',
+      contradictions: [],
+      goal_matched: false,
+      matched_commitment_id: null,
+      new_commitments: [],
+      context_facts: [],
+      detected_pattern: null,
+      fulfilled_commitments: [],
+    };
+  }
+}
+
+async function storeStructuredMemories(
+  entryId: string,
+  phone: string,
+  analysis: AnalysisResult,
+  unfulfilledMemories: { id: string; commitment: string }[]
+) {
+  if (analysis.new_commitments.length > 0) {
+    const rows = analysis.new_commitments.map((c) => ({
+      voice_entry_id: entryId,
+      user_phone: phone,
+      commitment: c,
+      fulfilled: false,
+    }));
+    const { error } = await supabase.from('commitment_memory').insert(rows);
+    if (error) console.error('[analysis] commitment_memory insert failed:', error.message);
+  }
+
+  if (analysis.context_facts.length > 0) {
+    const rows = analysis.context_facts.map((c) => ({
+      voice_entry_id: entryId,
+      user_phone: phone,
+      content: c,
+    }));
+    const { error } = await supabase.from('event_memory').insert(rows);
+    if (error) console.error('[analysis] event_memory insert failed:', error.message);
+  }
+
+  if (analysis.detected_pattern) {
+    const { data: existing, error: fetchError } = await supabase
+      .from('pattern_memory')
+      .select('id, occurrence_count')
+      .eq('user_phone', phone)
+      .eq('pattern', analysis.detected_pattern)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('[analysis] pattern_memory fetch failed:', fetchError.message);
+    } else if (existing) {
+      const { error } = await supabase
+        .from('pattern_memory')
+        .update({ occurrence_count: (existing.occurrence_count ?? 0) + 1, updated_at: new Date().toISOString() })
+        .eq('id', existing.id);
+      if (error) console.error('[analysis] pattern_memory update failed:', error.message);
+    } else {
+      const { error } = await supabase.from('pattern_memory').insert({
+        user_phone: phone,
+        pattern: analysis.detected_pattern,
+        occurrence_count: 1,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) console.error('[analysis] pattern_memory insert failed:', error.message);
+    }
+  }
+
+  // 신규: 오늘 발화로 "완료했다"고 확인된 과거 약속들을 fulfilled=true로 표시
+  if (analysis.fulfilled_commitments.length > 0 && unfulfilledMemories.length > 0) {
+    const matchedIds = unfulfilledMemories
+      .filter((m) => analysis.fulfilled_commitments.includes(m.commitment))
+      .map((m) => m.id);
+
+    if (matchedIds.length > 0) {
+      const { error } = await supabase
+        .from('commitment_memory')
+        .update({ fulfilled: true })
+        .in('id', matchedIds);
+      if (error) console.error('[analysis] commitment_memory fulfilled update failed:', error.message);
+    }
+  }
+}
+
+export async function analyzeAndSchedule(
+  entryId: string,
+  transcript: string,
+  phone: string,
+  targetGoal: string,
+  persona: string
+) {
+  const activeCommitments = await fetchActiveCommitments(phone, entryId);
+  const unfulfilledMemories = await fetchUnfulfilledCommitmentMemories(phone);
+  const topPatterns = await fetchTopPatterns(phone);
+
+  const analysis = await callGPT(transcript, targetGoal, persona, activeCommitments, unfulfilledMemories, topPatterns);
+
+  const delayMinutes = 1 + Math.floor(Math.random() * 5);
+  const scheduledAt = new Date(Date.now() + delayMinutes * 60 * 1000);
+  const commitmentUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  await storeStructuredMemories(entryId, phone, analysis, unfulfilledMemories);
+
+  return {
+    analysis,
+    scheduledAt,
+    commitmentUntil,
+  };
+}
+
+export async function expireOldCommitments() {
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from('voice_entries')
+    .update({ goal_status: 'expired' })
+    .eq('goal_status', 'active')
+    .lt('commitment_until', now);
+
+  if (error) {
+    console.error('[analysis] expireOldCommitments failed:', error.message);
+  }
+}
