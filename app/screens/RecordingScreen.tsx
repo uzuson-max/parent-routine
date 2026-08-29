@@ -42,15 +42,14 @@ export default function RecordingScreen({ onFinish }: { onFinish: (blob: Blob) =
   if (phase === "idle") {
     return (
       <div style={styles.container}>
-        <div style={styles.card}>
-          <div style={styles.headerTag}>🎙️ GANSEOBI_REC.exe</div>
-          <div style={styles.contentArea}>
-            <p style={styles.mainCopy}>지금 생각나는 대로 말해보세요.</p>
-            <p style={styles.subCopy}>잘 말하려고 하지 않아도 됩니다.</p>
+        <div style={styles.contentWrapper}>
+          <div style={styles.brandTitle}>GANSEOBI_REC</div>
+          <div style={styles.heroBox} onClick={start}>
+            <span style={styles.micIcon}>🎙</span>
+            <div style={styles.circleTextOverlay}>CLICK TO TALK</div>
           </div>
-          <button style={styles.micButton} onClick={start} aria-label="말하기">
-            🎙
-          </button>
+          <p style={styles.mainCopy}>지금 생각나는 대로 말해보세요.</p>
+          <p style={styles.subCopy}>잘 말하려고 하지 않아도 됩니다.</p>
         </div>
       </div>
     );
@@ -59,16 +58,16 @@ export default function RecordingScreen({ onFinish }: { onFinish: (blob: Blob) =
   if (phase === "recording") {
     return (
       <div style={styles.container}>
-        <div style={styles.card}>
-          <div style={styles.headerTag}>🔴 REC RUNNING...</div>
-          <div style={styles.contentArea}>
-            <p style={styles.timer}>{formatTime(seconds)}</p>
-            <p style={styles.mainCopy}>듣고 있어요.</p>
-            <p style={styles.subCopy}>생각나는 대로 말하세요.{"\n"}정리해서 말할 필요 없어요.</p>
+        <div style={styles.contentWrapper}>
+          <div style={styles.brandTitle}>REC RUNNING...</div>
+          <div style={styles.timerBox}>
+            {formatTime(seconds)}
           </div>
-          <button style={styles.recordingButton} onClick={stop} aria-label="녹음 종료">
-            ■ 종료
+          <button style={styles.recordingButton} onClick={stop}>
+            ■ 그만 말할래
           </button>
+          <p style={styles.mainCopy}>듣고 있어요.</p>
+          <p style={styles.subCopy}>정리해서 말할 필요 없어요.</p>
         </div>
       </div>
     );
@@ -76,7 +75,7 @@ export default function RecordingScreen({ onFinish }: { onFinish: (blob: Blob) =
 
   return (
     <div style={styles.container}>
-      <div style={styles.card}>
+      <div style={styles.contentWrapper}>
         <p style={styles.mainCopy}>잘 들었습니다.</p>
         <p style={styles.subCopy}>잠시만 기다려봐.</p>
       </div>
@@ -93,86 +92,89 @@ function formatTime(s: number) {
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
-    background: "#F9F6F0", // 따뜻한 크림지 미색
+    background: "#C71585", // 레퍼런스의 쨍한 마젠타 핑크
+    color: "#E5FF5D", // 네온 연두/레몬 포인트 컬러
     display: "flex",
     flexDirection: "column",
     justifyContent: "center",
-    alignItems: "center", // 오타 수정 완료
-    padding: "0 20px",
+    alignItems: "center",
+    padding: "24px",
     fontFamily: "monospace, sans-serif",
   },
-  card: {
+  contentWrapper: {
     width: "100%",
     maxWidth: "380px",
-    background: "#FFF",
-    border: "3px solid #1E1E1E",
-    boxShadow: "6px 6px 0px #1E1E1E",
-    padding: "24px",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     textAlign: "center",
-    gap: "20px",
+    gap: "24px",
   },
-  headerTag: {
-    background: "#1E1E1E",
-    color: "#FFF",
-    padding: "4px 10px",
-    fontSize: "11px",
-    fontWeight: "bold",
-    letterSpacing: "1px",
-    alignSelf: "flex-start",
+  brandTitle: {
+    fontSize: "14px",
+    letterSpacing: "3px",
+    fontWeight: "900",
+    color: "#E5FF5D",
+    borderBottom: "2px dashed #E5FF5D",
+    paddingBottom: "8px",
+    width: "100%",
   },
-  contentArea: {
+  heroBox: {
+    width: "160px",
+    height: "160px",
+    borderRadius: "50%",
+    border: "3px solid #E5FF5D",
+    background: "transparent",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    gap: "8px",
-  },
-  timer: {
-    color: "#FF5C35",
-    fontSize: "40px",
-    fontWeight: "900",
-    marginBottom: "8px",
-    fontVariantNumeric: "tabular-nums",
-    letterSpacing: "2px",
-  },
-  micButton: {
-    width: "100px",
-    height: "100px",
-    borderRadius: "50%",
-    border: "3px solid #1E1E1E",
-    background: "#FF5C35",
-    color: "#FFF",
-    fontSize: "36px",
-    cursor: "pointer",
-    boxShadow: "3px 3px 0px #1E1E1E",
-    display: "flex",
-    alignItems: "center",
     justifyContent: "center",
+    cursor: "pointer",
+    position: "relative",
+    boxShadow: "0 0 20px rgba(229, 255, 93, 0.3)",
+    transition: "transform 0.1s ease",
+  },
+  micIcon: {
+    fontSize: "56px",
+  },
+  circleTextOverlay: {
+    fontSize: "10px",
+    fontWeight: "bold",
+    color: "#FFF",
+    letterSpacing: "1px",
+    marginTop: "-4px",
+  },
+  timerBox: {
+    fontSize: "56px",
+    fontWeight: "900",
+    color: "#E5FF5D",
+    letterSpacing: "4px",
+    fontVariantNumeric: "tabular-nums",
+    margin: "10px 0",
   },
   recordingButton: {
     width: "100%",
-    padding: "14px",
+    padding: "16px",
     borderRadius: "0px",
-    border: "3px solid #1E1E1E",
-    background: "#1E1E1E",
-    color: "#FF5C35",
+    border: "2px solid #E5FF5D",
+    background: "#E5FF5D",
+    color: "#C71585",
     fontSize: "16px",
-    fontWeight: "bold",
+    fontWeight: "900",
     cursor: "pointer",
-    boxShadow: "3px 3px 0px #FF5C35",
+    letterSpacing: "1px",
   },
   mainCopy: {
-    color: "#1E1E1E",
-    fontSize: "18px",
-    fontWeight: "bold",
-    marginBottom: "4px",
+    color: "#FFF",
+    fontSize: "20px",
+    fontWeight: "900",
+    letterSpacing: "-0.5px",
+    margin: 0,
   },
   subCopy: {
-    color: "#666",
+    color: "rgba(255, 255, 255, 0.7)",
     fontSize: "13px",
-    whiteSpace: "pre-line",
     lineHeight: "1.4",
+    margin: 0,
   },
 };
