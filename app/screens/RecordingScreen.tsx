@@ -2,7 +2,12 @@
 
 import { useRef, useState } from "react";
 
-export default function RecordingScreen({ onFinish }: { onFinish: (blob: Blob) => void }) {
+interface RecordingScreenProps {
+  initialTopic?: string;
+  onFinish: (blob: Blob) => void;
+}
+
+export default function RecordingScreen({ initialTopic, onFinish }: RecordingScreenProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -39,6 +44,11 @@ export default function RecordingScreen({ onFinish }: { onFinish: (blob: Blob) =
   return (
     <div style={styles.container}>
       <div style={styles.contentWrapper}>
+        {/* 첫 화면에서 골라온 주제를 상단에 노출 */}
+        <div style={styles.topicBadge}>
+          🎯 {initialTopic ? `"${initialTopic}"` : "생각 털어놓기"}
+        </div>
+
         <div style={styles.brandTitle}>{isRecording ? "REC RUNNING..." : "READY TO DROP"}</div>
         
         {!isRecording ? (
@@ -87,7 +97,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     justifyContent: "center",
     alignItems: "center",
     padding: "24px",
-    fontFamily: "monospace, sans-serif",
   },
   contentWrapper: {
     width: "100%",
@@ -96,7 +105,17 @@ const styles: { [key: string]: React.CSSProperties } = {
     flexDirection: "column",
     alignItems: "center",
     textAlign: "center",
-    gap: "24px",
+    gap: "20px",
+  },
+  topicBadge: {
+    background: "#E5FF5D",
+    color: "#C71585",
+    padding: "8px 14px",
+    fontSize: "14px",
+    fontWeight: "900",
+    border: "2px solid #111",
+    boxShadow: "3px 3px 0px #111",
+    marginBottom: "4px",
   },
   brandTitle: {
     fontSize: "14px",
@@ -108,8 +127,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     width: "100%",
   },
   heroBox: {
-    width: "160px",
-    height: "160px",
+    width: "140px",
+    height: "140px",
     borderRadius: "50%",
     border: "3px solid #E5FF5D",
     background: "transparent",
@@ -121,7 +140,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     boxShadow: "0 0 20px rgba(229, 255, 93, 0.3)",
   },
   micIcon: {
-    fontSize: "56px",
+    fontSize: "48px",
   },
   circleTextOverlay: {
     fontSize: "10px",
@@ -131,12 +150,11 @@ const styles: { [key: string]: React.CSSProperties } = {
     marginTop: "-4px",
   },
   timerBox: {
-    fontSize: "56px",
+    fontSize: "48px",
     fontWeight: "900",
     color: "#E5FF5D",
     letterSpacing: "4px",
-    fontVariantNumeric: "tabular-nums",
-    margin: "20px 0",
+    margin: "16px 0",
   },
   recordingButton: {
     width: "100%",
@@ -151,7 +169,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   mainCopy: {
     color: "#FFF",
-    fontSize: "20px",
+    fontSize: "18px",
     fontWeight: "900",
     margin: 0,
   },
