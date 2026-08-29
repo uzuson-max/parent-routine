@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 interface LandingScreenProps {
-  onStart: (initialText?: string) => void;
+  onStart: (selectedText?: string) => void;
 }
 
 const DRAFT_CHIPS = [
@@ -19,6 +19,12 @@ const DRAFT_CHIPS = [
 
 export default function LandingScreen({ onStart }: LandingScreenProps) {
   const [selectedChip, setSelectedChip] = useState<string | null>(null);
+
+  const handleChipClick = (chip: string) => {
+    // 칩을 누르면 바로 선택하고 녹음 화면으로 넘어가거나, 선택 상태만 유지할 수 있음
+    setSelectedChip(chip);
+    onStart(chip);
+  };
 
   return (
     <div style={styles.container}>
@@ -41,7 +47,7 @@ export default function LandingScreen({ onStart }: LandingScreenProps) {
           return (
             <button
               key={idx}
-              onClick={() => setSelectedChip(chip)}
+              onClick={() => handleChipClick(chip)}
               style={{
                 ...styles.chip,
                 background: isSelected ? "#E5FF5D" : "#FFF",
@@ -56,7 +62,7 @@ export default function LandingScreen({ onStart }: LandingScreenProps) {
       </div>
 
       <div style={styles.ctaArea}>
-        <button style={styles.ctaButton} onClick={() => onStart(selectedChip || undefined)}>
+        <button style={styles.ctaButton} onClick={() => onStart(selectedChip || "그냥 아무 생각이나")}>
           + 생각 하나 던지기
         </button>
         <p style={styles.footerNote}>정리할 필요 없음. 욕해도 됨.</p>
@@ -74,7 +80,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     flexDirection: "column",
     justifyContent: "space-between",
     padding: "24px 20px 36px 20px",
-    fontFamily: "monospace, sans-serif",
     boxSizing: "border-box",
   },
   headerRow: {
