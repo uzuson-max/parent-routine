@@ -105,27 +105,24 @@ export default function Home() {
         />
       )}
 
-      {step === "uploading" && (
-        <MessageScreen title="듣고 있어요..." onRestart={() => {}} />
-      )}
+      {step === "uploading" && <MessageScreen title="듣고 있어요..." onRestart={() => {}} />}
 
       {step === "no_action" && (
         <MessageScreen
-          title="오늘은 그냥 들어둘게."
+          title={uploadData?.response?.response || "오늘은 그냥 들어둘게."}
           onRestart={() => resetAll()}
         />
       )}
 
-     {step === "awaiting_confirmation" && uploadData?.analysis && (
+      {step === "awaiting_confirmation" && uploadData?.analysis && (
         <ConfirmScreen
+          reaction={uploadData?.response?.response}
           commitment={uploadData.analysis.commitment}
           commitmentType={uploadData.analysis.commitment_type}
           commitmentConfidence={uploadData.analysis.commitment_confidence}
           entryId={entryId!}
           phone={phone}
-          onDone={(kept: boolean) => {
-            setStep(kept ? "confirmed" : "no_action");
-          }}
+          onDone={(kept: boolean) => setStep(kept ? "confirmed" : "no_action")}
         />
       )}
 
@@ -151,9 +148,7 @@ export default function Home() {
         />
       )}
 
-      {step === "result" && (
-        <ResultScreen result={result} onRestart={() => resetAll()} />
-      )}
+      {step === "result" && <ResultScreen result={result} onRestart={() => resetAll()} />}
     </div>
   );
 
