@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 export default function ConfirmScreen({
+  reaction,
   commitment,
   commitmentType,
   commitmentConfidence,
@@ -10,6 +11,7 @@ export default function ConfirmScreen({
   phone,
   onDone,
 }: {
+  reaction?: string;
   commitment: string;
   commitmentType: string | null;
   commitmentConfidence: string | null;
@@ -42,6 +44,7 @@ export default function ConfirmScreen({
 
   return (
     <div style={styles.container}>
+      {reaction && <p style={styles.reaction}>{reaction}</p>}
       <p style={styles.headline}>오, 이건 기억해둘게.</p>
       <div style={styles.commitmentBox}>
         <p style={styles.commitmentText}>“{commitment}”</p>
@@ -62,6 +65,7 @@ export default function ConfirmScreen({
 
 const styles: { [key: string]: React.CSSProperties } = {
   container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 32px", textAlign: "center" },
+  reaction: { color: "#999", fontSize: 15, marginBottom: 16 },
   headline: { color: "#fff", fontSize: 22, fontWeight: 700, marginBottom: 24 },
   commitmentBox: { background: "#1a1a1f", border: "1px solid #333", borderRadius: 12, padding: "16px 20px", maxWidth: 320, marginBottom: 12 },
   commitmentText: { color: "#ffc371", fontSize: 17, lineHeight: 1.5 },
