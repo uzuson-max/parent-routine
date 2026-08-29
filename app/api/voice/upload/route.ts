@@ -1,6 +1,8 @@
+// app/api/voice/upload/route.ts
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { analyzeAndSchedule } from '@/lib/analysis';
+import { generateResponse } from '@/lib/responseEngine';
 import { sendRoutineCall } from '@/lib/twilio';
 import OpenAI from 'openai';
 
@@ -58,6 +60,7 @@ export async function POST(request: Request) {
 
     let analysisResult: any = null;
     let commitmentUntil: string | null = null;
+    let responseResult: any = null;
 
     try {
       const result = await analyzeAndSchedule(entry.id, transcript, phone, persona);
@@ -67,21 +70,26 @@ export async function POST(request: Request) {
       console.error('AI 분석 중 에러 (무시하고 진행):', analysisErr?.message);
     }
 
-    // 3가지 상태 분기
-    // no_action: 기억/개입할 내용 없음
-    // awaiting_confirmation: goal/commitment 발견됨, 사용자 확인 대기 (전화 안 함)
-    // calling_sent / call_failed: intervention_needed일 때만 즉시 전화
+    if (analysisResult) {
+      try {
+        responseResult = await generateResponse(transcript, analysisResult, phone);
+      } catch (respErr: any) {
+        console.error('Response engine 에러 (무시하고 진행):', respErr?.message);
+      }
+    }
+
+    // channel 기준으로 최종 분기 (기존 intervention_needed 단독 판단을 responseResult.channel로 대체)
     let currentCallState: string;
 
     if (!analysisResult) {
       currentCallState = 'saved_only';
-    } else if (analysisResult.intervention_needed) {
-      currentCallState = 'call_failed'; // 기본값, 아래에서 성공하면 덮어씀
+    } else if (responseResult?.channel === 'call') {
+      currentCallState = 'call_failed';
       try {
         const callResult = await sendRoutineCall({
           routineId: entry.id,
           phoneNumber: phone,
-          message: analysisResult.call_line,
+          message: responseResult.response,
         });
         if (callResult.success) {
           currentCallState = 'calling_sent';
@@ -101,7 +109,8 @@ export async function POST(request: Request) {
     const updateData: any = {
       transcript,
       analysis: analysisResult,
-      call_message: analysisResult?.call_line || null,
+      response: responseResult,
+      call_message: responseResult?.response || null,
       commitment_until: commitmentUntil,
       call_state: currentCallState,
     };
