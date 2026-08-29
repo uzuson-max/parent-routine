@@ -24,6 +24,7 @@ type Step =
 export default function Home() {
   const [step, setStep] = useState<Step>("landing");
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [selectedTopic, setSelectedTopic] = useState<string>("");
   const [phone, setPhone] = useState<string>("");
   const [entryId, setEntryId] = useState<string | null>(null);
   const [uploadData, setUploadData] = useState<any>(null);
@@ -37,6 +38,9 @@ export default function Home() {
       form.append("audio", blob, "recording.webm");
       form.append("phone", phoneNumber);
       form.append("persona", "coach");
+      if (selectedTopic) {
+        form.append("topic", selectedTopic);
+      }
 
       const res = await fetch("/api/voice/upload", { method: "POST", body: form });
       if (!res.ok) {
@@ -69,20 +73,28 @@ export default function Home() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0b0b0f" }}>
+    <div style={{ minHeight: "100vh", background: "#C71585" }}>
       {error && (
         <div style={errorBannerStyle}>
-          문제가 생겼어요: {error}
-          <button style={{ marginLeft: 12 }} onClick={() => { setError(null); setStep("landing"); }}>
+          문제가 생겼어: {error}
+          <button style={{ marginLeft: 12, background: "#111", color: "#E5FF5D", border: "none", padding: "4px 8px", cursor: "pointer", fontWeight: "bold" }} onClick={() => { setError(null); setStep("landing"); }}>
             처음으로
           </button>
         </div>
       )}
 
-      {step === "landing" && <LandingScreen onStart={() => setStep("recording")} />}
+      {step === "landing" && (
+        <LandingScreen
+          onStart={(topic?: string) => {
+            if (topic) setSelectedTopic(topic);
+            setStep("recording");
+          }}
+        />
+      )}
 
       {step === "recording" && (
         <RecordingScreen
+          initialTopic={selectedTopic}
           onFinish={(blob: Blob) => {
             setAudioBlob(blob);
             const savedPhone = typeof window !== "undefined" ? localStorage.getItem("ganseobi_phone") : null;
@@ -105,7 +117,7 @@ export default function Home() {
         />
       )}
 
-      {step === "uploading" && <MessageScreen title="듣고 있어요..." onRestart={() => {}} />}
+      {step === "uploading" && <MessageScreen title="듣고 있어..." onRestart={() => {}} />}
 
       {step === "no_action" && (
         <MessageScreen
@@ -154,6 +166,7 @@ export default function Home() {
 
   function resetAll() {
     setAudioBlob(null);
+    setSelectedTopic("");
     setEntryId(null);
     setUploadData(null);
     setResult(null);
@@ -166,10 +179,12 @@ const errorBannerStyle: React.CSSProperties = {
   top: 0,
   left: 0,
   right: 0,
-  background: "#ff3b30",
-  color: "#fff",
+  background: "#111",
+  color: "#E5FF5D",
   padding: "12px 16px",
   fontSize: 14,
   zIndex: 999,
   textAlign: "center",
+  fontWeight: "bold",
+  borderBottom: "2px solid #E5FF5D",
 };
