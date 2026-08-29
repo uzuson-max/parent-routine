@@ -1,19 +1,21 @@
+
 "use client";
 
 export default function ResultScreen({ result, onRestart }: { result: any; onRestart: () => void }) {
   if (!result) return null;
 
-  const contradictions: string[] = result.analysis?.contradictions || [];
+  const responseText: string = result.response?.response || result.call_message || "";
+  const memoryRef: string | null = result.response?.memory_reference || null;
 
   return (
     <div style={styles.container}>
-      <h2 style={styles.title}>오늘의 참견 리포트</h2>
+      <h2 style={styles.title}>방금 통화</h2>
 
       <Card label="내가 한 말" value={result.transcript} />
-      <Card label="AI가 발견한 핑계·모순" value={contradictions.join(" / ") || "-"} />
-      <Card label="오늘의 참견" value={result.call_message} highlight />
+      {memoryRef && <Card label="참견이가 떠올린 기억" value={memoryRef} />}
+      <Card label="참견이가 한 말" value={responseText} highlight />
 
-      <button style={styles.restartButton} onClick={onRestart}>오늘도 한마디 하기</button>
+      <button style={styles.restartButton} onClick={onRestart}>또 말하기</button>
     </div>
   );
 }
