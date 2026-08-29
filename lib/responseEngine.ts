@@ -1,3 +1,4 @@
+// lib/responseEngine.ts
 import { supabase } from '@/lib/supabase';
 
 type Strategy =
@@ -24,6 +25,9 @@ const PERSONALITY_PROMPT = `너는 "참견이"라는 존재야. 상담사도 비
 - 짧고 자연스럽게. 상담사/비서/선생님 말투 금지.
 - 모든 발화에 개입하거나 질문하거나 농담할 필요 없다. 아무 반응 없이 넘어가도 된다(SILENT/CASUAL).
 - 유머는 상황이 적합할 때만 (humor_opportunity가 high일 때). 사용자 감정을 무시하지 않는 선에서.
+- 사용자가 방금 실제로 쓴 단어/표현을 최소 하나는 그대로 살려서 되받아쳐라. "잘 진행되고 있어?" 같은
+  일반적인 되물음 대신, 사용자가 쓴 구체적인 단어(고유명사, 숫자, 방금 말한 상태 표현 등)를 인용해서
+  "듣고 있었다"는 게 느껴지게 반응해라. 뭉뚱그려서 일반화하지 마라.
 
 절대 금지: 외모/가족/장애·질병/인종·성별·종교 등 민감 특성 공격, 자해·극단적 선택 관련 조롱,
 정신질환 진단하듯 말하기, 과도한 욕설, 사용자의 취약점을 악의적으로 이용하는 것.
@@ -37,7 +41,6 @@ function calcRelationshipLevel(entryCount: number): number {
   return 5;
 }
 
-// 최근 24시간 / 7일 전화 발신 횟수로 전화 빈도 캡 체크
 async function canCallNow(phone: string): Promise<boolean> {
   const now = new Date();
   const day1Ago = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
@@ -59,7 +62,7 @@ async function canCallNow(phone: string): Promise<boolean> {
     .eq('call_state', 'calling_sent')
     .gte('created_at', day7Ago);
 
-  return (count7d ?? 0) < 2; // 7일 내 1회 이하일 때만 추가 허용
+  return (count7d ?? 0) < 2;
 }
 
 async function getEntryCount(phone: string): Promise<number> {
@@ -96,7 +99,7 @@ fulfilled_commitments: ${(analysis.fulfilled_commitments ?? []).join(', ') || '�
 
 지금 참견이와 사용자의 관계 단계: ${relationshipLevel} (1=처음 만남, 5=상당히 잘 아는 사이). 초기엔 너무 친한 척하지 마라.
 
-사용자가 방금 한 말: "${transcript}"
+사용자가 방금 한 말 (원문 그대로): "${transcript}"
 
 이 발화에 대한 내부 분석 결과 (사용자에게 그대로 보여주면 안 됨, 참고만 할 것):
 ${analysisBlock}
@@ -113,8 +116,11 @@ ${analysisBlock}
 5. channel을 정해라:
    - intervention_needed가 true이고 전화가 가능(YES)하면 "call"
    - 그 외엔 "text" (전화가 불가능(NO)하면 아무리 intervention이 필요해도 절대 call로 하지 마라 — text로 대체 반응해라)
-6. response: 실제로 사용자에게 보여줄/들려줄 최종 대사. 위 원칙대로 짧고 자연스럽게, 참견이 말투로.
-   channel이 call이면 전화 통화에서 읽을 멘트로 작성해라.
+6. response: 실제로 사용자에게 보여줄/들려줄 최종 대사.
+   - 반드시 사용자가 방금 한 말(위 원문)에서 실제로 등장한 단어, 숫자, 고유명사, 표현 중 최소 하나를 그대로 가져와서 문장에 녹여라.
+   - "잘 진행되고 있어?", "화이팅이야" 같이 아무 발화에나 붙일 수 있는 일반적인 문장은 쓰지 마라.
+   - 예: 사용자가 "전화 오는 것까지 트리거를 한 정도 만든 상태"라고 했다면 → "오, 전화까지 붙였구나. 그 트리거 부분이 은근 까다로웠을 텐데."처럼 원문 표현을 되받아서 반응해라.
+   - channel이 call이면 전화 통화에서 읽을 멘트로 작성해라.
 
 반드시 아래 JSON 형식으로만 답해:
 {
@@ -146,7 +152,6 @@ ${analysisBlock}
     const json = await res.json();
     const parsed = JSON.parse(json.choices[0].message.content);
 
-    // 안전장치: 모델이 규칙을 어기고 call을 골라도, canCallNow가 false면 강제로 text로 내림
     const channel: 'text' | 'call' = parsed.channel === 'call' && callAllowed ? 'call' : 'text';
 
     return {
