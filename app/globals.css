@@ -1,15 +1,19 @@
 @font-face {
   font-family: 'Yangjin';
   src: url('/yangjin.ttf') format('truetype');
-  font-weight: 900;
+  font-weight: normal;
   font-style: normal;
   font-display: swap;
+}
+
+/* 모든 태그와 컴포넌트에 양진체 강제 적용 */
+*, body, button, input, textarea, select {
+  font-family: 'Yangjin', sans-serif !important;
 }
 
 body {
   margin: 0;
   padding: 0;
-  font-family: 'Yangjin', sans-serif;
   background-color: #C71585;
   color: #FFF;
   box-sizing: border-box;
