@@ -1,4 +1,4 @@
-// lib/responseEngine.ts
+
 import { supabase } from '@/lib/supabase';
 
 type Strategy =
@@ -73,14 +73,24 @@ async function getEntryCount(phone: string): Promise<number> {
   return count ?? 0;
 }
 
+async function fetchNickname(phone: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('user_memory')
+    .select('nickname')
+    .eq('user_phone', phone)
+    .maybeSingle();
+  return data?.nickname ?? null;
+}
+
 export async function generateResponse(
   transcript: string,
   analysis: any,
   phone: string
 ): Promise<ResponseResult> {
-  const [entryCount, callAllowed] = await Promise.all([
+  const [entryCount, callAllowed, nickname] = await Promise.all([
     getEntryCount(phone),
     canCallNow(phone),
+    fetchNickname(phone),
   ]);
   const relationshipLevel = calcRelationshipLevel(entryCount);
 
@@ -95,9 +105,20 @@ intervention_needed: ${analysis.intervention_needed}
 intervention_reason: ${analysis.intervention_reason ?? '없음'}
 fulfilled_commitments: ${(analysis.fulfilled_commitments ?? []).join(', ') || '없음'}`;
 
+  const nicknameBlock = nickname
+    ? `
+사용자 닉네임: "${nickname}"
+이름 사용 원칙:
+- 이름은 필요한 순간에만 써라. 일반적인 답변엔 생략해라.
+- 중요한 개입, 전화, 친밀한 순간에만 자연스럽게 써라.
+- 문장 맨 앞에 억지로 이름을 붙이지 마라. ("${nickname}아, 오늘 운동 목표를 설정했구나" 같은 건 나쁨)
+- 자연스러운 예: "${nickname}아. 이건 좀 얘기하자." (개입 상황에서만)`
+    : '';
+
   const systemPrompt = `${PERSONALITY_PROMPT}
 
 지금 참견이와 사용자의 관계 단계: ${relationshipLevel} (1=처음 만남, 5=상당히 잘 아는 사이). 초기엔 너무 친한 척하지 마라.
+${nicknameBlock}
 
 사용자가 방금 한 말 (원문 그대로): "${transcript}"
 
@@ -119,7 +140,7 @@ ${analysisBlock}
 6. response: 실제로 사용자에게 보여줄/들려줄 최종 대사.
    - 반드시 사용자가 방금 한 말(위 원문)에서 실제로 등장한 단어, 숫자, 고유명사, 표현 중 최소 하나를 그대로 가져와서 문장에 녹여라.
    - "잘 진행되고 있어?", "화이팅이야" 같이 아무 발화에나 붙일 수 있는 일반적인 문장은 쓰지 마라.
-   - 예: 사용자가 "전화 오는 것까지 트리거를 한 정도 만든 상태"라고 했다면 → "오, 전화까지 붙였구나. 그 트리거 부분이 은근 까다로웠을 텐데."처럼 원문 표현을 되받아서 반응해라.
+   - 닉네임이 주어졌다면 위 이름 사용 원칙을 따라라. 없으면 이름 없이 자연스럽게.
    - channel이 call이면 전화 통화에서 읽을 멘트로 작성해라.
 
 반드시 아래 JSON 형식으로만 답해:
