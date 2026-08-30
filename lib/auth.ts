@@ -19,3 +19,14 @@ export async function getUserIdFromRequest(request: Request): Promise<string | n
   }
   return data.user.id;
 }
+
+// 기존에 verifyAuth로 임포트하던 파일들이 있다면 호환을 위해 추가
+export async function verifyAuth(authHeader?: string | null): Promise<{ id: string } | null> {
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  const token = authHeader.slice("Bearer ".length);
+
+  const client = createClient(url, anonKey);
+  const { data, error } = await client.auth.getUser(token);
+  if (error || !data?.user) return null;
+  return data.user;
+}
