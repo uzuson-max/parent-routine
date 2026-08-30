@@ -3,25 +3,41 @@
 
 import { useState } from "react";
 
-export default function PhoneInputScreen({ onSubmit }: { onSubmit: (phone: string) => void }) {
+function normalizePhone(raw: string): string {
+  return raw.replace(/[^0-9]/g, "");
+}
+
+export default function PhoneInputScreen({
+  onSubmit,
+  titleLines = ["번호를 남겨두면", "참견이가 필요할 때 전화할게."],
+  subhead = "한 번만 물어볼게, 다음부턴 안 물어봐.",
+  buttonLabel = "됐어",
+}: {
+  onSubmit: (phone: string) => void;
+  titleLines?: string[];
+  subhead?: string;
+  buttonLabel?: string;
+}) {
   const [phone, setPhone] = useState("");
 
   const submit = () => {
+    const normalized = normalizePhone(phone);
     if (typeof window !== "undefined") {
-      localStorage.setItem("ganseobi_phone", phone);
+      localStorage.setItem("ganseobi_phone", normalized);
     }
-    onSubmit(phone);
+    onSubmit(normalized);
   };
 
   return (
     <div style={styles.container}>
-      <p style={styles.headline}>번호를 남겨두면</p>
-      <p style={styles.headline}>참견이가 필요할 때 전화할게.</p>
-      <p style={styles.subhead}>한 번만 물어볼게, 다음부턴 안 물어봐.</p>
+      {titleLines.map((line, i) => (
+        <p key={i} style={styles.headline}>{line}</p>
+      ))}
+      {subhead && <p style={styles.subhead}>{subhead}</p>}
 
       <input style={styles.input} type="tel" placeholder="010-0000-0000" value={phone} onChange={(e) => setPhone(e.target.value)} />
 
-      <button style={styles.button} disabled={!phone} onClick={submit}>됐어</button>
+      <button style={styles.button} disabled={!phone} onClick={submit}>{buttonLabel}</button>
     </div>
   );
 }
