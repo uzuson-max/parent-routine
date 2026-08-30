@@ -132,12 +132,13 @@ export default function Home() {
 
       {step === "uploading" && <MessageScreen title="듣고 있어..." onRestart={() => {}} />}
 
-      {step === "no_action" && (
-        <MessageScreen
-          title={uploadData?.response?.response || "오늘은 그냥 들어둘게."}
-          onRestart={() => resetAll()}
-        />
-      )}
+     {step === "no_action" && (
+  <MessageScreen
+    title={uploadData?.response?.response || "오늘은 그냥 들어둘게."}
+    transcriptPreview={uploadData?.transcript}
+    onRestart={() => resetAll()}
+  />
+)}
 
       {step === "awaiting_confirmation" && uploadData?.analysis && (
         <ConfirmScreen
