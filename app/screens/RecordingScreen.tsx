@@ -1,3 +1,4 @@
+// app/screens/RecordingScreen.tsx (전체)
 "use client";
 
 import { useRef, useState } from "react";
@@ -44,17 +45,15 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
   return (
     <div style={styles.container}>
       <div style={styles.contentWrapper}>
-        {/* 첫 화면에서 골라온 주제를 상단에 노출 */}
         <div style={styles.topicBadge}>
           🎯 {initialTopic ? `"${initialTopic}"` : "생각 털어놓기"}
         </div>
 
-        <div style={styles.brandTitle}>{isRecording ? "REC RUNNING..." : "READY TO DROP"}</div>
-        
+        {isRecording && <div style={styles.brandTitle}>● 듣는 중</div>}
+
         {!isRecording ? (
           <div style={styles.heroBox} onClick={start}>
             <span style={styles.micIcon}>🎙</span>
-            <div style={styles.circleTextOverlay}>TAP TO RECORD</div>
           </div>
         ) : (
           <div style={styles.timerBox}>
@@ -65,10 +64,10 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
         {isRecording ? (
           <>
             <button style={styles.recordingButton} onClick={stop}>
-              ■ 그만 말할래 (제출)
+              ■ 그만 말할래
             </button>
-            <p style={styles.mainCopy}>듣고 있어요.</p>
-            <p style={styles.subCopy}>정리해서 말할 필요 없어요. 욕해도 됨.</p>
+            <p style={styles.mainCopy}>듣고 있어.</p>
+            <p style={styles.subCopy}>정리해서 말할 필요 없어. 욕해도 됨.</p>
           </>
         ) : (
           <>
@@ -88,94 +87,14 @@ function formatTime(s: number) {
 }
 
 const styles: { [key: string]: React.CSSProperties } = {
-  container: {
-    minHeight: "100vh",
-    background: "#C71585",
-    color: "#E5FF5D",
-    display: "flex",
-    flexDirection: "column",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: "24px",
-  },
-  contentWrapper: {
-    width: "100%",
-    maxWidth: "380px",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    textAlign: "center",
-    gap: "20px",
-  },
-  topicBadge: {
-    background: "#E5FF5D",
-    color: "#C71585",
-    padding: "8px 14px",
-    fontSize: "14px",
-    fontWeight: "900",
-    border: "2px solid #111",
-    boxShadow: "3px 3px 0px #111",
-    marginBottom: "4px",
-  },
-  brandTitle: {
-    fontSize: "14px",
-    letterSpacing: "3px",
-    fontWeight: "900",
-    color: "#E5FF5D",
-    borderBottom: "2px dashed #E5FF5D",
-    paddingBottom: "8px",
-    width: "100%",
-  },
-  heroBox: {
-    width: "140px",
-    height: "140px",
-    borderRadius: "50%",
-    border: "3px solid #E5FF5D",
-    background: "transparent",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    boxShadow: "0 0 20px rgba(229, 255, 93, 0.3)",
-  },
-  micIcon: {
-    fontSize: "48px",
-  },
-  circleTextOverlay: {
-    fontSize: "10px",
-    fontWeight: "bold",
-    color: "#FFF",
-    letterSpacing: "1px",
-    marginTop: "-4px",
-  },
-  timerBox: {
-    fontSize: "48px",
-    fontWeight: "900",
-    color: "#E5FF5D",
-    letterSpacing: "4px",
-    margin: "16px 0",
-  },
-  recordingButton: {
-    width: "100%",
-    padding: "16px",
-    border: "2px solid #111",
-    background: "#E5FF5D",
-    color: "#C71585",
-    fontSize: "16px",
-    fontWeight: "900",
-    cursor: "pointer",
-    boxShadow: "3px 3px 0px #111",
-  },
-  mainCopy: {
-    color: "#FFF",
-    fontSize: "18px",
-    fontWeight: "900",
-    margin: 0,
-  },
-  subCopy: {
-    color: "rgba(255, 255, 255, 0.7)",
-    fontSize: "13px",
-    margin: 0,
-  },
+  container: { minHeight: "100vh", background: "#C71585", color: "#E5FF5D", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "24px" },
+  contentWrapper: { width: "100%", maxWidth: "380px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: "20px" },
+  topicBadge: { background: "#E5FF5D", color: "#C71585", padding: "8px 14px", fontSize: "14px", fontWeight: "900", border: "2px solid #111", boxShadow: "3px 3px 0px #111", marginBottom: "4px" },
+  brandTitle: { fontSize: "13px", fontWeight: "700", color: "#E5FF5D", width: "100%" },
+  heroBox: { width: "140px", height: "140px", borderRadius: "50%", border: "3px solid #E5FF5D", background: "transparent", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 0 20px rgba(229, 255, 93, 0.3)" },
+  micIcon: { fontSize: "48px" },
+  timerBox: { fontSize: "48px", fontWeight: "900", color: "#E5FF5D", letterSpacing: "4px", margin: "16px 0" },
+  recordingButton: { width: "100%", padding: "16px", border: "2px solid #111", background: "#E5FF5D", color: "#C71585", fontSize: "16px", fontWeight: "900", cursor: "pointer", boxShadow: "3px 3px 0px #111" },
+  mainCopy: { color: "#FFF", fontSize: "18px", fontWeight: "900", margin: 0 },
+  subCopy: { color: "rgba(255, 255, 255, 0.7)", fontSize: "13px", margin: 0 },
 };
