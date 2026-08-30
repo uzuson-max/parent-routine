@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import TimelineScreen from "./screens/TimelineScreen"; // 새로 만든 v0.2 타임라인 메인 화면
 import LandingScreen from "./screens/LandingScreen";
 import RecordingScreen from "./screens/RecordingScreen";
 import PhoneInputScreen from "./screens/PhoneInputScreen";
@@ -10,7 +11,8 @@ import CallingScreen from "./screens/CallingScreen";
 import ResultScreen from "./screens/ResultScreen";
 
 type Step =
-  | "landing"
+  | "landing"          // 이제 여기서 TimelineScreen을 메인으로 보여줌
+  | "raw_landing"      // 기존 LandingScreen이 필요할 경우 대비용
   | "recording"
   | "phone_input"
   | "uploading"
@@ -83,7 +85,18 @@ export default function Home() {
         </div>
       )}
 
+      {/* v0.2 핵심: 첫 진입 화면을 '내 삶을 구경하는 TimelineScreen'으로 설정 */}
       {step === "landing" && (
+        <TimelineScreen
+          onOpenRecording={() => {
+            setSelectedTopic("");
+            setStep("recording");
+          }}
+        />
+      )}
+
+      {/* 기존 LandingScreen이 필요할 때를 위한 백업 라우트 */}
+      {step === "raw_landing" && (
         <LandingScreen
           onStart={(topic?: string) => {
             if (topic) setSelectedTopic(topic);
