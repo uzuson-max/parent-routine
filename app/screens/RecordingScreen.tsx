@@ -1,4 +1,3 @@
-// app/screens/RecordingScreen.tsx (전체)
 "use client";
 
 import { useRef, useState } from "react";
