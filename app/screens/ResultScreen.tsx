@@ -15,7 +15,7 @@ export default function ResultScreen({ result, onRestart }: { result: any; onRes
       {memoryRef && <Card label="참견이가 떠올린 기억" value={memoryRef} />}
       <Card label="참견이가 한 말" value={responseText} highlight />
 
-      <button style={styles.restartButton} onClick={onRestart}>또 말하기</button>
+      <button style={styles.restartButton} onClick={onRestart}>또 말할래</button>
     </div>
   );
 }
