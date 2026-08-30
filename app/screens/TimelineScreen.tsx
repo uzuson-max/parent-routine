@@ -1,11 +1,9 @@
 "use client";
 
-import { useState } from "react";
-
 interface TimelineItem {
   id: string;
   date: string;
-  type: "GOAL" | "EVENT" | "TASK" | "PATTERN";
+  type: string;
   title: string;
   subText: string;
   sourceText?: string;
@@ -13,41 +11,13 @@ interface TimelineItem {
 
 interface TimelineScreenProps {
   onOpenRecording: () => void;
+  items?: TimelineItem[]; // 실제 부모에서 전달받을 AI 추출 아이템들
 }
 
-// 더미 데이터 (실제 연동 시 Supabase에서 가져올 데이터)
-const DUMMY_TIMELINE: TimelineItem[] = [
-  {
-    id: "1",
-    date: "08.29",
-    type: "GOAL",
-    title: "킥복싱",
-    subText: "이번 달 3회 목표 (현재 1회)",
-    sourceText: "이번 달에는 적어도 세 번은 가야지.",
-  },
-  {
-    id: "2",
-    date: "08.27",
-    type: "EVENT",
-    title: "엄마와 저녁",
-    subText: "금요일 저녁 약속",
-    sourceText: "금요일에 엄마랑 저녁 먹기로 함.",
-  },
-  {
-    id: "3",
-    date: "08.25",
-    type: "PATTERN",
-    title: "또 미루는 중?",
-    subText: "이번 주에만 '내일부터' 3번 나옴",
-  },
-];
-
-export default function TimelineScreen({ onOpenRecording }: TimelineScreenProps) {
-  const [activeTab, setActiveTab] = useState<"ALL" | "THREAD">("ALL");
-
+export default function TimelineScreen({ onOpenRecording, items = [] }: TimelineScreenProps) {
   return (
     <div style={styles.container}>
-      {/* 상단 헤더: 글로벌한 비주얼 + 한국어 툭 던지는 톤 */}
+      {/* 상단 헤더 */}
       <div style={styles.header}>
         <div>
           <span style={styles.badge}>GANSEOBI_ARCHIVE</span>
@@ -56,58 +26,56 @@ export default function TimelineScreen({ onOpenRecording }: TimelineScreenProps)
         <div style={styles.dateStamp}>08.30 SUN</div>
       </div>
 
-      {/* 참견이의 툭 던지는 관찰 코멘트 */}
+      {/* 참견이의 관찰 코멘트 (데이터가 있을 때와 없을 때 분기) */}
       <div style={styles.commentBox}>
         <span style={styles.commentTag}>참견이의 관찰</span>
         <p style={styles.commentText}>
-          &quot;운동 간다더니 이번 주에 벌써 세 번째 말만 바꾸네?&quot;
+          {items.length > 0
+            ? `"요즘 기록이 좀 쌓였네? 너 요즘 바쁘다?"`
+            : `"아직 아무 말도 안 했어. 조용하네."`}
         </p>
       </div>
 
       {/* 탭 전환 */}
       <div style={styles.tabRow}>
-        <button
-          onClick={() => setActiveTab("ALL")}
-          style={{
-            ...styles.tabBtn,
-            background: activeTab === "ALL" ? "#E5FF5D" : "transparent",
-            color: activeTab === "ALL" ? "#C71585" : "#FFF",
-          }}
-        >
+        <button style={{ ...styles.tabBtn, background: "#E5FF5D", color: "#C71585" }}>
           기록 타임라인
         </button>
-        <button
-          onClick={() => setActiveTab("THREAD")}
-          style={{
-            ...styles.tabBtn,
-            background: activeTab === "THREAD" ? "#E5FF5D" : "transparent",
-            color: activeTab === "THREAD" ? "#C71585" : "#FFF",
-          }}
-        >
+        <button style={{ ...styles.tabBtn, background: "transparent", color: "#FFF" }}>
           기억 Thread 🧵
         </button>
       </div>
 
-      {/* 타임라인 리스트 (생산성 앱 느낌 배제, 힙한 카드 형태) */}
+      {/* 타임라인 리스트 또는 빈 상태(Empty State) */}
       <div style={styles.listContainer}>
-        {DUMMY_TIMELINE.map((item) => (
-          <div key={item.id} style={styles.card}>
-            <div style={styles.cardTopRow}>
-              <span style={styles.cardDate}>{item.date}</span>
-              <span style={styles.cardTypeBadge}>{item.type}</span>
-            </div>
-            <h3 style={styles.cardTitle}>{item.title}</h3>
-            <p style={styles.cardSub}>{item.subText}</p>
-            {item.sourceText && (
-              <div style={styles.sourceBox}>
-                &ldquo;{item.sourceText}&rdquo;
-              </div>
-            )}
+        {items.length === 0 ? (
+          <div style={styles.emptyCard}>
+            <p style={styles.emptyTitle}>비어 있음</p>
+            <p style={styles.emptySub}>
+              아직 AI가 주워간 정보가 없어.<br />
+              아래 버튼을 눌러서 오늘 있었던 일이나 계획을 툭 뱉어봐.
+            </p>
           </div>
-        ))}
+        ) : (
+          items.map((item, index) => (
+            <div key={item.id || index} style={styles.card}>
+              <div style={styles.cardTopRow}>
+                <span style={styles.cardDate}>{item.date}</span>
+                <span style={styles.cardTypeBadge}>{item.type}</span>
+              </div>
+              <h3 style={styles.cardTitle}>{item.title}</h3>
+              <p style={styles.cardSub}>{item.subText}</p>
+              {item.sourceText && (
+                <div style={styles.sourceBox}>
+                  &ldquo;{item.sourceText}&rdquo;
+                </div>
+              )}
+            </div>
+          ))
+        )}
       </div>
 
-      {/* 하단 플로팅 녹음 버튼 (핵심 루프 진입점) */}
+      {/* 하단 플로팅 녹음 버튼 */}
       <div style={styles.floatingArea}>
         <button style={styles.floatingButton} onClick={onOpenRecording}>
           <span style={styles.micIcon}>🎙</span>
@@ -191,6 +159,26 @@ const styles: { [key: string]: React.CSSProperties } = {
     display: "flex",
     flexDirection: "column",
     gap: "12px",
+  },
+  emptyCard: {
+    background: "#FFF",
+    color: "#1E1E1E",
+    border: "2px solid #111",
+    padding: "30px 20px",
+    boxShadow: "4px 4px 0px #111",
+    textAlign: "center",
+  },
+  emptyTitle: {
+    fontSize: "18px",
+    fontWeight: "900",
+    margin: "0 0 8px 0",
+  },
+  emptySub: {
+    fontSize: "13px",
+    color: "#666",
+    margin: 0,
+    lineHeight: "1.4",
+    fontWeight: "bold",
   },
   card: {
     background: "#FFF",
