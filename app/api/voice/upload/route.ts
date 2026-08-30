@@ -1,7 +1,10 @@
+
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { getUserIdFromRequest } from '@/lib/auth';
 import { analyzeAndSchedule } from '@/lib/analysis';
 import { generateResponse } from '@/lib/responseEngine';
+import { updateUserMemory } from '@/lib/memoryEngine';
 import { sendRoutineCall } from '@/lib/twilio';
 import OpenAI from 'openai';
 
@@ -9,13 +12,36 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 export async function POST(request: Request) {
   try {
+    const userId = await getUserIdFromRequest(request);
+    if (!userId) {
+      return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+    }
+
     const formData = await request.formData();
     const audio = formData.get('audio') as File;
-    const phone = formData.get('phone') as string;
+    const phoneFromForm = (formData.get('phone') as string) || null; // 이제 선택값 — 없어도 녹음은 된다
     const persona = (formData.get('persona') as string) || 'coach';
 
-    if (!audio || !phone) {
-      return NextResponse.json({ success: false, error: '오디오와 전화번호가 필요합니다.' }, { status: 400 });
+    if (!audio) {
+      return NextResponse.json({ success: false, error: '오디오가 필요합니다.' }, { status: 400 });
+    }
+
+    // 이 계정에 이미 저장된 닉네임/전화번호 조회 (없어도 정상 진행)
+    const { data: userMemory } = await supabase
+      .from('user_memory')
+      .select('nickname, phone_number')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    const effectivePhone = phoneFromForm || userMemory?.phone_number || null;
+
+    // 폼으로 새 번호가 들어왔고, 저장된 값과 다르면 계정에 반영해둔다
+    if (phoneFromForm && phoneFromForm !== userMemory?.phone_number) {
+      await supabase.from('user_memory').upsert({
+        user_id: userId,
+        phone_number: phoneFromForm,
+        updated_at: new Date().toISOString(),
+      });
     }
 
     const fileName = `${Date.now()}-${crypto.randomUUID()}.webm`;
@@ -34,7 +60,7 @@ export async function POST(request: Request) {
 
     const { data: entry, error: insertError } = await supabase
       .from('voice_entries')
-      .insert({ user_phone: phone, audio_url: audioUrl, persona, call_state: 'pending' })
+      .insert({ user_id: userId, user_phone: effectivePhone, audio_url: audioUrl, persona, call_state: 'pending' })
       .select()
       .single();
 
@@ -62,7 +88,7 @@ export async function POST(request: Request) {
     let responseResult: any = null;
 
     try {
-      const result = await analyzeAndSchedule(entry.id, transcript, phone, persona);
+      const result = await analyzeAndSchedule(entry.id, transcript, userId, persona);
       analysisResult = result.analysis;
       commitmentUntil = result.commitmentUntil;
     } catch (analysisErr: any) {
@@ -71,33 +97,44 @@ export async function POST(request: Request) {
 
     if (analysisResult) {
       try {
-        responseResult = await generateResponse(transcript, analysisResult, phone);
+        responseResult = await generateResponse(transcript, analysisResult, userId);
       } catch (respErr: any) {
         console.error('Response engine 에러 (무시하고 진행):', respErr?.message);
       }
+
+      try {
+        await updateUserMemory(userId, analysisResult.detected_pattern ?? undefined, analysisResult.excuse ?? undefined);
+      } catch (memErr: any) {
+        console.error('user_memory 업데이트 실패 (무시하고 진행):', memErr?.message);
+      }
     }
 
-    // channel 기준으로 최종 분기 (기존 intervention_needed 단독 판단을 responseResult.channel로 대체)
     let currentCallState: string;
 
     if (!analysisResult) {
       currentCallState = 'saved_only';
     } else if (responseResult?.channel === 'call') {
-      currentCallState = 'call_failed';
-      try {
-        const callResult = await sendRoutineCall({
-          routineId: entry.id,
-          phoneNumber: phone,
-          message: responseResult.response,
-        });
-        if (callResult.success) {
-          currentCallState = 'calling_sent';
-          console.log('트윌로 전화 발신 성공:', callResult.sid);
-        } else {
-          console.error('트윌로 전화 발신 실패:', callResult.error);
+      if (!effectivePhone) {
+        // 전화가 필요한 순간인데 저장된 번호가 없음 — 여기서 발신 로직 자체는 건드리지 않고,
+        // 프론트에서 번호를 받은 뒤 /api/user/phone이 같은 sendRoutineCall을 호출하게 넘긴다.
+        currentCallState = 'awaiting_phone';
+      } else {
+        currentCallState = 'call_failed';
+        try {
+          const callResult = await sendRoutineCall({
+            routineId: entry.id,
+            phoneNumber: effectivePhone,
+            message: responseResult.response,
+          });
+          if (callResult.success) {
+            currentCallState = 'calling_sent';
+            console.log('트윌로 전화 발신 성공:', callResult.sid);
+          } else {
+            console.error('트윌로 전화 발신 실패:', callResult.error);
+          }
+        } catch (callErr: any) {
+          console.error('전화 발신 중 예외 발생:', callErr?.message);
         }
-      } catch (callErr: any) {
-        console.error('전화 발신 중 예외 발생:', callErr?.message);
       }
     } else if (analysisResult.goal || analysisResult.commitment) {
       currentCallState = 'awaiting_confirmation';
