@@ -12,15 +12,19 @@ import MessageScreen from "./screens/MessageScreen";
 import CallingScreen from "./screens/CallingScreen";
 import ResultScreen from "./screens/ResultScreen";
 import NicknameScreen from "./screens/NicknameScreen";
-import CalendarScreen from "./screens/CalendarScreen"; // 캘린더 화면 임포트 추가
+import CalendarScreen from "./screens/CalendarScreen";
+import OnboardingScreen from "./screens/OnboardingScreen"; // 온보딩 화면 임포트 추가
+
+const ONBOARDING_KEY = "ganseobi_onboarding_completed"; // 첫 실행 온보딩 표시 여부 저장 키
 
 type Step =
+  | "onboarding"        // 최초 1회 온보딩 스텝 추가
   | "landing"          
   | "raw_landing"      
   | "recording"
   | "phone_input"
   | "nickname"         
-  | "calendar"          // 캘린더 스텝 추가
+  | "calendar"          
   | "uploading"
   | "no_action"
   | "awaiting_confirmation"
@@ -40,7 +44,6 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<RecordEntry[] | null>(null);
 
-  // 백엔드에서 타임라인 기록들을 조회하는 함수
   const fetchEntries = async () => {
     try {
       const { data: { session } } = await supabaseClient.auth.getSession();
@@ -55,9 +58,13 @@ export default function Home() {
     }
   };
 
-  // 앱 진입 시 세션이 없으면 익명 세션 생성 후 기록 조회
+  // 앱 진입 시: 온보딩 미완료면 온보딩부터 보여주고, 세션이 없으면 익명 세션 생성 후 기록 조회
   useEffect(() => {
     const ensureSession = async () => {
+      if (typeof window !== "undefined" && !localStorage.getItem(ONBOARDING_KEY)) {
+        setStep("onboarding");
+      }
+
       const { data: { session } } = await supabaseClient.auth.getSession();
       if (!session) {
         const { error } = await supabaseClient.auth.signInAnonymously();
@@ -68,7 +75,6 @@ export default function Home() {
     ensureSession();
   }, []);
 
-  // landing 스텝으로 돌아올 때마다 새 기록 반영을 위해 목록 다시 조회
   useEffect(() => {
     if (step === "landing") fetchEntries();
   }, [step]);
@@ -137,7 +143,15 @@ export default function Home() {
         </div>
       )}
 
-      {/* 타임라인 메인 화면에 entries 데이터 전달 및 캘린더 진입 핸들러 연결 */}
+      {step === "onboarding" && (
+        <OnboardingScreen
+          onComplete={() => {
+            if (typeof window !== "undefined") localStorage.setItem(ONBOARDING_KEY, "1");
+            setStep("landing");
+          }}
+        />
+      )}
+
       {step === "landing" && (
         <TimelineScreen
           entries={entries}
@@ -149,7 +163,6 @@ export default function Home() {
         />
       )}
 
-      {/* 캘린더 화면 추가 */}
       {step === "calendar" && (
         <CalendarScreen
           entries={entries}
@@ -264,7 +277,21 @@ export default function Home() {
         />
       )}
 
-      {step === "result" && <ResultScreen result={result} onRestart={() => resetAll()} />}
+      {step === "result" && (
+        <ResultScreen
+          result={result}
+          onRestart={() => resetAll()}
+          onHome={() => {
+            // 뒤로가기와 다르게 명확한 홈 이동: 상태 초기화 후 landing으로 바로 이동
+            setAudioBlob(null);
+            setSelectedTopic("");
+            setEntryId(null);
+            setUploadData(null);
+            setResult(null);
+            setStep("landing");
+          }}
+        />
+      )}
     </div>
   );
 
