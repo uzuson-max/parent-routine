@@ -1,4 +1,3 @@
-
 import { supabase } from '@/lib/supabase';
 
 type Strategy =
@@ -41,7 +40,10 @@ function calcRelationshipLevel(entryCount: number): number {
   return 5;
 }
 
-async function canCallNow(phone: string): Promise<boolean> {
+// 이전엔 user_phone 기준으로 조회했는데, STEP1에서 user_id 도입 이후
+// voice_entries/user_memory가 전부 user_id 기준으로 바뀌었음에도 여기만 안 바뀌어 있었음.
+// 그 결과 매번 매치되는 행이 없어 항상 0건/false로 나오던 버그를 수정.
+async function canCallNow(userId: string): Promise<boolean> {
   const now = new Date();
   const day1Ago = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   const day7Ago = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -49,7 +51,7 @@ async function canCallNow(phone: string): Promise<boolean> {
   const { count: count24h } = await supabase
     .from('voice_entries')
     .select('id', { count: 'exact', head: true })
-    .eq('user_phone', phone)
+    .eq('user_id', userId)
     .eq('call_state', 'calling_sent')
     .gte('created_at', day1Ago);
 
@@ -58,26 +60,26 @@ async function canCallNow(phone: string): Promise<boolean> {
   const { count: count7d } = await supabase
     .from('voice_entries')
     .select('id', { count: 'exact', head: true })
-    .eq('user_phone', phone)
+    .eq('user_id', userId)
     .eq('call_state', 'calling_sent')
     .gte('created_at', day7Ago);
 
   return (count7d ?? 0) < 2;
 }
 
-async function getEntryCount(phone: string): Promise<number> {
+async function getEntryCount(userId: string): Promise<number> {
   const { count } = await supabase
     .from('voice_entries')
     .select('id', { count: 'exact', head: true })
-    .eq('user_phone', phone);
+    .eq('user_id', userId);
   return count ?? 0;
 }
 
-async function fetchNickname(phone: string): Promise<string | null> {
+async function fetchNickname(userId: string): Promise<string | null> {
   const { data } = await supabase
     .from('user_memory')
     .select('nickname')
-    .eq('user_phone', phone)
+    .eq('user_id', userId)
     .maybeSingle();
   return data?.nickname ?? null;
 }
@@ -85,12 +87,12 @@ async function fetchNickname(phone: string): Promise<string | null> {
 export async function generateResponse(
   transcript: string,
   analysis: any,
-  phone: string
+  userId: string
 ): Promise<ResponseResult> {
   const [entryCount, callAllowed, nickname] = await Promise.all([
-    getEntryCount(phone),
-    canCallNow(phone),
-    fetchNickname(phone),
+    getEntryCount(userId),
+    canCallNow(userId),
+    fetchNickname(userId),
   ]);
   const relationshipLevel = calcRelationshipLevel(entryCount);
 
