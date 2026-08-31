@@ -1,9 +1,8 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
-import TimelineScreen from "./screens/TimelineScreen"; // 새로 만든 v0.2 타임라인 메인 화면
+import TimelineScreen, { type RecordEntry } from "./screens/TimelineScreen"; // RecordEntry 타입 및 타임라인 메인 화면 임포트
 import LandingScreen from "./screens/LandingScreen";
 import RecordingScreen from "./screens/RecordingScreen";
 import PhoneInputScreen from "./screens/PhoneInputScreen";
@@ -11,14 +10,14 @@ import ConfirmScreen from "./screens/ConfirmScreen";
 import MessageScreen from "./screens/MessageScreen";
 import CallingScreen from "./screens/CallingScreen";
 import ResultScreen from "./screens/ResultScreen";
-import NicknameScreen from "./screens/NicknameScreen"; // 닉네임 화면 추가
+import NicknameScreen from "./screens/NicknameScreen";
 
 type Step =
-  | "landing"          // 이제 여기서 TimelineScreen을 메인으로 보여줌
-  | "raw_landing"      // 기존 LandingScreen이 필요할 경우 대비용
+  | "landing"          
+  | "raw_landing"      
   | "recording"
   | "phone_input"
-  | "nickname"         // 닉네임 입력 단계 추가
+  | "nickname"         
   | "uploading"
   | "no_action"
   | "awaiting_confirmation"
@@ -36,8 +35,24 @@ export default function Home() {
   const [uploadData, setUploadData] = useState<any>(null);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
+  const [entries, setEntries] = useState<RecordEntry[] | null>(null); // entries 상태 추가
 
-  // 앱 진입 시 세션이 없으면 익명 세션 생성
+  // 백엔드에서 타임라인 기록들을 조회하는 함수
+  const fetchEntries = async () => {
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) return;
+      const res = await fetch("/api/user/entries", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const body = await res.json();
+      if (body.success) setEntries(body.data);
+    } catch (e) {
+      console.error("[Home] fetch entries failed:", e);
+    }
+  };
+
+  // 앱 진입 시 세션이 없으면 익명 세션 생성 후 기록 조회
   useEffect(() => {
     const ensureSession = async () => {
       const { data: { session } } = await supabaseClient.auth.getSession();
@@ -45,14 +60,19 @@ export default function Home() {
         const { error } = await supabaseClient.auth.signInAnonymously();
         if (error) console.error("[auth] 익명 로그인 실패:", error.message);
       }
+      fetchEntries();
     };
     ensureSession();
   }, []);
 
+  // landing 스텝으로 돌아올 때마다 새 기록 반영을 위해 목록 다시 조회
+  useEffect(() => {
+    if (step === "landing") fetchEntries();
+  }, [step]);
+
   const doUpload = async (phoneNumber: string, blob: Blob) => {
     setStep("uploading");
     try {
-      // 업로드 직전에 현재 세션 토큰을 가져온다
       const { data: { session } } = await supabaseClient.auth.getSession();
       if (!session) {
         throw new Error("로그인 세션을 만들지 못했습니다. 새로고침 후 다시 시도해주세요.");
@@ -69,7 +89,7 @@ export default function Home() {
       const res = await fetch("/api/voice/upload", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${session.access_token}`, // 인증 토큰 첨부
+          Authorization: `Bearer ${session.access_token}`,
         },
         body: form,
       });
@@ -114,9 +134,10 @@ export default function Home() {
         </div>
       )}
 
-      {/* v0.2 핵심: 첫 진입 화면을 '내 삶을 구경하는 TimelineScreen'으로 설정 */}
+      {/* 타임라인 메인 화면에 entries 데이터 전달 */}
       {step === "landing" && (
         <TimelineScreen
+          entries={entries}
           onOpenRecording={() => {
             setSelectedTopic("");
             setStep("recording");
@@ -124,7 +145,6 @@ export default function Home() {
         />
       )}
 
-      {/* 기존 LandingScreen이 필요할 때를 위한 백업 라우트 */}
       {step === "raw_landing" && (
         <LandingScreen
           onStart={(topic?: string) => {
@@ -159,7 +179,6 @@ export default function Home() {
         />
       )}
 
-      {/* 닉네임 입력 화면 추가 */}
       {step === "nickname" && (
         <NicknameScreen
           onSubmit={async (nickname: string) => {
@@ -244,7 +263,6 @@ export default function Home() {
     setUploadData(null);
     setResult(null);
 
-    // 첫 인터랙션이 끝나고 처음으로 돌아갈 때 닉네임을 아직 안 물어봤다면 1번만 띄움
     const alreadyAsked = typeof window !== "undefined" && localStorage.getItem("ganseobi_nickname_asked");
     if (!alreadyAsked) {
       setStep("nickname");
