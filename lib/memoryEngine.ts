@@ -56,3 +56,20 @@ export async function buildCallOpening(userId: string): Promise<string | null> {
   if (data.recurring_topics?.length) return `요즘 ${data.recurring_topics[data.recurring_topics.length - 1]} 얘기 자주 하더라.`;
   return null;
 }
+
+export async function saveNickname(userId: string, nickname: string) {
+  if (!userId) {
+    console.error('[memoryEngine] saveNickname called without userId');
+    return { success: false, error: 'no userId' };
+  }
+  const { error } = await supabase.from('user_memory').upsert({
+    user_id: userId,
+    nickname,
+    updated_at: new Date().toISOString(),
+  });
+  if (error) {
+    console.error('[memoryEngine] saveNickname failed:', error.message);
+    return { success: false, error: error.message };
+  }
+  return { success: true };
+}
