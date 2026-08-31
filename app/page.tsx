@@ -1,6 +1,8 @@
+
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabaseClient } from "@/lib/supabaseClient";
 import TimelineScreen from "./screens/TimelineScreen"; // 새로 만든 v0.2 타임라인 메인 화면
 import LandingScreen from "./screens/LandingScreen";
 import RecordingScreen from "./screens/RecordingScreen";
@@ -33,9 +35,27 @@ export default function Home() {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // 앱 진입 시 세션이 없으면 익명 세션 생성
+  useEffect(() => {
+    const ensureSession = async () => {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        const { error } = await supabaseClient.auth.signInAnonymously();
+        if (error) console.error("[auth] 익명 로그인 실패:", error.message);
+      }
+    };
+    ensureSession();
+  }, []);
+
   const doUpload = async (phoneNumber: string, blob: Blob) => {
     setStep("uploading");
     try {
+      // 업로드 직전에 현재 세션 토큰을 가져온다
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        throw new Error("로그인 세션을 만들지 못했습니다. 새로고침 후 다시 시도해주세요.");
+      }
+
       const form = new FormData();
       form.append("audio", blob, "recording.webm");
       form.append("phone", phoneNumber);
@@ -44,7 +64,14 @@ export default function Home() {
         form.append("topic", selectedTopic);
       }
 
-      const res = await fetch("/api/voice/upload", { method: "POST", body: form });
+      const res = await fetch("/api/voice/upload", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.access_token}`, // 인증 토큰 첨부
+        },
+        body: form,
+      });
+
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `upload API ${res.status}`);
@@ -132,13 +159,13 @@ export default function Home() {
 
       {step === "uploading" && <MessageScreen title="듣고 있어..." onRestart={() => {}} />}
 
-     {step === "no_action" && (
-  <MessageScreen
-    title={uploadData?.response?.response || "오늘은 그냥 들어둘게."}
-    transcriptPreview={uploadData?.transcript}
-    onRestart={() => resetAll()}
-  />
-)}
+      {step === "no_action" && (
+        <MessageScreen
+          title={uploadData?.response?.response || "오늘은 그냥 들어둘게."}
+          transcriptPreview={uploadData?.transcript}
+          onRestart={() => resetAll()}
+        />
+      )}
 
       {step === "awaiting_confirmation" && uploadData?.analysis && (
         <ConfirmScreen
