@@ -1,30 +1,29 @@
 
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
 import { getUserIdFromRequest } from '@/lib/auth';
+import { saveNickname } from '@/lib/memoryEngine';
 
 export async function POST(request: Request) {
-  const userId = await getUserIdFromRequest(request);
-  if (!userId) {
-    return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+  try {
+    const userId = await getUserIdFromRequest(request);
+    if (!userId) {
+      return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const nickname = (body?.nickname ?? '').toString().trim().slice(0, 20);
+    if (!nickname) {
+      return NextResponse.json({ success: false, error: '닉네임이 필요합니다.' }, { status: 400 });
+    }
+
+    const result = await saveNickname(userId, nickname);
+    if (!result.success) {
+      return NextResponse.json({ success: false, error: result.error }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, nickname });
+  } catch (err: any) {
+    console.error('[api/user/nickname] 서버 에러:', err);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
-
-  const { nickname } = await request.json();
-  const trimmed = typeof nickname === 'string' ? nickname.trim().slice(0, 20) : '';
-  if (!trimmed) {
-    return NextResponse.json({ success: false, error: 'nickname이 필요합니다.' }, { status: 400 });
-  }
-
-  const { error } = await supabase.from('user_memory').upsert({
-    user_id: userId,
-    nickname: trimmed,
-    updated_at: new Date().toISOString(),
-  });
-
-  if (error) {
-    console.error('[user/nickname] upsert failed:', error.message);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ success: true, nickname: trimmed });
 }
