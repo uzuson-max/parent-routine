@@ -5,12 +5,12 @@ interface AnalysisResult {
   summary: string;
   goal: string | null;
   commitment: string | null;
-  commitment_type: 'explicit' | 'inferred' | null;   // 명시적 선언 vs 의지 표현 유추
+  commitment_type: 'explicit' | 'inferred' | null;
   commitment_confidence: 'high' | 'medium' | 'low' | null;
   excuse: string | null;
   emotion: string | null;
   intervention_needed: boolean;
-  intervention_reason: string | null; // repeated_excuse | repeated_unfulfilled_commitment | deadline_approaching | contradiction_detected 등
+  intervention_reason: string | null;
   call_line: string;
   tone: 'playful' | 'firm';
   contradictions: string[];
@@ -42,12 +42,13 @@ function toKoreanWeekday(iso: string): string {
   return days[d.getDay()] + '요일';
 }
 
-async function fetchActiveCommitments(phone: string, excludeEntryId?: string): Promise<ActiveCommitment[]> {
+// phone → userId 기준으로 변경 (STEP1 이후 voice_entries가 user_id를 갖게 됐는데 여기만 안 바뀌어 있었음)
+async function fetchActiveCommitments(userId: string, excludeEntryId?: string): Promise<ActiveCommitment[]> {
   const now = new Date().toISOString();
   let query = supabase
     .from('voice_entries')
     .select('id, target_goal, created_at, commitment_until')
-    .eq('user_phone', phone)
+    .eq('user_id', userId)
     .eq('goal_status', 'active')
     .not('target_goal', 'is', null)
     .neq('target_goal', '')
@@ -70,11 +71,11 @@ async function fetchActiveCommitments(phone: string, excludeEntryId?: string): P
   }));
 }
 
-async function fetchUnfulfilledCommitmentMemories(phone: string): Promise<{ id: string; commitment: string }[]> {
+async function fetchUnfulfilledCommitmentMemories(userId: string): Promise<{ id: string; commitment: string }[]> {
   const { data, error } = await supabase
     .from('commitment_memory')
     .select('id, commitment')
-    .eq('user_phone', phone)
+    .eq('user_id', userId)
     .eq('fulfilled', false)
     .order('created_at', { ascending: false })
     .limit(5);
@@ -86,11 +87,11 @@ async function fetchUnfulfilledCommitmentMemories(phone: string): Promise<{ id: 
   return (data ?? []).filter((r: any) => r.commitment);
 }
 
-async function fetchTopPatterns(phone: string): Promise<{ pattern: string; occurrence_count: number }[]> {
+async function fetchTopPatterns(userId: string): Promise<{ pattern: string; occurrence_count: number }[]> {
   const { data, error } = await supabase
     .from('pattern_memory')
     .select('pattern, occurrence_count')
-    .eq('user_phone', phone)
+    .eq('user_id', userId)
     .order('occurrence_count', { ascending: false })
     .limit(3);
 
@@ -211,146 +212,3 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
       summary: parsed.summary ?? '',
       goal: parsed.goal ?? null,
       commitment: parsed.commitment ?? null,
-      commitment_type: parsed.commitment_type ?? null,
-      commitment_confidence: parsed.commitment_confidence ?? null,
-      excuse: parsed.excuse ?? null,
-      emotion: parsed.emotion ?? null,
-      intervention_needed: parsed.intervention_needed ?? false,
-      intervention_reason: parsed.intervention_reason ?? null,
-      call_line: parsed.call_line ?? '',
-      tone: parsed.tone ?? 'playful',
-      contradictions: parsed.contradictions ?? [],
-      goal_matched: parsed.goal_matched ?? false,
-      matched_commitment_id: parsed.matched_commitment_id ?? null,
-      new_commitments: parsed.new_commitments ?? [],
-      context_facts: parsed.context_facts ?? [],
-      detected_pattern: parsed.detected_pattern ?? null,
-      fulfilled_commitments: parsed.fulfilled_commitments ?? [],
-    };
-  } catch (err) {
-    console.error('[callGPT] 분석 중 오류 발생:', err);
-    return {
-      type: 'none',
-      summary: transcript ? `${transcript.slice(0, 20)}...` : '내용 없음',
-      goal: null,
-      commitment: null,
-      commitment_type: null,
-      commitment_confidence: null,
-      excuse: null,
-      emotion: null,
-      intervention_needed: false,
-      intervention_reason: null,
-      call_line: '',
-      tone: 'playful',
-      contradictions: [],
-      goal_matched: false,
-      matched_commitment_id: null,
-      new_commitments: [],
-      context_facts: [],
-      detected_pattern: null,
-      fulfilled_commitments: [],
-    };
-  }
-}
-
-// 사용자 확인 없이 자동으로 저장해도 되는 것들만 처리 (event_memory, pattern_memory, 완료 처리)
-// commitment_memory에 새 약속을 넣는 건 여기서 하지 않는다 — 사용자가 "기억해둬"를 눌러야 확정된다.
-async function storeAutoMemories(
-  entryId: string,
-  phone: string,
-  analysis: AnalysisResult,
-  unfulfilledMemories: { id: string; commitment: string }[]
-) {
-  if (analysis.context_facts.length > 0) {
-    const rows = analysis.context_facts.map((c) => ({
-      voice_entry_id: entryId,
-      user_phone: phone,
-      content: c,
-    }));
-    const { error } = await supabase.from('event_memory').insert(rows);
-    if (error) console.error('[analysis] event_memory insert failed:', error.message);
-  }
-
-  if (analysis.detected_pattern) {
-    const { data: existing, error: fetchError } = await supabase
-      .from('pattern_memory')
-      .select('id, occurrence_count')
-      .eq('user_phone', phone)
-      .eq('pattern', analysis.detected_pattern)
-      .maybeSingle();
-
-    if (fetchError) {
-      console.error('[analysis] pattern_memory fetch failed:', fetchError.message);
-    } else if (existing) {
-      const { error } = await supabase
-        .from('pattern_memory')
-        .update({ occurrence_count: (existing.occurrence_count ?? 0) + 1, updated_at: new Date().toISOString() })
-        .eq('id', existing.id);
-      if (error) console.error('[analysis] pattern_memory update failed:', error.message);
-    } else {
-      const { error } = await supabase.from('pattern_memory').insert({
-        user_phone: phone,
-        pattern: analysis.detected_pattern,
-        occurrence_count: 1,
-        updated_at: new Date().toISOString(),
-      });
-      if (error) console.error('[analysis] pattern_memory insert failed:', error.message);
-    }
-  }
-
-  if (analysis.fulfilled_commitments.length > 0 && unfulfilledMemories.length > 0) {
-    const matchedIds = unfulfilledMemories
-      .filter((m) => analysis.fulfilled_commitments.includes(m.commitment))
-      .map((m) => m.id);
-    if (matchedIds.length > 0) {
-      const { error } = await supabase.from('commitment_memory').update({ fulfilled: true }).in('id', matchedIds);
-      if (error) console.error('[analysis] commitment_memory fulfilled update failed:', error.message);
-    }
-  }
-}
-
-// 사용자가 "기억해둬"를 눌렀을 때만 호출 — 여기서 처음 commitment_memory에 실제로 저장된다.
-export async function confirmCommitment(
-  entryId: string,
-  phone: string,
-  commitment: string,
-  commitmentType: 'explicit' | 'inferred' | null,
-  commitmentConfidence: 'high' | 'medium' | 'low' | null
-) {
-  const { error } = await supabase.from('commitment_memory').insert({
-    voice_entry_id: entryId,
-    user_phone: phone,
-    commitment,
-    fulfilled: false,
-  });
-  if (error) {
-    console.error('[analysis] confirmCommitment insert failed:', error.message);
-    throw error;
-  }
-  // commitment_type/confidence는 참고 로그로만 남김 (테이블에 컬럼 추가 전까지는 voice_entries.analysis에 이미 있음)
-  return { commitment, commitmentType, commitmentConfidence };
-}
-
-export async function analyzeAndSchedule(entryId: string, transcript: string, phone: string, persona: string) {
-  const activeCommitments = await fetchActiveCommitments(phone, entryId);
-  const unfulfilledMemories = await fetchUnfulfilledCommitmentMemories(phone);
-  const topPatterns = await fetchTopPatterns(phone);
-
-  const analysis = await callGPT(transcript, persona, activeCommitments, unfulfilledMemories, topPatterns);
-
-  await storeAutoMemories(entryId, phone, analysis, unfulfilledMemories);
-
-  const commitmentUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
-  return { analysis, commitmentUntil };
-}
-
-export async function expireOldCommitments() {
-  const now = new Date().toISOString();
-  const { error } = await supabase
-    .from('voice_entries')
-    .update({ goal_status: 'expired' })
-    .eq('goal_status', 'active')
-    .lt('commitment_until', now);
-  if (error) console.error('[analysis] expireOldCommitments failed:', error.message);
-}
