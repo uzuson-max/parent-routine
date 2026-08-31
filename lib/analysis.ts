@@ -1,3 +1,4 @@
+
 import { supabase } from '@/lib/supabase';
 
 interface AnalysisResult {
@@ -212,3 +213,161 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
       summary: parsed.summary ?? '',
       goal: parsed.goal ?? null,
       commitment: parsed.commitment ?? null,
+      commitment_type: parsed.commitment_type ?? null,
+      commitment_confidence: parsed.commitment_confidence ?? null,
+      excuse: parsed.excuse ?? null,
+      emotion: parsed.emotion ?? null,
+      intervention_needed: parsed.intervention_needed ?? false,
+      intervention_reason: parsed.intervention_reason ?? null,
+      call_line: parsed.call_line ?? '',
+      tone: parsed.tone ?? 'playful',
+      contradictions: parsed.contradictions ?? [],
+      goal_matched: parsed.goal_matched ?? false,
+      matched_commitment_id: parsed.matched_commitment_id ?? null,
+      new_commitments: parsed.new_commitments ?? [],
+      context_facts: parsed.context_facts ?? [],
+      detected_pattern: parsed.detected_pattern ?? null,
+      fulfilled_commitments: parsed.fulfilled_commitments ?? [],
+    };
+  } catch (err) {
+    console.error('[callGPT] 분석 중 오류 발생:', err);
+    return {
+      type: 'none',
+      summary: transcript ? `${transcript.slice(0, 20)}...` : '내용 없음',
+      goal: null,
+      commitment: null,
+      commitment_type: null,
+      commitment_confidence: null,
+      excuse: null,
+      emotion: null,
+      intervention_needed: false,
+      intervention_reason: null,
+      call_line: '',
+      tone: 'playful',
+      contradictions: [],
+      goal_matched: false,
+      matched_commitment_id: null,
+      new_commitments: [],
+      context_facts: [],
+      detected_pattern: null,
+      fulfilled_commitments: [],
+    };
+  }
+}
+
+async function storeAutoMemories(
+  entryId: string,
+  userId: string,
+  analysis: AnalysisResult,
+  unfulfilledMemories: { id: string; commitment: string }[]
+) {
+  if (analysis.context_facts.length > 0) {
+    const rows = analysis.context_facts.map((c) => ({
+      voice_entry_id: entryId,
+      user_id: userId,
+      content: c,
+    }));
+    const { error } = await supabase.from('event_memory').insert(rows);
+    if (error) console.error('[analysis] event_memory insert failed:', error.message);
+  }
+
+  if (analysis.detected_pattern) {
+    const { data: existing, error: fetchError } = await supabase
+      .from('pattern_memory')
+      .select('id, occurrence_count')
+      .eq('user_id', userId)
+      .eq('pattern', analysis.detected_pattern)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error('[analysis] pattern_memory fetch failed:', fetchError.message);
+    } else if (existing) {
+      const { error } = await supabase
+        .from('pattern_memory')
+        .update({ occurrence_count: (existing.occurrence_count ?? 0) + 1, updated_at: new Date().toISOString() })
+        .eq('id', existing.id);
+      if (error) console.error('[analysis] pattern_memory update failed:', error.message);
+    } else {
+      const { error } = await supabase.from('pattern_memory').insert({
+        user_id: userId,
+        pattern: analysis.detected_pattern,
+        occurrence_count: 1,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) console.error('[analysis] pattern_memory insert failed:', error.message);
+    }
+  }
+
+  if (analysis.fulfilled_commitments.length > 0 && unfulfilledMemories.length > 0) {
+    const matchedIds = unfulfilledMemories
+      .filter((m) => analysis.fulfilled_commitments.includes(m.commitment))
+      .map((m) => m.id);
+    if (matchedIds.length > 0) {
+      // 완료 처리 + progress_count도 함께 1 증가 (target_count 있는 반복형 약속 대비)
+      for (const id of matchedIds) {
+        const { data: row } = await supabase
+          .from('commitment_memory')
+          .select('progress_count, target_count')
+          .eq('id', id)
+          .maybeSingle();
+        const nextProgress = (row?.progress_count ?? 0) + 1;
+        const isFullyDone = !row?.target_count || nextProgress >= row.target_count;
+        const { error } = await supabase
+          .from('commitment_memory')
+          .update({ progress_count: nextProgress, fulfilled: isFullyDone })
+          .eq('id', id);
+        if (error) console.error('[analysis] commitment_memory progress update failed:', error.message);
+      }
+    }
+  }
+}
+
+// 사용자가 "기억해둬"를 눌렀을 때만 호출
+export async function confirmCommitment(
+  entryId: string,
+  userId: string,
+  phone: string | null,
+  commitment: string,
+  commitmentType: 'explicit' | 'inferred' | null,
+  commitmentConfidence: 'high' | 'medium' | 'low' | null,
+  targetCount: number | null = null
+) {
+  const { error } = await supabase.from('commitment_memory').insert({
+    voice_entry_id: entryId,
+    user_id: userId,
+    user_phone: phone,
+    commitment,
+    fulfilled: false,
+    target_count: targetCount,
+    progress_count: 0,
+  });
+  if (error) {
+    console.error('[analysis] confirmCommitment insert failed:', error.message);
+    throw error;
+  }
+  return { commitment, commitmentType, commitmentConfidence };
+}
+
+export async function analyzeAndSchedule(entryId: string, transcript: string, userId: string, persona: string) {
+  const activeCommitments = await fetchActiveCommitments(userId, entryId);
+  const unfulfilledMemories = await fetchUnfulfilledCommitmentMemories(userId);
+  const topPatterns = await fetchTopPatterns(userId);
+
+  const analysis = await callGPT(transcript, persona, activeCommitments, unfulfilledMemories, topPatterns);
+
+  await storeAutoMemories(entryId, userId, analysis, unfulfilledMemories);
+
+  const commitmentUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  return { analysis, commitmentUntil };
+}
+
+export async function expireOldCommitments() {
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from('voice_entries')
+    .update({ goal_status: 'expired' })
+    .eq('goal_status', 'active')
+    .lt('commitment_until', now);
+  if (error) console.error('[analysis] expireOldCommitments failed:', error.message);
+}
