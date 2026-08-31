@@ -11,7 +11,8 @@ export interface RecordEntry {
 
 interface TimelineScreenProps {
   onOpenRecording: () => void;
-  entries: RecordEntry[] | null; // null = 아직 로딩 중
+  onOpenCalendar: () => void;
+  entries: RecordEntry[] | null;
 }
 
 function formatDateTime(iso: string): string {
@@ -28,7 +29,7 @@ function truncate(text: string, max: number): string {
   return clean.length > max ? clean.slice(0, max) + "…" : clean;
 }
 
-export default function TimelineScreen({ onOpenRecording, entries }: TimelineScreenProps) {
+export default function TimelineScreen({ onOpenRecording, onOpenCalendar, entries }: TimelineScreenProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
@@ -38,6 +39,9 @@ export default function TimelineScreen({ onOpenRecording, entries }: TimelineScr
           <span style={styles.badge}>GANSEOBI_ARCHIVE</span>
           <h1 style={styles.headerTitle}>요즘 뭐 하고 살지?</h1>
         </div>
+        <button style={styles.calendarBtn} onClick={onOpenCalendar} title="캘린더 보기">
+          📅
+        </button>
       </div>
 
       <div style={styles.commentBox}>
@@ -133,30 +137,9 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: "28px", fontWeight: "900", margin: "6px 0 0 0",
     letterSpacing: "-0.5px", textShadow: "2px 2px 0px #111",
   },
-  commentBox: { background: "#1E1E1E", border: "2px solid #E5FF5D", padding: "14px", boxShadow: "4px 4px 0px #111" },
-  commentTag: { fontSize: "10px", fontWeight: "900", color: "#E5FF5D", letterSpacing: "1px", textTransform: "uppercase" },
-  commentText: { fontSize: "15px", fontWeight: "bold", margin: "6px 0 0 0", color: "#FFF" },
-  tabRow: { display: "flex", gap: "8px", marginTop: "4px" },
-  tabBtn: { flex: 1, padding: "10px", border: "2px solid #111", fontWeight: "900", fontSize: "13px", cursor: "pointer", boxShadow: "3px 3px 0px #111" },
-  listContainer: { display: "flex", flexDirection: "column", gap: "12px" },
-  loadingCard: { background: "#FFF", color: "#1E1E1E", border: "2px solid #111", padding: "24px 20px", boxShadow: "4px 4px 0px #111", textAlign: "center" },
-  loadingText: { fontSize: "14px", fontWeight: "bold", margin: 0, color: "#888" },
-  emptyCard: { background: "#FFF", color: "#1E1E1E", border: "2px solid #111", padding: "30px 20px", boxShadow: "4px 4px 0px #111", textAlign: "center" },
-  emptyTitle: { fontSize: "18px", fontWeight: "900", margin: "0 0 8px 0" },
-  emptySub: { fontSize: "13px", color: "#666", margin: 0, lineHeight: "1.4", fontWeight: "bold" },
-  card: { background: "#FFF", color: "#1E1E1E", border: "2px solid #111", padding: "16px", boxShadow: "4px 4px 0px #111", cursor: "pointer" },
-  cardTopRow: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" },
-  cardDate: { fontSize: "11px", fontWeight: "900", color: "#888" },
-  sectionLabel: { fontSize: "11px", fontWeight: "900", color: "#C71585", margin: "0 0 2px 0", letterSpacing: "0.5px" },
-  sectionLabelResponse: { fontSize: "11px", fontWeight: "900", color: "#111", margin: "10px 0 2px 0", letterSpacing: "0.5px" },
-  transcriptText: { fontSize: "14px", color: "#333", margin: 0, lineHeight: "1.5", fontStyle: "italic" },
-  responseTextStyle: { fontSize: "14px", color: "#111", margin: 0, lineHeight: "1.5", fontWeight: "bold" },
-  expandHint: { fontSize: "11px", color: "#999", margin: "10px 0 0 0", textAlign: "right" },
-  floatingArea: { position: "fixed", bottom: "24px", left: "50%", transform: "translateX(-50%)", width: "calc(100% - 40px)", maxWidth: "380px", zIndex: 100 },
-  floatingButton: {
-    width: "100%", background: "#E5FF5D", color: "#C71585", border: "3px solid #111",
-    boxShadow: "4px 4px 0px #111", padding: "16px", fontSize: "16px", fontWeight: "900",
-    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
-  },
-  micIcon: { fontSize: "18px" },
-};
+  calendarBtn: {
+    background: "#1E1E1E",
+    border: "2px solid #E5FF5D",
+    color: "#E5FF5D",
+    fontSize: "16px",
+    width: "36px",
