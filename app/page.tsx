@@ -1,8 +1,9 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
-import TimelineScreen, { type RecordEntry } from "./screens/TimelineScreen"; // RecordEntry 타입 및 타임라인 메인 화면 임포트
+import TimelineScreen, { type RecordEntry } from "./screens/TimelineScreen";
 import LandingScreen from "./screens/LandingScreen";
 import RecordingScreen from "./screens/RecordingScreen";
 import PhoneInputScreen from "./screens/PhoneInputScreen";
@@ -11,6 +12,7 @@ import MessageScreen from "./screens/MessageScreen";
 import CallingScreen from "./screens/CallingScreen";
 import ResultScreen from "./screens/ResultScreen";
 import NicknameScreen from "./screens/NicknameScreen";
+import CalendarScreen from "./screens/CalendarScreen"; // 캘린더 화면 임포트 추가
 
 type Step =
   | "landing"          
@@ -18,6 +20,7 @@ type Step =
   | "recording"
   | "phone_input"
   | "nickname"         
+  | "calendar"          // 캘린더 스텝 추가
   | "uploading"
   | "no_action"
   | "awaiting_confirmation"
@@ -35,7 +38,7 @@ export default function Home() {
   const [uploadData, setUploadData] = useState<any>(null);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [entries, setEntries] = useState<RecordEntry[] | null>(null); // entries 상태 추가
+  const [entries, setEntries] = useState<RecordEntry[] | null>(null);
 
   // 백엔드에서 타임라인 기록들을 조회하는 함수
   const fetchEntries = async () => {
@@ -134,14 +137,23 @@ export default function Home() {
         </div>
       )}
 
-      {/* 타임라인 메인 화면에 entries 데이터 전달 */}
+      {/* 타임라인 메인 화면에 entries 데이터 전달 및 캘린더 진입 핸들러 연결 */}
       {step === "landing" && (
         <TimelineScreen
           entries={entries}
+          onOpenCalendar={() => setStep("calendar")}
           onOpenRecording={() => {
             setSelectedTopic("");
             setStep("recording");
           }}
+        />
+      )}
+
+      {/* 캘린더 화면 추가 */}
+      {step === "calendar" && (
+        <CalendarScreen
+          entries={entries}
+          onBack={() => setStep("landing")}
         />
       )}
 
