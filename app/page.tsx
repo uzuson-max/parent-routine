@@ -13,18 +13,19 @@ import CallingScreen from "./screens/CallingScreen";
 import ResultScreen from "./screens/ResultScreen";
 import NicknameScreen from "./screens/NicknameScreen";
 import CalendarScreen from "./screens/CalendarScreen";
-import OnboardingScreen from "./screens/OnboardingScreen"; // 온보딩 화면 임포트 추가
+import OnboardingScreen from "./screens/OnboardingScreen";
+import ThinkingScreen from "./screens/ThinkingScreen"; // 👈 1. 상단 import에 추가 완료!
 
-const ONBOARDING_KEY = "ganseobi_onboarding_completed"; // 첫 실행 온보딩 표시 여부 저장 키
+const ONBOARDING_KEY = "ganseobi_onboarding_completed";
 
 type Step =
-  | "onboarding"        // 최초 1회 온보딩 스텝 추가
+  | "onboarding"       
   | "landing"          
   | "raw_landing"      
   | "recording"
   | "phone_input"
   | "nickname"         
-  | "calendar"          
+  | "calendar"         
   | "uploading"
   | "no_action"
   | "awaiting_confirmation"
@@ -58,7 +59,6 @@ export default function Home() {
     }
   };
 
-  // 앱 진입 시: 온보딩 미완료면 온보딩부터 보여주고, 세션이 없으면 익명 세션 생성 후 기록 조회
   useEffect(() => {
     const ensureSession = async () => {
       if (typeof window !== "undefined" && !localStorage.getItem(ONBOARDING_KEY)) {
@@ -233,7 +233,8 @@ export default function Home() {
         />
       )}
 
-      {step === "uploading" && <MessageScreen title="듣고 있어..." onRestart={() => {}} />}
+      {/* 👈 2. 기존 MessageScreen 대신 ThinkingScreen으로 교체 완료! */}
+      {step === "uploading" && <ThinkingScreen />}
 
       {step === "no_action" && (
         <MessageScreen
@@ -282,7 +283,6 @@ export default function Home() {
           result={result}
           onRestart={() => resetAll()}
           onHome={() => {
-            // 뒤로가기와 다르게 명확한 홈 이동: 상태 초기화 후 landing으로 바로 이동
             setAudioBlob(null);
             setSelectedTopic("");
             setEntryId(null);
