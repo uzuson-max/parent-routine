@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -9,10 +10,19 @@ export interface RecordEntry {
   responseText: string | null;
 }
 
+// 진행 중인 commitment/goal 하이라이트 — 현재는 데이터 소스(API)가 없어 optional.
+// 향후 commitment_memory 요약을 내려주는 엔드포인트가 생기면 page.tsx에서 이 prop을 채워주면 됨.
+export interface MemoryHighlight {
+  title: string;
+  progressLabel: string; // 예: "1 / 3", "진행 중"
+}
+
 interface TimelineScreenProps {
   onOpenRecording: () => void;
   onOpenCalendar: () => void;
   entries: RecordEntry[] | null;
+  nickname?: string | null;
+  memoryHighlight?: MemoryHighlight | null;
 }
 
 function formatDateTime(iso: string): string {
@@ -29,37 +39,45 @@ function truncate(text: string, max: number): string {
   return clean.length > max ? clean.slice(0, max) + "…" : clean;
 }
 
-export default function TimelineScreen({ onOpenRecording, onOpenCalendar, entries }: TimelineScreenProps) {
+export default function TimelineScreen({
+  onOpenRecording,
+  onOpenCalendar,
+  entries,
+  nickname,
+  memoryHighlight,
+}: TimelineScreenProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
     <div style={styles.container}>
-      <div style={styles.header}>
-        <div>
-          <span style={styles.badge}>GANSEOBI_ARCHIVE</span>
-          <h1 style={styles.headerTitle}>요즘 뭐 하고 살지?</h1>
+      {/* TOP */}
+      <div style={styles.topSection}>
+        <span style={styles.eyebrow}>{nickname ? `HEY, ${nickname}` : "HEY"}</span>
+        <h1 style={styles.greeting}>
+          {nickname ? `${nickname}, 오늘은 뭐 얘기할래?` : "오늘은 뭐 얘기할래?"}
+        </h1>
+      </div>
+
+      {/* MAIN CTA — 화면에서 가장 큰 행동 */}
+      <button style={styles.mainCta} onClick={onOpenRecording}>
+        <span style={styles.ctaMic}>🎙️</span>
+        <span style={styles.ctaText}>아무 말이나 해.</span>
+        <span style={styles.ctaLabel}>TALK TO ME</span>
+      </button>
+
+      {/* MEMORY — 데이터 있을 때만 노출 */}
+      {memoryHighlight && (
+        <div style={styles.memoryCard}>
+          <span style={styles.memoryLabel}>MEMORY</span>
+          <p style={styles.memoryTitle}>{memoryHighlight.title}</p>
+          <p style={styles.memoryProgress}>{memoryHighlight.progressLabel}</p>
         </div>
-        <button style={styles.calendarBtn} onClick={onOpenCalendar} title="캘린더 보기">
-          📅
-        </button>
-      </div>
+      )}
 
-      <div style={styles.commentBox}>
-        <span style={styles.commentTag}>참견이의 관찰</span>
-        <p style={styles.commentText}>
-          {entries && entries.length > 0
-            ? `"요즘 기록이 좀 쌓였네? 너 요즘 바쁘다?"`
-            : `"아직 아무 말도 안 했어. 조용하네."`}
-        </p>
-      </div>
-
-      <div style={styles.tabRow}>
-        <button style={{ ...styles.tabBtn, background: "#E5FF5D", color: "#C71585" }}>
-          기록 타임라인
-        </button>
-        <button style={{ ...styles.tabBtn, background: "transparent", color: "#FFF" }}>
-          기억 Thread 🧵
-        </button>
+      {/* RECENT */}
+      <div style={styles.recentHeader}>
+        <span style={styles.sectionEyebrow}>RECENT</span>
+        <h2 style={styles.recentTitle}>최근에 한 말</h2>
       </div>
 
       <div style={styles.listContainer}>
@@ -70,7 +88,7 @@ export default function TimelineScreen({ onOpenRecording, onOpenCalendar, entrie
         ) : entries.length === 0 ? (
           <div style={styles.emptyCard}>
             <p style={styles.emptyTitle}>아직 네 얘기가 없어.</p>
-            <p style={styles.emptySub}>가서 뭐라도 말해봐.</p>
+            <p style={styles.emptySub}>위에 눌러서 뭐라도 말해봐.</p>
           </div>
         ) : (
           entries.map((entry) => {
@@ -107,10 +125,25 @@ export default function TimelineScreen({ onOpenRecording, onOpenCalendar, entrie
         )}
       </div>
 
-      <div style={styles.floatingArea}>
-        <button style={styles.floatingButton} onClick={onOpenRecording}>
-          <span style={styles.micIcon}>🎙</span>
-          <span>말하러 가기</span>
+      <div style={{ height: "76px" }} />
+
+      {/* NAVIGATION */}
+      <div style={styles.bottomNav}>
+        <div style={{ ...styles.navItem, ...styles.navItemActive }}>
+          <span style={styles.navIcon}>🏠</span>
+          <span style={styles.navText}>HOME</span>
+        </div>
+        <button style={styles.navItem} onClick={onOpenCalendar}>
+          <span style={styles.navIcon}>📅</span>
+          <span style={styles.navText}>기록</span>
+        </button>
+        <button
+          style={styles.navItem}
+          onClick={onOpenCalendar}
+          title="Memory 전용 화면은 아직 없어서 우선 캘린더로 연결됨"
+        >
+          <span style={styles.navIcon}>🧵</span>
+          <span style={styles.navText}>MEMORY</span>
         </button>
       </div>
     </div>
@@ -122,61 +155,66 @@ const styles: { [key: string]: React.CSSProperties } = {
     minHeight: "100vh",
     background: "#C71585",
     color: "#FFF",
-    padding: "20px 20px 100px 20px",
+    padding: "24px 20px 0 20px",
     boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
     gap: "16px",
   },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" },
-  badge: {
-    fontSize: "10px",
+  topSection: { display: "flex", flexDirection: "column", gap: "4px" },
+  eyebrow: {
+    fontSize: "11px",
     fontWeight: "900",
     letterSpacing: "1.5px",
-    background: "#E5FF5D",
-    color: "#C71585",
-    padding: "2px 6px",
+    color: "rgba(255,255,255,0.65)",
   },
-  headerTitle: {
-    fontSize: "28px",
+  greeting: {
+    fontSize: "26px",
     fontWeight: "900",
-    margin: "6px 0 0 0",
+    margin: 0,
     letterSpacing: "-0.5px",
+    lineHeight: 1.3,
     textShadow: "2px 2px 0px #111",
   },
-  calendarBtn: {
-    background: "#1E1E1E",
-    border: "2px solid #E5FF5D",
-    color: "#E5FF5D",
-    fontSize: "16px",
-    width: "36px",
-    height: "36px",
+  mainCta: {
+    width: "100%",
+    background: "#E5FF5D",
+    color: "#C71585",
+    border: "3px solid #111",
+    boxShadow: "4px 4px 0px #111",
+    padding: "22px 16px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "4px",
     cursor: "pointer",
   },
-  commentBox: {
+  ctaMic: { fontSize: "30px" },
+  ctaText: { fontSize: "18px", fontWeight: "900" },
+  ctaLabel: { fontSize: "10px", fontWeight: "900", letterSpacing: "1.5px", opacity: 0.7 },
+  memoryCard: {
     background: "#1E1E1E",
     border: "2px solid #E5FF5D",
     padding: "14px",
     boxShadow: "4px 4px 0px #111",
   },
-  commentTag: {
+  memoryLabel: {
     fontSize: "10px",
     fontWeight: "900",
     color: "#E5FF5D",
-    letterSpacing: "1px",
-    textTransform: "uppercase",
+    letterSpacing: "1.5px",
   },
-  commentText: { fontSize: "15px", fontWeight: "bold", margin: "6px 0 0 0", color: "#FFF" },
-  tabRow: { display: "flex", gap: "8px", marginTop: "4px" },
-  tabBtn: {
-    flex: 1,
-    padding: "10px",
-    border: "2px solid #111",
+  memoryTitle: { fontSize: "15px", fontWeight: "900", color: "#FFF", margin: "6px 0 2px 0" },
+  memoryProgress: { fontSize: "13px", color: "rgba(255,255,255,0.7)", margin: 0, fontWeight: "bold" },
+  recentHeader: { display: "flex", flexDirection: "column", gap: "2px", marginTop: "4px" },
+  sectionEyebrow: {
+    fontSize: "10px",
     fontWeight: "900",
-    fontSize: "13px",
-    cursor: "pointer",
-    boxShadow: "3px 3px 0px #111",
+    letterSpacing: "1.5px",
+    color: "rgba(255,255,255,0.5)",
   },
+  recentTitle: { fontSize: "16px", fontWeight: "900", margin: 0, color: "#FFF" },
   listContainer: { display: "flex", flexDirection: "column", gap: "12px" },
   loadingCard: {
     background: "#FFF",
@@ -229,29 +267,29 @@ const styles: { [key: string]: React.CSSProperties } = {
   transcriptText: { fontSize: "14px", color: "#333", margin: 0, lineHeight: "1.5", fontStyle: "italic" },
   responseTextStyle: { fontSize: "14px", color: "#111", margin: 0, lineHeight: "1.5", fontWeight: "bold" },
   expandHint: { fontSize: "11px", color: "#999", margin: "10px 0 0 0", textAlign: "right" },
-  floatingArea: {
+  bottomNav: {
     position: "fixed",
-    bottom: "24px",
-    left: "50%",
-    transform: "translateX(-50%)",
-    width: "calc(100% - 40px)",
-    maxWidth: "380px",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    background: "#111",
+    borderTop: "2px solid #E5FF5D",
+    display: "flex",
     zIndex: 100,
   },
-  floatingButton: {
-    width: "100%",
-    background: "#E5FF5D",
-    color: "#C71585",
-    border: "3px solid #111",
-    boxShadow: "4px 4px 0px #111",
-    padding: "16px",
-    fontSize: "16px",
-    fontWeight: "900",
-    cursor: "pointer",
+  navItem: {
+    flex: 1,
+    background: "transparent",
+    border: "none",
+    color: "rgba(255,255,255,0.5)",
+    padding: "10px 0 14px 0",
     display: "flex",
+    flexDirection: "column",
     alignItems: "center",
-    justifyContent: "center",
-    gap: "8px",
+    gap: "2px",
+    cursor: "pointer",
   },
-  micIcon: { fontSize: "18px" },
+  navItemActive: { color: "#E5FF5D" },
+  navIcon: { fontSize: "18px" },
+  navText: { fontSize: "10px", fontWeight: "900", letterSpacing: "0.5px" },
 };
