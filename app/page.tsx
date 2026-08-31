@@ -11,12 +11,14 @@ import ConfirmScreen from "./screens/ConfirmScreen";
 import MessageScreen from "./screens/MessageScreen";
 import CallingScreen from "./screens/CallingScreen";
 import ResultScreen from "./screens/ResultScreen";
+import NicknameScreen from "./screens/NicknameScreen"; // 닉네임 화면 추가
 
 type Step =
   | "landing"          // 이제 여기서 TimelineScreen을 메인으로 보여줌
   | "raw_landing"      // 기존 LandingScreen이 필요할 경우 대비용
   | "recording"
   | "phone_input"
+  | "nickname"         // 닉네임 입력 단계 추가
   | "uploading"
   | "no_action"
   | "awaiting_confirmation"
@@ -157,6 +159,36 @@ export default function Home() {
         />
       )}
 
+      {/* 닉네임 입력 화면 추가 */}
+      {step === "nickname" && (
+        <NicknameScreen
+          onSubmit={async (nickname: string) => {
+            try {
+              const { data: { session } } = await supabaseClient.auth.getSession();
+              if (session) {
+                await fetch("/api/user/nickname", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${session.access_token}`,
+                  },
+                  body: JSON.stringify({ nickname }),
+                });
+              }
+            } catch (e) {
+              console.error("[Home] nickname save failed:", e);
+            } finally {
+              if (typeof window !== "undefined") localStorage.setItem("ganseobi_nickname_asked", "1");
+              setStep("landing");
+            }
+          }}
+          onSkip={() => {
+            if (typeof window !== "undefined") localStorage.setItem("ganseobi_nickname_asked", "1");
+            setStep("landing");
+          }}
+        />
+      )}
+
       {step === "uploading" && <MessageScreen title="듣고 있어..." onRestart={() => {}} />}
 
       {step === "no_action" && (
@@ -211,7 +243,14 @@ export default function Home() {
     setEntryId(null);
     setUploadData(null);
     setResult(null);
-    setStep("landing");
+
+    // 첫 인터랙션이 끝나고 처음으로 돌아갈 때 닉네임을 아직 안 물어봤다면 1번만 띄움
+    const alreadyAsked = typeof window !== "undefined" && localStorage.getItem("ganseobi_nickname_asked");
+    if (!alreadyAsked) {
+      setStep("nickname");
+    } else {
+      setStep("landing");
+    }
   }
 }
 
