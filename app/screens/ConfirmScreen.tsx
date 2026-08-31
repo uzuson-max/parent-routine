@@ -1,6 +1,6 @@
 "use client";
-
 import { useState } from "react";
+import { supabaseClient } from "@/lib/supabaseClient";
 
 export default function ConfirmScreen({
   reaction,
@@ -20,13 +20,20 @@ export default function ConfirmScreen({
   onDone: (kept: boolean) => void;
 }) {
   const [loading, setLoading] = useState(false);
-
   const keep = async () => {
     setLoading(true);
     try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        console.error("[ConfirmScreen] 로그인 세션이 없습니다.");
+        return;
+      }
       await fetch("/api/voice/confirm-commitment", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({
           entryId,
           phone,
@@ -41,7 +48,6 @@ export default function ConfirmScreen({
       onDone(true);
     }
   };
-
   return (
     <div style={styles.container}>
       {reaction && <p style={styles.reaction}>{reaction}</p>}
@@ -50,7 +56,6 @@ export default function ConfirmScreen({
         <p style={styles.commitmentText}>“{commitment}”</p>
       </div>
       <p style={styles.subhead}>이 말 맞지?</p>
-
       <div style={styles.buttonRow}>
         <button style={styles.secondaryButton} disabled={loading} onClick={() => onDone(false)}>
           그냥 넘겨
@@ -62,7 +67,6 @@ export default function ConfirmScreen({
     </div>
   );
 }
-
 const styles: { [key: string]: React.CSSProperties } = {
   container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 32px", textAlign: "center" },
   reaction: { color: "#999", fontSize: 15, marginBottom: 16 },
