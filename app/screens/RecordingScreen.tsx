@@ -65,13 +65,13 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
             <button style={styles.recordingButton} onClick={stop}>
               ■ 그만 말할래
             </button>
-            <p style={styles.mainCopy}>듣고 있어.</p>
-            <p style={styles.subCopy}>정리해서 말할 필요 없어. 욕해도 됨.</p>
+            <p style={styles.mainCopy}>응, 듣고 있어</p>
+            <p style={styles.subCopy}>정리 안 해도 됨. 욕해도 됨.</p>
           </>
         ) : (
           <>
-            <p style={styles.mainCopy}>마이크를 누르고 털어놔봐.</p>
-            <p style={styles.subCopy}>앞뒤 안 맞아도 상관없어.</p>
+            <p style={styles.mainCopy}>생각나는 대로 말해줘</p>
+            <p style={styles.subCopy}>앞뒤 안 맞아도 괜찮아</p>
           </>
         )}
       </div>
