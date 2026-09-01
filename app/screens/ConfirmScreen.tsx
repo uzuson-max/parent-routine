@@ -51,7 +51,7 @@ export default function ConfirmScreen({
   return (
     <div style={styles.container}>
       {reaction && <p style={styles.reaction}>{reaction}</p>}
-      <p style={styles.headline}>오, 이건 기억해둘게.</p>
+      <p style={styles.headline}>이건 기억해야지~</p>
       <div style={styles.commitmentBox}>
         <p style={styles.commitmentText}>“{commitment}”</p>
       </div>
