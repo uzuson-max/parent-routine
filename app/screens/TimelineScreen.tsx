@@ -54,15 +54,15 @@ export default function TimelineScreen({
       <div style={styles.topSection}>
         <span style={styles.eyebrow}>{nickname ? `HEY, ${nickname}` : "HEY"}</span>
         <h1 style={styles.greeting}>
-          {nickname ? `${nickname}, 오늘은 뭐 얘기할래?` : "오늘은 뭐 얘기할래?"}
+          {nickname ? `${nickname}, 오늘은 무슨 얘기해볼까?` : "오늘은 무슨 얘기해볼까?"}
         </h1>
       </div>
 
       {/* MAIN CTA — 화면에서 가장 큰 행동 */}
       <button style={styles.mainCta} onClick={onOpenRecording}>
         <span style={styles.ctaMic}>🎙️</span>
-        <span style={styles.ctaText}>아무 말이나 해.</span>
-        <span style={styles.ctaLabel}>TALK TO ME</span>
+        <span style={styles.ctaText}>아무 얘기나 해도 돼</span>
+        <span style={styles.ctaLabel}>TALK TO ME~</span>
       </button>
 
       {/* MEMORY — 데이터 있을 때만 노출 */}
@@ -77,7 +77,7 @@ export default function TimelineScreen({
       {/* RECENT */}
       <div style={styles.recentHeader}>
         <span style={styles.sectionEyebrow}>RECENT</span>
-        <h2 style={styles.recentTitle}>최근에 한 말</h2>
+        <h2 style={styles.recentTitle}>최근에 나랑 나눈 얘기들</h2>
       </div>
 
       <div style={styles.listContainer}>
