@@ -8,12 +8,17 @@ import { useEffect, useState } from "react";
 // 즉 애니메이션 자체는 고정 타이머로 돌되, "다음 화면 전환"은 실제 API 응답이 트리거함.
 const PHRASES: { text: string; label: string; withDots?: boolean }[] = [
   { text: "잠깐.", label: "LISTENED" },
+  
   { text: "참견할 거 찾는 중", label: "THINKING", withDots: true },
+  
   { text: "흠...", label: "THINKING" },
+
+
+
   { text: "할 말 생겼어.", label: "READY" },
 ];
 
-const STEP_DELAYS = [1000, 1000, 1200]; // 각 단계로 넘어가기까지 걸리는 시간(ms)
+const STEP_DELAYS = [1300, 1300, 1500]; // 각 단계로 넘어가기까지 걸리는 시간(ms)
 
 export default function ThinkingScreen() {
   const [phraseIndex, setPhraseIndex] = useState(0);
