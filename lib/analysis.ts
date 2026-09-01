@@ -43,7 +43,6 @@ function toKoreanWeekday(iso: string): string {
   return days[d.getDay()] + '요일';
 }
 
-// phone → userId 기준으로 변경 (STEP1 이후 voice_entries가 user_id를 갖게 됐는데 여기만 안 바뀌어 있었음)
 async function fetchActiveCommitments(userId: string, excludeEntryId?: string): Promise<ActiveCommitment[]> {
   const now = new Date().toISOString();
   let query = supabase
@@ -129,6 +128,10 @@ async function callGPT(
 너는 사용자가 그냥 아무 말이나 편하게 한 음성 녹음을 듣고 있다.
 사용자는 목표나 약속을 "제출"한 게 아니라 그냥 이야기했을 뿐이다. 그 안에서 스스로 목표/약속/핑계/감정/패턴을 찾아내라.
 
+이 단계는 순수 "사실 추출" 단계다. 실제로 사용자에게 어떻게 말할지는 이후 별도 단계(response engine)가 결정한다.
+너는 여기서 사용자의 내면을 함부로 확정하지 않는다. 특히 아래 필드들은 "실제로 일어난 일 / 실제로 한 말"만 담아라:
+- context_facts: 사용자가 실제로 한 말이나 실제로 일어난 사건만 짧은 문장으로 담아라. "사용자는 사실 ~한 욕구가 있다", "사용자는 ~를 두려워한다" 같은 심리적 해석·추론 문장은 여기 넣지 마라. 그건 사실이 아니라 해석이고, 이 필드는 나중에 event_memory에 그대로 누적 저장되므로 추측을 사실처럼 쌓으면 안 된다.
+
 아직 안 끝난 과거 약속 목록:
 ${commitmentsBlock}
 
@@ -143,12 +146,12 @@ ${patternBlock}
 - commitment: 오늘 발화에서 새로 확정적으로 "하겠다"고 한 것 중 대표 1개 (없으면 null)
 - commitment_type: 사용자가 명확하게 선언했으면 "explicit" (예: "이번 주에 반드시 운동 세 번 할 거야"), 확정적 약속은 아니고 의지/필요성만 표현했으면 "inferred" (예: "운동 좀 해야 할 것 같아"). commitment가 null이면 이것도 null.
 - commitment_confidence: explicit이면 "high", inferred면 "medium" 또는 "low" (얼마나 막연한지에 따라). commitment가 null이면 null.
-- intervention_needed: 지금 전화로 직접 개입할 만큼 중요한 순간인가. 아래 경우에만 true로 판단해라 (기본은 false):
+- intervention_needed: 이건 "화면에 짧게 반응하는 것"과는 완전히 다른, 훨씬 엄격한 기준이다. true가 되면 실제로 전화가 걸릴 수 있다는 뜻이다. 아래 경우에만 true로 판단해라 (기본은 false):
   - 같은 핑계나 같은 목표를 여러 번 반복하는 게 위 기록에서 확인됨
   - 같은 약속을 여러 번 미루고 있는 게 확인됨
   - 오늘 발화가 과거 약속과 명백히 모순됨
   - 사용자가 "이건 꼭 해야 한다"고 explicit하게 선언했는데 그 뒤로 실행 기록이 전혀 없음이 위 기록에서 확인됨
-  단순히 오늘 목표를 처음 말한 것만으로는 intervention_needed를 true로 하지 마라 (반복/모순의 증거가 있을 때만).
+  단순히 오늘 목표를 처음 말한 것만으로는 intervention_needed를 true로 하지 마라 (반복/모순의 증거가 있을 때만). 애매하면 false로 판단해라 — 화면 참견은 별도 단계에서 항상 일어나니, 여기서 무리하게 true를 내지 않아도 된다.
 - intervention_reason: intervention_needed가 true일 때만, 아래 중 하나로: "repeated_excuse" | "repeated_unfulfilled_commitment" | "contradiction_detected" | "unfulfilled_explicit_commitment". false면 null.
 - fulfilled_commitments: 위 "아직 이행 여부가 불확실한 약속들" 중, 오늘 발화로 미루어 사용자가 이미 완료했다고 확인되는 것들의 원문. 애매하면 넣지 마라.
 
@@ -303,7 +306,6 @@ async function storeAutoMemories(
       .filter((m) => analysis.fulfilled_commitments.includes(m.commitment))
       .map((m) => m.id);
     if (matchedIds.length > 0) {
-      // 완료 처리 + progress_count도 함께 1 증가 (target_count 있는 반복형 약속 대비)
       for (const id of matchedIds) {
         const { data: row } = await supabase
           .from('commitment_memory')
@@ -322,7 +324,6 @@ async function storeAutoMemories(
   }
 }
 
-// 사용자가 "기억해둬"를 눌렀을 때만 호출
 export async function confirmCommitment(
   entryId: string,
   userId: string,
