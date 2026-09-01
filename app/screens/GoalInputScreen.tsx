@@ -7,7 +7,7 @@ export default function GoalInputScreen({ onSubmit }: { onSubmit: (goal: string)
   return (
     <div style={styles.container}>
       <p style={styles.title}>이번엔 무슨 약속을 할까?</p>
-      <p style={styles.subtitle}>비워두면 오늘 한 말만 참고해서 반응할게.</p>
+      <p style={styles.subtitle}>비워두면 오늘 한 말만 참고해서 반응할게</p>
       <textarea
         style={styles.textarea}
         placeholder="예: 이번 주에는 꼭 운동해야겠다"
