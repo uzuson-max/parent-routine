@@ -71,7 +71,7 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
         ) : (
           <>
             <p style={styles.mainCopy}>생각나는 대로 말해줘</p>
-            <p style={styles.subCopy}>앞뒤 안 맞아도 괜찮아</p>
+            <p style={styles.subCopy}>횡설수설해도 됨</p>
           </>
         )}
       </div>
