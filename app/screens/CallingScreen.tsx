@@ -30,7 +30,7 @@ export default function CallingScreen({
   return (
     <div style={styles.container}>
       <p style={styles.copy}>
-        {status === "pending" && "번호 저장했어.\n이건 직접 얘기하는 게 좋겠다.\n전화할게."}
+        {status === "pending" && "번호 저장했어요~\n이건 직접 얘기하는 게 좋을것 같은데! \n전화할게 잠깐만 기다려줘~"}
         {status === "awaiting_result" && "지금 전화하고 있어 📞"}
         {status === "done" && "통화 끝났어."}
       </p>
