@@ -1,4 +1,5 @@
 
+
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { getUserIdFromRequest } from '@/lib/auth';
@@ -86,18 +87,20 @@ export async function POST(request: Request) {
     let analysisResult: any = null;
     let commitmentUntil: string | null = null;
     let responseResult: any = null;
+    let memoryCandidates: { memory_type: string; content: string }[] = [];
 
     try {
       const result = await analyzeAndSchedule(entry.id, transcript, userId, persona);
       analysisResult = result.analysis;
       commitmentUntil = result.commitmentUntil;
+      memoryCandidates = result.memoryCandidates;
     } catch (analysisErr: any) {
       console.error('AI 분석 중 에러 (무시하고 진행):', analysisErr?.message);
     }
 
     if (analysisResult) {
       try {
-        responseResult = await generateResponse(transcript, analysisResult, userId);
+        responseResult = await generateResponse(transcript, analysisResult, userId, memoryCandidates);
       } catch (respErr: any) {
         console.error('Response engine 에러 (무시하고 진행):', respErr?.message);
       }
@@ -136,7 +139,9 @@ export async function POST(request: Request) {
           console.error('전화 발신 중 예외 발생:', callErr?.message);
         }
       }
-    } else if (analysisResult.goal || analysisResult.commitment) {
+    } else if (analysisResult.commitment) {
+      // goal만 있고 commitment가 null인 경우(생각/고민/감정 발화)는 여기로 오면 안 됨.
+      // ConfirmScreen은 "기억해달라고 할 만한 실제 commitment"가 있을 때만 노출한다.
       currentCallState = 'awaiting_confirmation';
     } else {
       currentCallState = 'no_action';
