@@ -1,4 +1,5 @@
 
+
 import { supabase } from '@/lib/supabase';
 
 interface AnalysisResult {
@@ -21,7 +22,12 @@ interface AnalysisResult {
   context_facts: string[];
   detected_pattern: string | null;
   fulfilled_commitments: string[];
+  commitment_context_updates: { commitment_id: string; context: string }[];
+  memory_candidates: { memory_type: MemoryType; content: string }[];
 }
+
+type MemoryType = 'interest' | 'project' | 'preference' | 'thought';
+const MEMORY_TYPES: MemoryType[] = ['interest', 'project', 'preference', 'thought'];
 
 const PERSONA_PROMPTS: Record<string, string> = {
   boss: `너는 팩폭형 꼰대 상사야. 반말 반, 존댓말 반 섞어서 권위적이지만 은근히 챙기는 티가 나게 말해. "김대리~" 같은 호칭은 쓰지 말고, 짧고 단호하게 몰아붙여.`,
@@ -102,12 +108,33 @@ async function fetchTopPatterns(userId: string): Promise<{ pattern: string; occu
   return (data ?? []).filter((r: any) => r.pattern);
 }
 
+// event_memory에는 context_facts가 만든 row(title=null)와 memory_candidates가 만든 row(title=memory_type)가 섞여 있다.
+// title이 있는 row만 "기억 후보"로 취급해서 읽어온다.
+async function fetchMemoryCandidates(userId: string): Promise<{ memory_type: MemoryType; content: string }[]> {
+  const { data, error } = await supabase
+    .from('event_memory')
+    .select('title, content')
+    .eq('user_id', userId)
+    .not('title', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  if (error) {
+    console.error('[analysis] fetchMemoryCandidates failed:', error.message);
+    return [];
+  }
+  return (data ?? [])
+    .filter((r: any) => r.content && MEMORY_TYPES.includes(r.title))
+    .map((r: any) => ({ memory_type: r.title as MemoryType, content: r.content as string }));
+}
+
 async function callGPT(
   transcript: string,
   persona: string,
   activeCommitments: ActiveCommitment[],
   unfulfilledMemories: { id: string; commitment: string }[],
-  topPatterns: { pattern: string; occurrence_count: number }[]
+  topPatterns: { pattern: string; occurrence_count: number }[],
+  memoryCandidates: { memory_type: MemoryType; content: string }[]
 ): Promise<AnalysisResult> {
   const personaInstruction = PERSONA_PROMPTS[persona] || PERSONA_PROMPTS.coach;
 
@@ -116,12 +143,16 @@ async function callGPT(
     : '(아직 안 끝난 과거 약속 없음)';
 
   const memoryBlock = unfulfilledMemories.length > 0
-    ? unfulfilledMemories.map(m => `- "${m.commitment}"`).join('\n')
+    ? unfulfilledMemories.map(m => `- (id=${m.id}) "${m.commitment}"`).join('\n')
     : '(기록된 과거 약속 없음)';
 
   const patternBlock = topPatterns.length > 0
     ? topPatterns.map(p => `- "${p.pattern}" (지금까지 ${p.occurrence_count}번 반복 감지됨)`).join('\n')
     : '(아직 감지된 반복 패턴 없음)';
+
+  const memoryCandidatesBlock = memoryCandidates.length > 0
+    ? memoryCandidates.map(m => `- (${m.memory_type}) "${m.content}"`).join('\n')
+    : '(아직 기록된 기억 후보 없음)';
 
   const systemPrompt = `${personaInstruction}
 
@@ -141,6 +172,11 @@ ${memoryBlock}
 이 사용자에게서 반복적으로 감지된 패턴:
 ${patternBlock}
 
+[사용자가 이전에 이야기한 것들]
+아래는 사용자가 예전에 한 말 중에서, 지속적인 관심사/프로젝트/취향/생각으로 판단되어 따로 기억해둔 것들이다.
+이건 오늘 발화를 "이해하는 데 참고하는 배경"일 뿐이다. 이걸 근거로 오늘 발화에 없는 내용을 새로 만들어내거나, 오늘 발화를 이 기억에 억지로 끼워 맞추지 마라.
+${memoryCandidatesBlock}
+
 판단 기준:
 
 - commitment: 오늘 발화에서 새로 확정적으로 "하겠다"고 한 것 중 대표 1개 (없으면 null)
@@ -154,6 +190,15 @@ ${patternBlock}
   단순히 오늘 목표를 처음 말한 것만으로는 intervention_needed를 true로 하지 마라 (반복/모순의 증거가 있을 때만). 애매하면 false로 판단해라 — 화면 참견은 별도 단계에서 항상 일어나니, 여기서 무리하게 true를 내지 않아도 된다.
 - intervention_reason: intervention_needed가 true일 때만, 아래 중 하나로: "repeated_excuse" | "repeated_unfulfilled_commitment" | "contradiction_detected" | "unfulfilled_explicit_commitment". false면 null.
 - fulfilled_commitments: 위 "아직 이행 여부가 불확실한 약속들" 중, 오늘 발화로 미루어 사용자가 이미 완료했다고 확인되는 것들의 원문. 애매하면 넣지 마라.
+- commitment_context_updates: 오늘 발화가 위 "아직 이행 여부가 불확실한 약속들" 목록에 있는 특정 약속과 명확하게 관련된 상황(지연 이유, 방해 요소, 진행 상황 등)을 담고 있을 때만 채운다. 각 항목은 { "commitment_id": "...", "context": "..." } 형태이고, commitment_id는 반드시 위 목록에 표시된 (id=...) 값을 그대로 써야 한다 (지어내지 마라). context는 짧은 사실 문장 하나로.
+  - 관련성이 조금이라도 애매하면 넣지 마라. 오늘 발화가 그 약속을 아예 언급하지 않거나, 그냥 다른 화제(감정/잡담/전혀 다른 주제)라면 절대 억지로 연결하지 마라.
+  - 이번 발화로 그 약속이 fulfilled_commitments에 이미 포함됐다면(=완료로 확정됐다면), 같은 약속에 대해 commitment_context_updates에는 넣지 마라. 완료된 약속은 상황 업데이트가 필요 없다.
+  - 관련된 게 하나도 없으면 빈 배열 []을 반환해라.
+- memory_candidates: 이건 context_facts와 완전히 다른 목적이다. context_facts는 "오늘 실제로 있었던 일"을 담는 거고, memory_candidates는 "이 사람을 계속 이해하는 데 나중에도 의미가 있을 만한 것"만 담는다. 그래서 같은 발화라도 필요하면 두 필드 모두에 들어갈 수 있다.
+  담아야 하는 것: 지속적인 관심사, 실제로 해보고 싶다고 말한 프로젝트나 아이디어, 개인적인 취향, 앞으로도 반복해서 나올 법한 생각.
+  담으면 안 되는 것: 오늘 하루 있었던 일(뭘 먹었는지, 날씨, 출퇴근 등), 일시적인 감정, 한 번 하고 지나갈 사소한 이야기, 그리고 사용자가 말하지 않은 걸 GPT가 성향으로 일반화한 것("사용자는 창업에 관심이 많다" 같은 건 절대 안 됨 — 사용자가 실제로 한 말의 의미만 보존해서 짧게 적어라, 예: "식물 가게를 직접 해보고 싶어 한다").
+  예) "식물 가게를 해보고 싶어" / "언젠가 내 식물 가게를 운영해보고 싶어" → memory_candidate 됨. "오늘 식물 물 줬어" → 안 됨.
+  각 항목은 { "memory_type": "interest|project|preference|thought", "content": "..." } 형태. 애매하면 넣지 마라 — 확신 없으면 빈 배열이 기본이다.
 
 말투 원칙: 상담사/비서 말투 금지. 짧고 자연스럽게, 필요할 때만 장난스럽게, 과하게 친절하지 않게.
 예) "말씀하신 내용이 조금 모호하네요" (X) → 그냥 자연스럽게 반응하거나 call_line을 짧게.
@@ -184,7 +229,9 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
   "new_commitments": [],
   "context_facts": [],
   "detected_pattern": "..." or null,
-  "fulfilled_commitments": []
+  "fulfilled_commitments": [],
+  "commitment_context_updates": [],
+  "memory_candidates": []
 }`;
 
   const userPrompt = `방금 녹음한 말: "${transcript}"`;
@@ -231,6 +278,20 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
       context_facts: parsed.context_facts ?? [],
       detected_pattern: parsed.detected_pattern ?? null,
       fulfilled_commitments: parsed.fulfilled_commitments ?? [],
+      commitment_context_updates: Array.isArray(parsed.commitment_context_updates)
+        ? parsed.commitment_context_updates.filter(
+            (u: any) => u && typeof u.commitment_id === 'string' && typeof u.context === 'string'
+          )
+        : [],
+      memory_candidates: Array.isArray(parsed.memory_candidates)
+        ? parsed.memory_candidates.filter(
+            (m: any) =>
+              m &&
+              typeof m.content === 'string' &&
+              m.content.trim().length > 0 &&
+              MEMORY_TYPES.includes(m.memory_type)
+          )
+        : [],
     };
   } catch (err) {
     console.error('[callGPT] 분석 중 오류 발생:', err);
@@ -254,6 +315,8 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
       context_facts: [],
       detected_pattern: null,
       fulfilled_commitments: [],
+      commitment_context_updates: [],
+      memory_candidates: [],
     };
   }
 }
@@ -272,6 +335,44 @@ async function storeAutoMemories(
     }));
     const { error } = await supabase.from('event_memory').insert(rows);
     if (error) console.error('[analysis] event_memory insert failed:', error.message);
+  }
+
+  // memory_candidates: context_facts와 완전히 별도의 저장 경로. 같은 event_memory 테이블을 쓰되,
+  // title에 memory_type을 채워서 구분한다 (context_facts row는 title이 항상 null).
+  if (analysis.memory_candidates.length > 0) {
+    // 같은 응답 안에서 GPT가 같은 content를 중복으로 반환한 경우 우선 로컬에서 한 번 정리
+    const seen = new Set<string>();
+    const uniqueCandidates = analysis.memory_candidates.filter((m) => {
+      if (seen.has(m.content)) return false;
+      seen.add(m.content);
+      return true;
+    });
+
+    for (const candidate of uniqueCandidates) {
+      // 복잡한 유사도 검색은 하지 않고, 동일 content가 이미 저장돼 있는지만 단순 확인 (완전 일치 기준)
+      const { data: existing, error: dupCheckError } = await supabase
+        .from('event_memory')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('title', candidate.memory_type)
+        .eq('content', candidate.content)
+        .limit(1)
+        .maybeSingle();
+
+      if (dupCheckError) {
+        console.error('[analysis] memory_candidates 중복 확인 실패:', dupCheckError.message);
+        continue; // 확인 실패 시 안전하게 이번 항목은 건너뜀 (무한 중복 적재보다는 누락이 낫다)
+      }
+      if (existing) continue; // 이미 같은 기억이 저장돼 있음 — 새로 안 만듦
+
+      const { error: insertError } = await supabase.from('event_memory').insert({
+        voice_entry_id: entryId,
+        user_id: userId,
+        content: candidate.content,
+        title: candidate.memory_type,
+      });
+      if (insertError) console.error('[analysis] memory_candidates insert failed:', insertError.message);
+    }
   }
 
   if (analysis.detected_pattern) {
@@ -301,12 +402,14 @@ async function storeAutoMemories(
     }
   }
 
+  const fulfilledMatchedIds = new Set<string>();
   if (analysis.fulfilled_commitments.length > 0 && unfulfilledMemories.length > 0) {
     const matchedIds = unfulfilledMemories
       .filter((m) => analysis.fulfilled_commitments.includes(m.commitment))
       .map((m) => m.id);
     if (matchedIds.length > 0) {
       for (const id of matchedIds) {
+        fulfilledMatchedIds.add(id);
         const { data: row } = await supabase
           .from('commitment_memory')
           .select('progress_count, target_count')
@@ -320,6 +423,32 @@ async function storeAutoMemories(
           .eq('id', id);
         if (error) console.error('[analysis] commitment_memory progress update failed:', error.message);
       }
+    }
+  }
+
+  // 자유 발화 중 기존 commitment와 명확히 관련된 상황만 last_context/last_context_at로 연결한다.
+  // intervention_stage / status / next_intervention_at / fulfilled / progress_count는 절대 건드리지 않는다.
+  if (analysis.commitment_context_updates.length > 0 && unfulfilledMemories.length > 0) {
+    const knownIds = new Set(unfulfilledMemories.map((m) => m.id));
+    const now = new Date().toISOString();
+
+    for (const update of analysis.commitment_context_updates) {
+      // GPT가 이번 요청에서 실제로 보여준 목록 밖의 id를 지어내 돌려준 경우 무시 (안전장치)
+      if (!knownIds.has(update.commitment_id)) {
+        console.error('[analysis] commitment_context_updates: 알 수 없는 commitment_id 무시:', update.commitment_id);
+        continue;
+      }
+      // 이번 발화로 같은 commitment가 동시에 fulfilled 처리됐다면 context는 저장하지 않는다.
+      if (fulfilledMatchedIds.has(update.commitment_id)) continue;
+      if (!update.context) continue;
+
+      const { error } = await supabase
+        .from('commitment_memory')
+        .update({ last_context: update.context, last_context_at: now })
+        .eq('id', update.commitment_id)
+        .eq('user_id', userId)
+        .eq('fulfilled', false);
+      if (error) console.error('[analysis] commitment_memory context update failed:', error.message);
     }
   }
 }
@@ -353,14 +482,15 @@ export async function analyzeAndSchedule(entryId: string, transcript: string, us
   const activeCommitments = await fetchActiveCommitments(userId, entryId);
   const unfulfilledMemories = await fetchUnfulfilledCommitmentMemories(userId);
   const topPatterns = await fetchTopPatterns(userId);
+  const memoryCandidates = await fetchMemoryCandidates(userId);
 
-  const analysis = await callGPT(transcript, persona, activeCommitments, unfulfilledMemories, topPatterns);
+  const analysis = await callGPT(transcript, persona, activeCommitments, unfulfilledMemories, topPatterns, memoryCandidates);
 
   await storeAutoMemories(entryId, userId, analysis, unfulfilledMemories);
 
   const commitmentUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  return { analysis, commitmentUntil };
+  return { analysis, commitmentUntil, memoryCandidates };
 }
 
 export async function expireOldCommitments() {
