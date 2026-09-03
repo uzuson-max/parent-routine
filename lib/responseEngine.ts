@@ -1,3 +1,4 @@
+
 import { supabase } from '@/lib/supabase';
 
 type Strategy =
@@ -101,7 +102,8 @@ async function fetchNickname(userId: string): Promise<string | null> {
 export async function generateResponse(
   transcript: string,
   analysis: any,
-  userId: string
+  userId: string,
+  memoryCandidates: { memory_type: string; content: string }[] = []
 ): Promise<ResponseResult> {
   const [entryCount, callAllowed, nickname] = await Promise.all([
     getEntryCount(userId),
@@ -109,6 +111,10 @@ export async function generateResponse(
     fetchNickname(userId),
   ]);
   const relationshipLevel = calcRelationshipLevel(entryCount);
+
+  const memoryCandidatesBlock = memoryCandidates.length > 0
+    ? memoryCandidates.map(m => `- (${m.memory_type}) "${m.content}"`).join('\n')
+    : '(아직 기록된 기억 후보 없음)';
 
   const analysisBlock = `
 goal: ${analysis.goal ?? '없음'}
@@ -141,6 +147,20 @@ ${nicknameBlock}
 
 이 발화에 대한 내부 분석 결과 (사용자에게 그대로 보여주면 안 됨, 참고만 할 것):
 ${analysisBlock}
+
+[사용자가 이전에 이야기한 것들]
+아래는 사용자가 예전에 한 말 중 지속적인 관심사/프로젝트/취향/생각으로 판단되어 따로 기억해둔 것들이다. 오늘 발화와 관련될 때만 참고하는 "배경"이지, 확정된 사실이나 지금 사용자가 원하는 것이 아니다.
+${memoryCandidatesBlock}
+
+이 기억을 쓸 때 반드시 지켜라:
+- 오늘 발화와 명확히 관련될 때만 참고해라. 조금이라도 무관하면 아예 언급하지 마라 (억지로 연결 금지).
+- 관련 있다고 매번 언급하지 마라. 관련성이 있어도 언급 안 하는 게 더 자연스러운 순간이 많다.
+- "예전에 ~라고 했잖아" 같은 고정 문구를 반복해서 쓰지 마라. 페르소나 말투에 맞게 매번 다르게 표현해라.
+- 과거에 관심 있다고 한 걸 지금도 계속 원하는 거라고 단정하지 마라. 확정형("너 사실 ~하고 싶잖아") 금지, 여지를 남기는 톤("~했던 것도 생각나네", "요즘도 그 생각 있어?")만 허용.
+- 이 기억을 목표나 약속처럼 다루지 마라. commitment/intervention 판단에는 절대 쓰지 마라 — 여기서 참고하는 건 오직 오늘 응답 문장을 자연스럽게 만드는 용도다.
+- 이 기억을 근거로 없는 사실을 지어내지 마라.
+참고 예: 오늘 발화="요즘 식물 보는 게 또 재밌네" + 기억="식물가게를 직접 해보고 싶어 한다" → 관련성 높음, 참고 가능.
+오늘 발화="오늘 회사에서 상사 때문에 개빡쳤어" + 같은 기억 → 관련 없음, 언급 금지.
 
 전화가 지금 가능한 상태인가: ${callAllowed ? 'YES' : 'NO (최근 통화 빈도 제한에 걸림)'}
 
@@ -179,6 +199,7 @@ confront와 push의 구분 기준:
 
 STEP 3. 기억/맥락 재확인
 위 analysisBlock(goal/commitment/excuse/detected_pattern/fulfilled_commitments)을 참고해서 STEP 2 판단을 뒷받침해라.
+[사용자가 이전에 이야기한 것들] 블록도 이 단계에서 같이 고려하되, 위에 적힌 사용 규칙(관련성 없으면 언급 금지, 확정 금지, 매번 꺼내지 않기)을 반드시 지켜라. 이건 analysisBlock과 달리 "오늘 있었던 일"이 아니라 "예전에 한 말"이라 훨씬 조심스럽게 다뤄야 한다.
 이 단계에서 사용자의 숨겨진 욕망(desire)/필요(need)/두려움(fear)/말 안 한 의도(unspoken_intent)를 순간적으로 추론해도 되지만,
 - 근거가 충분하지 않으면 아예 사용하지 마라.
 - 사용하더라도 절대 확정형으로 말하지 마라 ("너는 사실 ~하다" 금지, "~한 것 같기도 한데", "혹시 ~한 거 아냐?" 같은 여지를 남기는 형태만 허용).
@@ -223,7 +244,7 @@ STEP 7. 최종 응답(response) 작성
   옆에서 참견한 것처럼 들리는가?" 후자에 가까워야 한다.
 
 STEP 8. memory_used / memory_reference / channel
-- memory_used: 과거 기억(반복 패턴, 미이행 약속, 모순)을 이번 응답에 실제로 언급했으면 true.
+- memory_used: 과거 기억(반복 패턴, 미이행 약속, 모순, 또는 [사용자가 이전에 이야기한 것들] 블록)을 이번 응답에 실제로 언급했으면 true.
 - memory_reference: 언급했다면 어떤 기억을 썼는지 한 문장 (없으면 null).
 - channel: intervention_needed가 true이고 전화가 가능(YES)하면 "call", 그 외엔 "text".
   전화가 불가능(NO)하면 아무리 intervention이 필요해도 절대 call로 하지 마라 — text로 대체 반응해라.
