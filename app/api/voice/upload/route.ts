@@ -1,5 +1,4 @@
 
-
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { getUserIdFromRequest } from '@/lib/auth';
@@ -88,19 +87,21 @@ export async function POST(request: Request) {
     let commitmentUntil: string | null = null;
     let responseResult: any = null;
     let memoryCandidates: { memory_type: string; content: string }[] = [];
+    let existingCommitments: { id: string; commitment: string }[] = [];
 
     try {
       const result = await analyzeAndSchedule(entry.id, transcript, userId, persona);
       analysisResult = result.analysis;
       commitmentUntil = result.commitmentUntil;
       memoryCandidates = result.memoryCandidates;
+      existingCommitments = result.unfulfilledMemories;
     } catch (analysisErr: any) {
       console.error('AI 분석 중 에러 (무시하고 진행):', analysisErr?.message);
     }
 
     if (analysisResult) {
       try {
-        responseResult = await generateResponse(transcript, analysisResult, userId, memoryCandidates);
+        responseResult = await generateResponse(transcript, analysisResult, userId, memoryCandidates, existingCommitments);
       } catch (respErr: any) {
         console.error('Response engine 에러 (무시하고 진행):', respErr?.message);
       }
