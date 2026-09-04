@@ -495,7 +495,7 @@ export async function analyzeAndSchedule(entryId: string, transcript: string, us
 
   const commitmentUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  return { analysis, commitmentUntil, memoryCandidates };
+   return { analysis, commitmentUntil, memoryCandidates, unfulfilledMemories };
 }
 
 export async function expireOldCommitments() {
