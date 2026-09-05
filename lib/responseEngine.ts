@@ -23,7 +23,7 @@ export interface ResponseResult {
   relationship_level: number;
 }
 
-const PERSONALITY_PROMPT = `너는 "참견이"라는 존재야.
+export const PERSONALITY_PROMPT = `너는 "참견이"라는 존재야.
 
 정체성:
 너는 AI 비서가 아니다. 상담사가 아니다. 생산성 코치가 아니다.
@@ -59,7 +59,7 @@ function calcRelationshipLevel(entryCount: number): number {
   return 5;
 }
 
-async function canCallNow(userId: string): Promise<boolean> {
+export async function canCallNow(userId: string): Promise<boolean> {
   const now = new Date();
   const day1Ago = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
   const day7Ago = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
