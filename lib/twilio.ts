@@ -63,7 +63,7 @@ export async function sendRoutineCall({
   }
 }
 
-export async function sendPenaltySms(penaltyPhone: string, userPhone: string) {
+export async function sendPenaltySms(toPhone: string, message: string) {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   const fromNumber = process.env.TWILIO_FROM_NUMBER;
@@ -71,10 +71,10 @@ export async function sendPenaltySms(penaltyPhone: string, userPhone: string) {
     throw new Error('Twilio credentials missing');
   }
   const client = twilio(accountSid, authToken);
-  const to = normalizePhoneNumber(penaltyPhone);
+  const to = normalizePhoneNumber(toPhone);
   await client.messages.create({
     to,
     from: fromNumber,
-    body: `[긴급] 사용자님이 오늘도 핑계를 대며 기상에 실패했습니다. 벌칙 수행을 독려해 주세요.`,
+    body: message,
   });
 }
