@@ -467,6 +467,9 @@ export async function confirmCommitment(
   commitmentConfidence: 'high' | 'medium' | 'low' | null,
   targetCount: number | null = null
 ) {
+  // 개입 엔진(lib/interventionEngine.ts)이 이 commitment를 찾으려면 next_intervention_at이 채워져 있어야 한다.
+  const firstInterventionAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+
   const { error } = await supabase.from('commitment_memory').insert({
     voice_entry_id: entryId,
     user_id: userId,
@@ -475,6 +478,8 @@ export async function confirmCommitment(
     fulfilled: false,
     target_count: targetCount,
     progress_count: 0,
+    intervention_stage: 0,
+    next_intervention_at: firstInterventionAt,
   });
   if (error) {
     console.error('[analysis] confirmCommitment insert failed:', error.message);
