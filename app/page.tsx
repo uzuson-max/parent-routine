@@ -271,6 +271,7 @@ export default function Home() {
             setResult(finishedEntry);
             setStep("result");
           }}
+          onHome={() => resetAll()}
         />
       )}
 
