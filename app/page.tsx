@@ -183,7 +183,7 @@ export default function Home() {
         />
       )}
 
-      {step === "recording" && (
+            {step === "recording" && (
         <RecordingScreen
           initialTopic={selectedTopic}
           onFinish={(input: Blob | string) => {
