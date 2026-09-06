@@ -165,7 +165,7 @@ export async function processDueInterventions(dryRun: boolean = false): Promise<
       }
 
       try {
-        await sendPenaltySms(phone, message);
+        await sendSolapiSms(phone, message);
         const { error } = await supabase
           .from('commitment_memory')
           .update({
