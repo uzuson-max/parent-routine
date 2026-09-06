@@ -10,7 +10,7 @@ export default function CallingScreen({
   onCallEnded: (entry: any) => void;
   onHome: () => void;
 }) {
-  const [status, setStatus] = useState<"pending" | "awaiting_result" | "done">("pending");
+  const [status, setStatus] = useState<"pending" | "done">("pending");
 
   useEffect(() => {
     const poll = setInterval(async () => {
@@ -19,11 +19,9 @@ export default function CallingScreen({
       if (entry.call_state === "done") {
         clearInterval(poll);
         setStatus("done");
-        onCallEnded(entry);
+        // "통화 끝났어"가 실제로 화면에 보일 시간을 준 다음 ResultScreen으로 넘어간다.
+        setTimeout(() => onCallEnded(entry), 1300);
         return;
-      }
-      if (entry.call_state === "awaiting_result") {
-        setStatus("awaiting_result");
       }
     }, 3000);
     return () => clearInterval(poll);
@@ -32,9 +30,8 @@ export default function CallingScreen({
   return (
     <div style={styles.container}>
       <p style={styles.copy}>
-        {status === "pending" && "번호 저장했어요~\n이건 직접 얘기하는 게 좋을것 같은데! \n전화할게 잠깐만 기다려줘~"}
-        {status === "awaiting_result" && "지금 전화하고 있어 📞"}
-        {status === "done" && "통화 끝났어."}
+        {status === "pending" && "번호 저장했다! \n이건 약간,, 전화로 얘기하고 싶은데 \n전화할게 잠깐만 기다려봐~"}
+        {status === "done" && "통화 끝!"}
       </p>
       <button style={styles.homeButton} onClick={onHome}>
         홈으로
