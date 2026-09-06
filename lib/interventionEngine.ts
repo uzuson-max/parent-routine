@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
-import { sendPenaltySms, sendRoutineCall } from '@/lib/twilio';
+import { sendRoutineCall } from '@/lib/twilio';
+import { sendSolapiSms } from '@/lib/solapi';
 import { canCallNow, PERSONALITY_PROMPT } from '@/lib/responseEngine';
 
 // intervention_stage 의미 (commitment_memory의 기존 컬럼을 그대로 사용, 새 컬럼 없음):
