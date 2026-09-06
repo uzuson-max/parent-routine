@@ -132,6 +132,7 @@ interface ProcessResult {
   action: 'sms' | 'call' | 'skipped_no_phone' | 'skipped_call_not_allowed' | 'send_failed' | 'dry_run';
   stage: number;
   message?: string;
+  error?: string;
 }
 
 /**
@@ -174,9 +175,9 @@ export async function processDueInterventions(dryRun: boolean = false): Promise<
           .eq('fulfilled', false); // 그 사이 완료 처리됐으면 덮어쓰지 않는 안전장치
         if (error) console.error('[interventionEngine] commitment_memory 갱신 실패:', error.message);
         results.push({ id: row.id, action: 'sms', stage: nextStage, message });
-      } catch (smsErr: any) {
+       } catch (smsErr: any) {
         console.error(`[interventionEngine] commitment_memory#${row.id} SMS 발송 실패:`, smsErr?.message);
-        results.push({ id: row.id, action: 'send_failed', stage: row.intervention_stage });
+        results.push({ id: row.id, action: 'send_failed', stage: row.intervention_stage, error: smsErr?.message ?? String(smsErr) });
         // 발송 실패 → stage/next_intervention_at 그대로 둔다. 다음 스케줄 때 같은 단계로 재시도됨.
       }
     } else {
@@ -225,13 +226,13 @@ export async function processDueInterventions(dryRun: boolean = false): Promise<
             .eq('id', row.id)
             .eq('fulfilled', false);
           results.push({ id: row.id, action: 'call', stage: 4, message: callMessage });
-        } else {
+              } else {
           console.error(`[interventionEngine] commitment_memory#${row.id} 전화 발신 실패:`, callResult.error);
-          results.push({ id: row.id, action: 'send_failed', stage: 3 });
+          results.push({ id: row.id, action: 'send_failed', stage: 3, error: callResult.error });
         }
       } catch (callErr: any) {
         console.error(`[interventionEngine] commitment_memory#${row.id} 전화 발신 예외:`, callErr?.message);
-        results.push({ id: row.id, action: 'send_failed', stage: 3 });
+        results.push({ id: row.id, action: 'send_failed', stage: 3, error: callErr?.message ?? String(callErr) });
       }
     }
   }
