@@ -1,3 +1,4 @@
+
 import { supabase } from '@/lib/supabase';
 import { sendRoutineCall } from '@/lib/twilio';
 import { sendSolapiSms } from '@/lib/solapi';
@@ -128,6 +129,19 @@ ${commonRules}
   }
 }
 
+// 참견이의 SMS 상태 표현. 단계가 오를수록 등장→재등장→적극개입 순으로 강도가 세진다.
+// 이 문구 자체가 "참견이가 지금 실제로 등장했다"는 캐릭터 표현이라, 딱딱한 "[참견이]" 태그가 아니라
+// 문장으로 그대로 SMS 첫 줄에 얹는다.
+const SMS_STAGE_STAMP: Record<1 | 2 | 3, string> = {
+  1: '참견이 등장.',
+  2: '참견이 또 등장.',
+  3: '참견이 출동.',
+};
+
+function withStageStamp(stage: 1 | 2 | 3, message: string): string {
+  return `${SMS_STAGE_STAMP[stage]}\n\n${message}`;
+}
+
 interface ProcessResult {
   id: string;
   action: 'sms' | 'call' | 'skipped_no_phone' | 'skipped_call_not_allowed' | 'send_failed' | 'dry_run';
@@ -150,7 +164,8 @@ export async function processDueInterventions(dryRun: boolean = false): Promise<
     if (row.intervention_stage <= 2) {
       // 0,1,2 → 이번에 1차/2차/3차 SMS를 보낸다.
       const nextStage = (row.intervention_stage + 1) as 1 | 2 | 3;
-      const message = await generateInterventionSms(row.commitment, nextStage);
+      const rawMessage = await generateInterventionSms(row.commitment, nextStage);
+      const message = withStageStamp(nextStage, rawMessage);
 
       if (dryRun) {
         console.log(`[interventionEngine][dry-run] commitment_memory#${row.id} → SMS ${nextStage}차 (미발송):`, message);
