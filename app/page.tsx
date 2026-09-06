@@ -36,7 +36,7 @@ type Step =
 
 export default function Home() {
   const [step, setStep] = useState<Step>("landing");
-  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioBlob, setAudioBlob] = useState<Blob | string | null>(null); // 음성 Blob 또는 텍스트 입력 문자열
   const [selectedTopic, setSelectedTopic] = useState<string>("");
   const [phone, setPhone] = useState<string>("");
   const [entryId, setEntryId] = useState<string | null>(null);
@@ -79,7 +79,7 @@ export default function Home() {
     if (step === "landing") fetchEntries();
   }, [step]);
 
-  const doUpload = async (phoneNumber: string, blob: Blob) => {
+  const doUpload = async (phoneNumber: string, input: Blob | string) => {
     setStep("uploading");
     try {
       const { data: { session } } = await supabaseClient.auth.getSession();
@@ -88,7 +88,11 @@ export default function Home() {
       }
 
       const form = new FormData();
-      form.append("audio", blob, "recording.webm");
+      if (typeof input === "string") {
+        form.append("text", input);
+      } else {
+        form.append("audio", input, "recording.webm");
+      }
       form.append("phone", phoneNumber);
       form.append("persona", "coach");
       if (selectedTopic) {
@@ -182,12 +186,12 @@ export default function Home() {
       {step === "recording" && (
         <RecordingScreen
           initialTopic={selectedTopic}
-          onFinish={(blob: Blob) => {
-            setAudioBlob(blob);
+          onFinish={(input: Blob | string) => {
+            setAudioBlob(input);
             const savedPhone = typeof window !== "undefined" ? localStorage.getItem("ganseobi_phone") : null;
             if (savedPhone) {
               setPhone(savedPhone);
-              doUpload(savedPhone, blob);
+              doUpload(savedPhone, input);
             } else {
               setStep("phone_input");
             }
