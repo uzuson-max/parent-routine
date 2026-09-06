@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 export default function CallingScreen({
   entryId,
   onCallEnded,
+  onHome,
 }: {
   entryId: string;
   onCallEnded: (entry: any) => void;
+  onHome: () => void;
 }) {
   const [status, setStatus] = useState<"pending" | "awaiting_result" | "done">("pending");
 
@@ -34,11 +36,15 @@ export default function CallingScreen({
         {status === "awaiting_result" && "지금 전화하고 있어 📞"}
         {status === "done" && "통화 끝났어."}
       </p>
+      <button style={styles.homeButton} onClick={onHome}>
+        홈으로
+      </button>
     </div>
   );
 }
 
 const styles: { [key: string]: React.CSSProperties } = {
-  container: { height: "100vh", display: "flex", justifyContent: "center", alignItems: "center" },
+  container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: "24px" },
   copy: { color: "#fff", fontSize: 20, textAlign: "center", whiteSpace: "pre-line" },
+  homeButton: { background: "transparent", color: "rgba(255,255,255,0.7)", border: "1px solid rgba(255,255,255,0.4)", borderRadius: "20px", padding: "10px 20px", fontSize: 14, cursor: "pointer" },
 };
