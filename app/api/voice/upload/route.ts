@@ -18,12 +18,13 @@ export async function POST(request: Request) {
     }
 
     const formData = await request.formData();
-    const audio = formData.get('audio') as File;
+    const audio = formData.get('audio') as File | null;
+    const textInput = (formData.get('text') as string | null)?.trim() || null;
     const phoneFromForm = (formData.get('phone') as string) || null; // 이제 선택값 — 없어도 녹음은 된다
     const persona = (formData.get('persona') as string) || 'coach';
 
-    if (!audio) {
-      return NextResponse.json({ success: false, error: '오디오가 필요합니다.' }, { status: 400 });
+    if (!audio && !textInput) {
+      return NextResponse.json({ success: false, error: '오디오 또는 텍스트가 필요합니다.' }, { status: 400 });
     }
 
     // 이 계정에 이미 저장된 닉네임/전화번호 조회 (없어도 정상 진행)
@@ -44,19 +45,26 @@ export async function POST(request: Request) {
       });
     }
 
-    const fileName = `${Date.now()}-${crypto.randomUUID()}.webm`;
-    const buffer = Buffer.from(await audio.arrayBuffer());
+       let audioUrl: string | null = null;
+    let buffer: Buffer | null = null;
+    let fileName: string | null = null;
 
-    const { error: uploadError } = await supabase.storage
-      .from('voice-recordings')
-      .upload(fileName, buffer, { contentType: 'audio/webm' });
+    if (audio) {
+      fileName = `${Date.now()}-${crypto.randomUUID()}.webm`;
+      buffer = Buffer.from(await audio.arrayBuffer());
 
-    if (uploadError) {
-      console.error('Supabase 업로드 실패:', uploadError.message);
-      return NextResponse.json({ success: false, error: uploadError.message }, { status: 500 });
+      const { error: uploadError } = await supabase.storage
+        .from('voice-recordings')
+        .upload(fileName, buffer, { contentType: 'audio/webm' });
+
+      if (uploadError) {
+        console.error('Supabase 업로드 실패:', uploadError.message);
+        return NextResponse.json({ success: false, error: uploadError.message }, { status: 500 });
+      }
+
+      audioUrl = supabase.storage.from('voice-recordings').getPublicUrl(fileName).data.publicUrl;
     }
-
-    const audioUrl = supabase.storage.from('voice-recordings').getPublicUrl(fileName).data.publicUrl;
+    // 텍스트 입력이면 오디오 저장 자체가 없으므로 audio_url은 null로 남는다 (컬럼이 nullable이라 스키마 변경 불필요).
 
     const { data: entry, error: insertError } = await supabase
       .from('voice_entries')
@@ -70,17 +78,22 @@ export async function POST(request: Request) {
     }
 
     let transcript = '';
-    try {
-      const fileObj = new File([buffer], fileName, { type: 'audio/webm' });
-      const transcription = await openai.audio.transcriptions.create({
-        file: fileObj,
-        model: 'whisper-1',
-        language: 'ko',
-      });
-      transcript = transcription.text || '';
-    } catch (sttErr: any) {
-      console.error('STT 변환 중 에러 (무시하고 진행):', sttErr?.message);
-      transcript = '(음성 변환 실패)';
+    if (textInput) {
+      // 텍스트 입력은 STT를 거칠 필요 없이 그대로 transcript로 사용 — 이후 분석 파이프라인은 음성 입력과 완전히 동일하다.
+      transcript = textInput;
+    } else if (audio && buffer) {
+      try {
+        const fileObj = new File([new Uint8Array(buffer)], fileName!, { type: 'audio/webm' });
+        const transcription = await openai.audio.transcriptions.create({
+          file: fileObj,
+          model: 'whisper-1',
+          language: 'ko',
+        });
+        transcript = transcription.text || '';
+      } catch (sttErr: any) {
+        console.error('STT 변환 중 에러 (무시하고 진행):', sttErr?.message);
+        transcript = '(음성 변환 실패)';
+      }
     }
 
     let analysisResult: any = null;
