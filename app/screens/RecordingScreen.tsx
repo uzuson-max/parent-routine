@@ -1,15 +1,17 @@
-"use client";
+
 
 import { useRef, useState } from "react";
 
 interface RecordingScreenProps {
   initialTopic?: string;
-  onFinish: (blob: Blob) => void;
+  onFinish: (input: Blob | string) => void;
 }
 
 export default function RecordingScreen({ initialTopic, onFinish }: RecordingScreenProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
+  const [mode, setMode] = useState<"voice" | "text">("voice");
+  const [textValue, setTextValue] = useState("");
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -41,11 +43,68 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
     };
   };
 
+  const submitText = () => {
+    const trimmed = textValue.trim();
+    if (!trimmed) return;
+    onFinish(trimmed);
+  };
+
+  if (mode === "text") {
+    return (
+      <div style={styles.container}>
+        <div style={styles.contentWrapper}>
+          <div style={styles.topBar}>
+            <div style={styles.topicBadge}>
+              🎯 {initialTopic ? `"${initialTopic}"` : "생각 남기기"}
+            </div>
+            <button
+              style={styles.modeToggleButton}
+              onClick={() => setMode("voice")}
+              aria-label="음성 입력으로 전환"
+              title="음성으로 말할래"
+            >
+              🎙
+            </button>
+          </div>
+
+          <textarea
+            style={styles.textarea}
+            value={textValue}
+            onChange={(e) => setTextValue(e.target.value)}
+            placeholder="그냥 생각나는 대로 써도 돼."
+            autoFocus
+          />
+
+          <button
+            style={{ ...styles.recordingButton, ...(textValue.trim() ? {} : styles.disabledButton) }}
+            onClick={submitText}
+            disabled={!textValue.trim()}
+          >
+            보내기
+          </button>
+          <p style={styles.subCopy}>정리 안 해도 됨. 짧아도 됨.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.container}>
       <div style={styles.contentWrapper}>
-        <div style={styles.topicBadge}>
-          🎯 {initialTopic ? `"${initialTopic}"` : "생각 털어놓기"}
+        <div style={styles.topBar}>
+          <div style={styles.topicBadge}>
+            🎯 {initialTopic ? `"${initialTopic}"` : "생각 털어놓기"}
+          </div>
+          {!isRecording && (
+            <button
+              style={styles.modeToggleButton}
+              onClick={() => setMode("text")}
+              aria-label="텍스트 입력으로 전환"
+              title="타이핑으로 남길래"
+            >
+              ⌨
+            </button>
+          )}
         </div>
 
         {isRecording && <div style={styles.brandTitle}>● 듣는 중</div>}
@@ -88,12 +147,16 @@ function formatTime(s: number) {
 const styles: { [key: string]: React.CSSProperties } = {
   container: { minHeight: "100vh", background: "#C71585", color: "#E5FF5D", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "24px" },
   contentWrapper: { width: "100%", maxWidth: "380px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: "20px" },
-  topicBadge: { background: "#E5FF5D", color: "#C71585", padding: "8px 14px", fontSize: "14px", fontWeight: "900", border: "2px solid #111", boxShadow: "3px 3px 0px #111", marginBottom: "4px" },
+  topBar: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" },
+  topicBadge: { background: "#E5FF5D", color: "#C71585", padding: "8px 14px", fontSize: "14px", fontWeight: "900", border: "2px solid #111", boxShadow: "3px 3px 0px #111" },
+  modeToggleButton: { background: "transparent", color: "#E5FF5D", border: "2px solid #E5FF5D", borderRadius: "50%", width: "40px", height: "40px", fontSize: "18px", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" },
   brandTitle: { fontSize: "13px", fontWeight: "700", color: "#E5FF5D", width: "100%" },
   heroBox: { width: "140px", height: "140px", borderRadius: "50%", border: "3px solid #E5FF5D", background: "transparent", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 0 20px rgba(229, 255, 93, 0.3)" },
   micIcon: { fontSize: "48px" },
   timerBox: { fontSize: "48px", fontWeight: "900", color: "#E5FF5D", letterSpacing: "4px", margin: "16px 0" },
+  textarea: { width: "100%", minHeight: "180px", padding: "16px", border: "2px solid #111", background: "#E5FF5D", color: "#111", fontSize: "16px", fontWeight: "600", boxShadow: "3px 3px 0px #111", resize: "vertical", fontFamily: "inherit" },
   recordingButton: { width: "100%", padding: "16px", border: "2px solid #111", background: "#E5FF5D", color: "#C71585", fontSize: "16px", fontWeight: "900", cursor: "pointer", boxShadow: "3px 3px 0px #111" },
+  disabledButton: { opacity: 0.5, cursor: "not-allowed" },
   mainCopy: { color: "#FFF", fontSize: "18px", fontWeight: "900", margin: 0 },
   subCopy: { color: "rgba(255, 255, 255, 0.7)", fontSize: "13px", margin: 0 },
 };
