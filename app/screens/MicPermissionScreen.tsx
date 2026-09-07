@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { BRAND, textAlpha, texturedSkyBackground } from "@/lib/theme";
 
 interface MicPermissionScreenProps {
   // granted: 실제 브라우저 마이크 권한이 허용됐는지 여부. 거부되어도 앱은 계속 진행시키고
@@ -37,7 +38,7 @@ export default function MicPermissionScreen({ onNext }: MicPermissionScreenProps
           </p>
         </div>
         <button style={styles.ctaButton} onClick={() => onNext(false)}>
-          계속
+          일단 가보자
         </button>
       </div>
     );
@@ -47,12 +48,12 @@ export default function MicPermissionScreen({ onNext }: MicPermissionScreenProps
     <div style={styles.container}>
       <div style={styles.contentWrapper}>
         <h1 style={styles.headline}>
-          참견이가 네 말을 들으려면{"\n"}마이크가 필요해.
+          참견이가 니 말을 들으려면{"\n"}마이크가 필요해.
         </h1>
         <p style={styles.subhead}>말할 때만 사용할 거야.</p>
       </div>
       <button style={styles.ctaButton} onClick={requestPermission} disabled={phase === "requesting"}>
-        {phase === "requesting" ? "물어보는 중..." : "다음"}
+        {phase === "requesting" ? "물어보는 중..." : "그럼 물어볼게"}
       </button>
     </div>
   );
@@ -61,8 +62,8 @@ export default function MicPermissionScreen({ onNext }: MicPermissionScreenProps
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
-    background: "#C71585",
-    color: "#E5FF5D",
+    ...texturedSkyBackground,
+    color: BRAND.text,
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
@@ -80,15 +81,15 @@ const styles: { [key: string]: React.CSSProperties } = {
     textAlign: "center",
     gap: "16px",
   },
-  headline: { color: "#fff", fontSize: "28px", fontWeight: 900, margin: 0, lineHeight: 1.35, whiteSpace: "pre-line" },
-  subhead: { color: "rgba(255,255,255,0.85)", fontSize: "15px", fontWeight: 700, margin: 0, whiteSpace: "pre-line", lineHeight: 1.5 },
+  headline: { color: BRAND.text, fontSize: "28px", fontWeight: 900, margin: 0, lineHeight: 1.35, whiteSpace: "pre-line" },
+  subhead: { color: textAlpha.soft, fontSize: "15px", fontWeight: 700, margin: 0, whiteSpace: "pre-line", lineHeight: 1.5 },
   ctaButton: {
     width: "100%",
     maxWidth: "380px",
     padding: "18px",
     border: "2px solid #111",
-    background: "#E5FF5D",
-    color: "#C71585",
+    background: BRAND.yellow,
+    color: BRAND.text,
     fontSize: "17px",
     fontWeight: 900,
     cursor: "pointer",
