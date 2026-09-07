@@ -3,7 +3,7 @@
 
 import { useMemo, useState } from "react";
 import type { RecordEntry } from "./TimelineScreen";
-import { BRAND, textAlpha, texturedSkyBackground } from "@/lib/theme";
+import { BRAND, textAlpha, pageBackground } from "@/lib/theme";
 
 interface CalendarScreenProps {
   entries: RecordEntry[] | null;
@@ -150,8 +150,8 @@ export default function CalendarScreen({ entries, onBack }: CalendarScreenProps)
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
-    ...texturedSkyBackground,
-    color: BRAND.text,
+    ...pageBackground,
+    color: BRAND.primary,
     padding: "20px 20px 60px 20px",
     boxSizing: "border-box",
     display: "flex",
@@ -163,7 +163,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignSelf: "flex-start",
     background: "transparent",
     border: "none",
-    color: BRAND.text,
+    color: BRAND.primary,
     fontSize: "14px",
     fontWeight: 900,
     cursor: "pointer",
@@ -171,9 +171,9 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   monthNav: { display: "flex", alignItems: "center", justifyContent: "center", gap: "16px" },
   navBtn: {
-    background: BRAND.ivory,
+    background: BRAND.card,
     border: "2px solid #111",
-    color: BRAND.text,
+    color: BRAND.primary,
     fontSize: "16px",
     fontWeight: 900,
     width: "32px",
@@ -195,7 +195,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   dayCell: {
     aspectRatio: "1",
-    background: BRAND.ivory,
+    background: BRAND.card,
     border: "2px solid #111",
     display: "flex",
     flexDirection: "column",
@@ -210,13 +210,13 @@ const styles: { [key: string]: React.CSSProperties } = {
     border: "2px solid #111",
     boxShadow: "3px 3px 0px #111",
   },
-  dayNumber: { fontSize: "13px", fontWeight: 900, color: BRAND.text },
-  dayNumberSelected: { color: BRAND.text },
-  dot: { width: "6px", height: "6px", borderRadius: "50%", background: BRAND.sky },
-  dotSelected: { width: "6px", height: "6px", borderRadius: "50%", background: BRAND.text },
+  dayNumber: { fontSize: "13px", fontWeight: 900, color: BRAND.primary },
+  dayNumberSelected: { color: BRAND.primary },
+  dot: { width: "6px", height: "6px", borderRadius: "50%", background: BRAND.mint },
+  dotSelected: { width: "6px", height: "6px", borderRadius: "50%", background: BRAND.primary },
   dayDetail: {
-    background: BRAND.ivory,
-    color: BRAND.text,
+    background: BRAND.card,
+    color: BRAND.primary,
     border: "2px solid #111",
     boxShadow: "4px 4px 0px #111",
     padding: "16px",
@@ -231,7 +231,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     paddingTop: "10px",
     cursor: "pointer",
   },
-  entryTime: { fontSize: "11px", fontWeight: 900, color: BRAND.skyDeep },
+  entryTime: { fontSize: "11px", fontWeight: 900, color: BRAND.primary },
   entryPreview: { fontSize: "13px", color: textAlpha.soft, margin: "4px 0 0 0", fontStyle: "italic", lineHeight: 1.4 },
-  entryResponse: { fontSize: "13px", color: BRAND.text, margin: "6px 0 0 0", fontWeight: "bold", lineHeight: 1.4 },
+  entryResponse: { fontSize: "13px", color: BRAND.primary, margin: "6px 0 0 0", fontWeight: "bold", lineHeight: 1.4 },
 };
