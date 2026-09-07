@@ -1,3 +1,4 @@
+
 "use client";
 import { useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
@@ -74,13 +75,13 @@ export default function ConfirmScreen({
 }
 const styles: { [key: string]: React.CSSProperties } = {
   container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 32px", textAlign: "center" },
-  stamp: { background: BRAND.yellow, color: BRAND.text, border: "2px solid #111", boxShadow: "3px 3px 0px #111", padding: "4px 10px", fontSize: 12, fontWeight: 900, letterSpacing: "0.5px", marginBottom: 16 },
+  stamp: { background: BRAND.yellow, color: BRAND.primary, border: "2px solid #111", boxShadow: "3px 3px 0px #111", padding: "4px 10px", fontSize: 12, fontWeight: 900, letterSpacing: "0.5px", marginBottom: 16 },
   reaction: { color: textAlpha.muted, fontSize: 15, marginBottom: 16 },
-  headline: { color: BRAND.text, fontSize: 22, fontWeight: 700, marginBottom: 24 },
-  commitmentBox: { background: BRAND.ivory, border: "2px solid #111", boxShadow: "3px 3px 0px #111", borderRadius: 12, padding: "16px 20px", maxWidth: 320, marginBottom: 12 },
-  commitmentText: { color: BRAND.text, fontSize: 17, lineHeight: 1.5, fontWeight: 700 },
+  headline: { color: BRAND.primary, fontSize: 22, fontWeight: 700, marginBottom: 24 },
+  commitmentBox: { background: BRAND.card, border: "2px solid #111", boxShadow: "3px 3px 0px #111", borderRadius: 12, padding: "16px 20px", maxWidth: 320, marginBottom: 12 },
+  commitmentText: { color: BRAND.primary, fontSize: 17, lineHeight: 1.5, fontWeight: 700 },
   subhead: { color: textAlpha.muted, fontSize: 15, marginBottom: 32 },
   buttonRow: { display: "flex", gap: 12, width: "100%", maxWidth: 320 },
   secondaryButton: { flex: 1, padding: "14px 0", borderRadius: 12, border: `2px solid ${textAlpha.hairline}`, background: "transparent", color: textAlpha.muted, fontSize: 15 },
-  primaryButton: { flex: 1, padding: "14px 0", borderRadius: 12, border: "2px solid #111", boxShadow: "3px 3px 0px #111", background: BRAND.yellow, color: BRAND.text, fontSize: 15, fontWeight: 700 },
+  primaryButton: { flex: 1, padding: "14px 0", borderRadius: 12, border: "2px solid #111", boxShadow: "3px 3px 0px #111", background: BRAND.yellow, color: BRAND.primary, fontSize: 15, fontWeight: 700 },
 };
