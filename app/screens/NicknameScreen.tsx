@@ -35,8 +35,8 @@ export default function NicknameScreen({
 
 const styles: { [key: string]: React.CSSProperties } = {
   container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 32px" },
-  headline: { color: BRAND.text, fontSize: 22, fontWeight: 700, textAlign: "center", margin: "0 0 24px" },
-  input: { width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "2px solid #111", background: BRAND.ivory, color: BRAND.text, fontSize: 16, textAlign: "center" },
-  button: { marginTop: 16, width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "2px solid #111", boxShadow: "3px 3px 0px #111", background: BRAND.yellow, color: BRAND.text, fontSize: 16, fontWeight: 700 },
+  headline: { color: BRAND.primary, fontSize: 22, fontWeight: 700, textAlign: "center", margin: "0 0 24px" },
+  input: { width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "2px solid #111", background: BRAND.card, color: BRAND.primary, fontSize: 16, textAlign: "center" },
+  button: { marginTop: 16, width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "2px solid #111", boxShadow: "3px 3px 0px #111", background: BRAND.yellow, color: BRAND.primary, fontSize: 16, fontWeight: 700 },
   skipButton: { marginTop: 10, padding: "8px 16px", border: "none", background: "transparent", color: textAlpha.faint, fontSize: 14 },
 };
