@@ -1,4 +1,7 @@
+
 "use client";
+
+import { BRAND, textAlpha } from "@/lib/theme";
 
 function truncate(text: string | undefined, max: number): string | null {
   if (!text) return null;
@@ -31,7 +34,7 @@ export default function MessageScreen({
 
       {preview && (
         <div style={styles.previewBox}>
-          <p style={styles.previewLabel}>내가 한 말</p>
+          <p style={styles.previewLabel}>니가 한 말</p>
           <p style={styles.previewText}>“{preview}”</p>
         </div>
       )}
@@ -43,11 +46,11 @@ export default function MessageScreen({
 
 const styles: { [key: string]: React.CSSProperties } = {
   container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 32px", textAlign: "center" },
-  stamp: { background: "#E5FF5D", color: "#C71585", border: "2px solid #111", boxShadow: "3px 3px 0px #111", padding: "4px 10px", fontSize: 12, fontWeight: 900, letterSpacing: "0.5px", marginBottom: 16 },
-  title: { color: "#fff", fontSize: 22, fontWeight: 700, marginBottom: 8, whiteSpace: "pre-line", lineHeight: 1.4 },
-  subtitle: { color: "#999", fontSize: 14, marginBottom: 24, whiteSpace: "pre-line", lineHeight: 1.5 },
-  previewBox: { marginTop: 20, marginBottom: 32, maxWidth: 320 },
-  previewLabel: { color: "#666", fontSize: 12, marginBottom: 4 },
-  previewText: { color: "#aaa", fontSize: 14, fontStyle: "italic", lineHeight: 1.5 },
-  button: { padding: "14px 32px", borderRadius: 12, border: "1px solid #333", background: "transparent", color: "#fff", fontSize: 15 },
+  stamp: { background: BRAND.yellow, color: BRAND.text, border: "2px solid #111", boxShadow: "3px 3px 0px #111", padding: "4px 10px", fontSize: 12, fontWeight: 900, letterSpacing: "0.5px", marginBottom: 16 },
+  title: { color: BRAND.text, fontSize: 22, fontWeight: 700, marginBottom: 8, whiteSpace: "pre-line", lineHeight: 1.4 },
+  subtitle: { color: textAlpha.muted, fontSize: 14, marginBottom: 24, whiteSpace: "pre-line", lineHeight: 1.5 },
+  previewBox: { marginTop: 20, marginBottom: 32, maxWidth: 320, background: BRAND.ivory, border: "2px solid #111", boxShadow: "3px 3px 0px #111", padding: "14px 16px" },
+  previewLabel: { color: BRAND.skyDeep, fontSize: 12, marginBottom: 4, fontWeight: 900 },
+  previewText: { color: BRAND.text, fontSize: 14, fontStyle: "italic", lineHeight: 1.5 },
+  button: { padding: "14px 32px", borderRadius: 12, border: "2px solid #111", background: "transparent", color: BRAND.text, fontSize: 15, fontWeight: 700, cursor: "pointer" },
 };
