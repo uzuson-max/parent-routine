@@ -2,7 +2,7 @@
 "use client";
 
 import { useState } from "react";
-import { BRAND, textAlpha, texturedSkyBackground } from "@/lib/theme";
+import { BRAND, textAlpha, pageBackground } from "@/lib/theme";
 
 interface OnboardingScreenProps {
   onComplete: () => void;
@@ -96,8 +96,8 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
-    ...texturedSkyBackground,
-    color: BRAND.text,
+    ...pageBackground,
+    color: BRAND.primary,
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
@@ -106,7 +106,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     cursor: "pointer",
   },
   dots: { display: "flex", gap: "8px" },
-  dot: { width: "8px", height: "8px", borderRadius: "50%", background: "rgba(63, 56, 53, 0.25)" },
+  dot: { width: "8px", height: "8px", borderRadius: "50%", background: "rgba(77, 63, 115, 0.25)" },
   dotActive: { background: BRAND.yellow },
   contentWrapper: {
     flex: 1,
@@ -119,14 +119,14 @@ const styles: { [key: string]: React.CSSProperties } = {
     textAlign: "center",
     gap: "20px",
   },
-  mainCopy: { color: BRAND.text, fontSize: "30px", fontWeight: 900, margin: 0, lineHeight: 1.3, whiteSpace: "pre-line" },
+  mainCopy: { color: BRAND.primary, fontSize: "30px", fontWeight: 900, margin: 0, lineHeight: 1.3, whiteSpace: "pre-line" },
   subBlock: { display: "flex", flexDirection: "column", gap: "4px" },
-  subLine: { color: "rgba(63, 56, 53, 0.75)", fontSize: "16px", margin: 0, fontWeight: 700 },
+  subLine: { color: textAlpha.soft, fontSize: "16px", margin: 0, fontWeight: 700 },
   tailCopy: { color: BRAND.yellow, fontSize: "18px", fontWeight: 900, margin: 0 },
   dialogueBlock: { display: "flex", flexDirection: "column", gap: "10px", width: "100%" },
   bubble: {
-    background: BRAND.peach,
-    color: BRAND.text,
+    background: BRAND.pink,
+    color: BRAND.primary,
     padding: "12px 16px",
     fontSize: "15px",
     fontWeight: 900,
@@ -140,11 +140,11 @@ const styles: { [key: string]: React.CSSProperties } = {
     padding: "18px",
     border: "2px solid #111",
     background: BRAND.yellow,
-    color: BRAND.text,
+    color: BRAND.primary,
     fontSize: "17px",
     fontWeight: 900,
     cursor: "pointer",
     boxShadow: "3px 3px 0px #111",
   },
-  tapHint: { color: "rgba(63, 56, 53, 0.6)", fontSize: "13px", margin: 0 },
+  tapHint: { color: textAlpha.muted, fontSize: "13px", margin: 0 },
 };
