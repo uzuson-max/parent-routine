@@ -1,3 +1,5 @@
+
+
 "use client";
 import { useEffect, useState } from "react";
 import { BRAND, textAlpha } from "@/lib/theme";
@@ -46,7 +48,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: "24px" },
   stamp: {
     background: BRAND.yellow,
-    color: BRAND.text,
+    color: BRAND.primary,
     border: "2px solid #111",
     boxShadow: "3px 3px 0px #111",
     padding: "4px 10px",
@@ -54,6 +56,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 900,
     letterSpacing: "0.5px",
   },
-  copy: { color: BRAND.text, fontSize: 20, textAlign: "center", whiteSpace: "pre-line", fontWeight: 700 },
+  copy: { color: BRAND.primary, fontSize: 20, textAlign: "center", whiteSpace: "pre-line", fontWeight: 700 },
   homeButton: { background: "transparent", color: textAlpha.muted, border: `1px solid ${textAlpha.hairline}`, borderRadius: "20px", padding: "10px 20px", fontSize: 14, cursor: "pointer" },
 };
