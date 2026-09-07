@@ -16,7 +16,7 @@ import OnboardingScreen from "./screens/OnboardingScreen";
 import ThinkingScreen from "./screens/ThinkingScreen"; // 👈 1. 상단 import에 추가 완료!
 import MicPermissionScreen from "./screens/MicPermissionScreen";
 import FirstTalkScreen from "./screens/FirstTalkScreen";
-import { BRAND, texturedSkyBackground } from "@/lib/theme";
+import { BRAND, pageBackground } from "@/lib/theme";
 
 const ONBOARDING_KEY = "ganseobi_onboarding_completed";
 // 첫 실행 사용자가 "첫 녹음 → 첫 기록"까지 마쳤는지 표시. 한 번 true가 되면 그 세션에서만
@@ -147,7 +147,7 @@ export default function Home() {
   };
 
   return (
-    <div style={{ minHeight: "100vh", ...texturedSkyBackground }}>
+    <div style={{ minHeight: "100vh", ...pageBackground }}>
       {error && (
         <div style={errorBannerStyle}>
           문제가 생겼어: {error}
