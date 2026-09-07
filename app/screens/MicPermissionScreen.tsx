@@ -1,7 +1,8 @@
+
 "use client";
 
 import { useState } from "react";
-import { BRAND, textAlpha, texturedSkyBackground } from "@/lib/theme";
+import { BRAND, textAlpha, pageBackground } from "@/lib/theme";
 
 interface MicPermissionScreenProps {
   // granted: 실제 브라우저 마이크 권한이 허용됐는지 여부. 거부되어도 앱은 계속 진행시키고
@@ -62,8 +63,8 @@ export default function MicPermissionScreen({ onNext }: MicPermissionScreenProps
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
-    ...texturedSkyBackground,
-    color: BRAND.text,
+    ...pageBackground,
+    color: BRAND.primary,
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
@@ -81,7 +82,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     textAlign: "center",
     gap: "16px",
   },
-  headline: { color: BRAND.text, fontSize: "28px", fontWeight: 900, margin: 0, lineHeight: 1.35, whiteSpace: "pre-line" },
+  headline: { color: BRAND.primary, fontSize: "28px", fontWeight: 900, margin: 0, lineHeight: 1.35, whiteSpace: "pre-line" },
   subhead: { color: textAlpha.soft, fontSize: "15px", fontWeight: 700, margin: 0, whiteSpace: "pre-line", lineHeight: 1.5 },
   ctaButton: {
     width: "100%",
@@ -89,7 +90,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     padding: "18px",
     border: "2px solid #111",
     background: BRAND.yellow,
-    color: BRAND.text,
+    color: BRAND.primary,
     fontSize: "17px",
     fontWeight: 900,
     cursor: "pointer",
