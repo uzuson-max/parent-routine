@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { BRAND, textAlpha } from "@/lib/theme";
@@ -46,11 +47,11 @@ export default function MessageScreen({
 
 const styles: { [key: string]: React.CSSProperties } = {
   container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 32px", textAlign: "center" },
-  stamp: { background: BRAND.yellow, color: BRAND.text, border: "2px solid #111", boxShadow: "3px 3px 0px #111", padding: "4px 10px", fontSize: 12, fontWeight: 900, letterSpacing: "0.5px", marginBottom: 16 },
-  title: { color: BRAND.text, fontSize: 22, fontWeight: 700, marginBottom: 8, whiteSpace: "pre-line", lineHeight: 1.4 },
+  stamp: { background: BRAND.yellow, color: BRAND.primary, border: "2px solid #111", boxShadow: "3px 3px 0px #111", padding: "4px 10px", fontSize: 12, fontWeight: 900, letterSpacing: "0.5px", marginBottom: 16 },
+  title: { color: BRAND.primary, fontSize: 22, fontWeight: 700, marginBottom: 8, whiteSpace: "pre-line", lineHeight: 1.4 },
   subtitle: { color: textAlpha.muted, fontSize: 14, marginBottom: 24, whiteSpace: "pre-line", lineHeight: 1.5 },
-  previewBox: { marginTop: 20, marginBottom: 32, maxWidth: 320, background: BRAND.ivory, border: "2px solid #111", boxShadow: "3px 3px 0px #111", padding: "14px 16px" },
-  previewLabel: { color: BRAND.skyDeep, fontSize: 12, marginBottom: 4, fontWeight: 900 },
-  previewText: { color: BRAND.text, fontSize: 14, fontStyle: "italic", lineHeight: 1.5 },
-  button: { padding: "14px 32px", borderRadius: 12, border: "2px solid #111", background: "transparent", color: BRAND.text, fontSize: 15, fontWeight: 700, cursor: "pointer" },
+  previewBox: { marginTop: 20, marginBottom: 32, maxWidth: 320, background: BRAND.card, border: "2px solid #111", boxShadow: "3px 3px 0px #111", padding: "14px 16px" },
+  previewLabel: { color: BRAND.primary, fontSize: 12, marginBottom: 4, fontWeight: 900 },
+  previewText: { color: BRAND.primary, fontSize: 14, fontStyle: "italic", lineHeight: 1.5 },
+  button: { padding: "14px 32px", borderRadius: 12, border: "2px solid #111", background: "transparent", color: BRAND.primary, fontSize: 15, fontWeight: 700, cursor: "pointer" },
 };
