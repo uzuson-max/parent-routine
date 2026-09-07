@@ -8,15 +8,14 @@ import { BRAND, textAlpha, pageBackground } from "@/lib/theme";
 // page.tsx에서 step이 "uploading"을 벗어나는 순간(=API 완료) 언마운트되어 결과 화면으로 넘어간다.
 // 즉 애니메이션 자체는 고정 타이머로 돌되, "다음 화면 전환"은 실제 API 응답이 트리거함.
 const PHRASES: { text: string; label: string; withDots?: boolean }[] = [
-  { text: "잠깐.", label: "LISTENED" },
+  { text: "잠깐만~", label: "LISTENED" },
   
-  { text: "참견할 거 찾는 중", label: "THINKING", withDots: true },
+  { text: "뭘 참견하지~", label: "THINKING", withDots: true },
   
-  { text: "흠...", label: "THINKING" },
+  { text: "생각중...", label: "THINKING" },
 
 
-
-  { text: "할 말 생겼어.", label: "READY" },
+  { text: "할 말 생긴듯? 잠깐만 기다려!. ", label: "READY" },
 ];
 
 const STEP_DELAYS = [1300, 1300, 1500]; // 각 단계로 넘어가기까지 걸리는 시간(ms)
