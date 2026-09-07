@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import { useState } from "react";
@@ -45,8 +46,8 @@ export default function PhoneInputScreen({
 
 const styles: { [key: string]: React.CSSProperties } = {
   container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 32px" },
-  headline: { color: BRAND.text, fontSize: 22, fontWeight: 700, textAlign: "center", margin: 0 },
+  headline: { color: BRAND.primary, fontSize: 22, fontWeight: 700, textAlign: "center", margin: 0 },
   subhead: { color: textAlpha.muted, fontSize: 14, marginTop: 8, marginBottom: 32, textAlign: "center" },
-  input: { width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "2px solid #111", background: BRAND.ivory, color: BRAND.text, fontSize: 16 },
-  button: { marginTop: 20, width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "2px solid #111", boxShadow: "3px 3px 0px #111", background: BRAND.yellow, color: BRAND.text, fontSize: 16, fontWeight: 700 },
+  input: { width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "2px solid #111", background: BRAND.card, color: BRAND.primary, fontSize: 16 },
+  button: { marginTop: 20, width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "2px solid #111", boxShadow: "3px 3px 0px #111", background: BRAND.yellow, color: BRAND.primary, fontSize: 16, fontWeight: 700 },
 };
