@@ -1,7 +1,10 @@
+
 "use client";
 
 import { useState } from "react";
-import { BRAND, textAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import Mascot from "@/components/Mascot";
+import { IconHome, IconRecord, IconMemory, IconMic } from "@/components/icons";
 
 export interface RecordEntry {
   id: string;
@@ -50,17 +53,22 @@ export default function TimelineScreen({
 
   return (
     <div style={styles.container}>
-      {/* TOP */}
+      {/* TOP — 참견이가 여기서 기다리고 있다는 느낌: 마스코트 + 말풍선 */}
       <div style={styles.topSection}>
-        <span style={styles.eyebrow}>{nickname ? `HEY, ${nickname}` : "HEY"}</span>
-        <h1 style={styles.greeting}>
-          {nickname ? `${nickname}, 오늘은 무슨 얘기해볼까?` : "오늘은 무슨 얘기해볼까?"}
-        </h1>
+        <Mascot pose="말을거는" size={72} />
+        <div style={styles.speechBubble}>
+          <span style={styles.eyebrow}>{nickname ? `HEY, ${nickname}` : "HEY"}</span>
+          <h1 style={styles.greeting}>
+            {nickname ? `${nickname}, 오늘은 무슨 얘기해볼까?` : "오늘은 무슨 얘기해볼까?"}
+          </h1>
+        </div>
       </div>
 
       {/* MAIN CTA — 화면에서 가장 큰 행동 */}
       <button style={styles.mainCta} onClick={onOpenRecording}>
-        <span style={styles.ctaMic}>🎙️</span>
+        <span style={styles.ctaMicWrap}>
+          <IconMic style={{ width: 22, height: 22, color: "#fff" }} />
+        </span>
         <span style={styles.ctaText}>아무 얘기나 해도 돼</span>
         <span style={styles.ctaLabel}>TALK TO ME~</span>
       </button>
@@ -68,7 +76,10 @@ export default function TimelineScreen({
       {/* MEMORY — 데이터 있을 때만 노출 */}
       {memoryHighlight && (
         <div style={styles.memoryCard}>
-          <span style={styles.memoryLabel}>MEMORY</span>
+          <div style={styles.memoryHead}>
+            <IconMemory style={{ width: 18, height: 18, color: BRAND.lavenderDeep }} />
+            <span style={styles.memoryLabel}>참견이가 기억하고 있어</span>
+          </div>
           <p style={styles.memoryTitle}>{memoryHighlight.title}</p>
           <p style={styles.memoryProgress}>{memoryHighlight.progressLabel}</p>
         </div>
@@ -130,11 +141,11 @@ export default function TimelineScreen({
       {/* NAVIGATION */}
       <div style={styles.bottomNav}>
         <div style={{ ...styles.navItem, ...styles.navItemActive }}>
-          <span style={styles.navIcon}>🏠</span>
+          <IconHome style={{ width: 20, height: 20 }} />
           <span style={styles.navText}>HOME</span>
         </div>
         <button style={styles.navItem} onClick={onOpenCalendar}>
-          <span style={styles.navIcon}>📅</span>
+          <IconRecord style={{ width: 20, height: 20 }} />
           <span style={styles.navText}>기록</span>
         </button>
         <button
@@ -142,7 +153,7 @@ export default function TimelineScreen({
           onClick={onOpenCalendar}
           title="Memory 전용 화면은 아직 없어서 우선 캘린더로 연결됨"
         >
-          <span style={styles.navIcon}>🧵</span>
+          <IconMemory style={{ width: 20, height: 20 }} />
           <span style={styles.navText}>MEMORY</span>
         </button>
       </div>
@@ -154,92 +165,118 @@ const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
     ...pageBackground,
-    color: BRAND.primary,
+    color: BRAND.ink,
     padding: "24px 20px 0 20px",
     boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
     gap: "16px",
   },
-  topSection: { display: "flex", flexDirection: "column", gap: "4px" },
+  topSection: { display: "flex", alignItems: "flex-end", gap: "10px" },
+  speechBubble: {
+    position: "relative",
+    flex: 1,
+    background: BRAND.card,
+    border: "2.5px solid #111",
+    borderRadius: "18px 18px 18px 4px",
+    padding: "12px 16px",
+    boxShadow: "3px 4px 0px rgba(30,26,38,0.12)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+  },
   eyebrow: {
     fontSize: "11px",
     fontWeight: "900",
     letterSpacing: "1.5px",
-    color: textAlpha.faint,
+    color: inkAlpha.faint,
   },
   greeting: {
-    fontSize: "26px",
+    fontSize: "20px",
     fontWeight: "900",
     margin: 0,
-    letterSpacing: "-0.5px",
+    letterSpacing: "-0.3px",
     lineHeight: 1.3,
   },
   mainCta: {
     width: "100%",
-    background: BRAND.yellow,
-    color: BRAND.primary,
+    background: BRAND.lavender,
+    color: "#fff",
     border: "3px solid #111",
     boxShadow: "4px 4px 0px #111",
-    padding: "22px 16px",
+    borderRadius: "18px",
+    padding: "20px 16px",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    gap: "4px",
+    gap: "6px",
     cursor: "pointer",
   },
-  ctaMic: { fontSize: "30px" },
+  ctaMicWrap: {
+    width: "36px",
+    height: "36px",
+    borderRadius: "50%",
+    background: "rgba(255,255,255,0.2)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   ctaText: { fontSize: "18px", fontWeight: "900" },
-  ctaLabel: { fontSize: "10px", fontWeight: "900", letterSpacing: "1.5px", opacity: 0.7 },
+  ctaLabel: { fontSize: "10px", fontWeight: "900", letterSpacing: "1.5px", opacity: 0.85 },
   memoryCard: {
-    background: BRAND.card,
-    border: "2px solid #111",
-    padding: "14px",
-    boxShadow: "4px 4px 0px #111",
+    background: BRAND.lavenderPale,
+    border: `2px solid ${BRAND.lavenderDeep}`,
+    borderRadius: "16px",
+    padding: "14px 16px",
+    boxShadow: "3px 4px 0px rgba(77,63,115,0.16)",
   },
+  memoryHead: { display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" },
   memoryLabel: {
-    fontSize: "10px",
+    fontSize: "12px",
     fontWeight: "900",
-    color: BRAND.primary,
-    letterSpacing: "1.5px",
+    color: BRAND.lavenderDeep,
+    letterSpacing: "0.3px",
   },
-  memoryTitle: { fontSize: "15px", fontWeight: "900", color: BRAND.primary, margin: "6px 0 2px 0" },
-  memoryProgress: { fontSize: "13px", color: textAlpha.muted, margin: 0, fontWeight: "bold" },
+  memoryTitle: { fontSize: "15px", fontWeight: "900", color: BRAND.ink, margin: "0 0 2px 0" },
+  memoryProgress: { fontSize: "13px", color: BRAND.lavenderDeep, margin: 0, fontWeight: "bold" },
   recentHeader: { display: "flex", flexDirection: "column", gap: "2px", marginTop: "4px" },
   sectionEyebrow: {
     fontSize: "10px",
     fontWeight: "900",
     letterSpacing: "1.5px",
-    color: textAlpha.faint,
+    color: inkAlpha.faint,
   },
-  recentTitle: { fontSize: "16px", fontWeight: "900", margin: 0, color: BRAND.primary },
+  recentTitle: { fontSize: "16px", fontWeight: "900", margin: 0, color: BRAND.ink },
   listContainer: { display: "flex", flexDirection: "column", gap: "12px" },
   loadingCard: {
     background: BRAND.card,
-    color: BRAND.primary,
+    color: BRAND.ink,
     border: "2px solid #111",
+    borderRadius: "16px",
     padding: "24px 20px",
-    boxShadow: "4px 4px 0px #111",
+    boxShadow: "3px 4px 0px rgba(30,26,38,0.10)",
     textAlign: "center",
   },
-  loadingText: { fontSize: "14px", fontWeight: "bold", margin: 0, color: textAlpha.faint },
+  loadingText: { fontSize: "14px", fontWeight: "bold", margin: 0, color: inkAlpha.faint },
   emptyCard: {
     background: BRAND.card,
-    color: BRAND.primary,
+    color: BRAND.ink,
     border: "2px solid #111",
+    borderRadius: "16px",
     padding: "30px 20px",
-    boxShadow: "4px 4px 0px #111",
+    boxShadow: "3px 4px 0px rgba(30,26,38,0.10)",
     textAlign: "center",
   },
   emptyTitle: { fontSize: "18px", fontWeight: "900", margin: "0 0 8px 0" },
-  emptySub: { fontSize: "13px", color: textAlpha.muted, margin: 0, lineHeight: "1.4", fontWeight: "bold" },
+  emptySub: { fontSize: "13px", color: inkAlpha.muted, margin: 0, lineHeight: "1.4", fontWeight: "bold" },
   card: {
     background: BRAND.card,
-    color: BRAND.primary,
+    color: BRAND.ink,
     border: "2px solid #111",
+    borderRadius: "16px",
     padding: "16px",
-    boxShadow: "4px 4px 0px #111",
+    boxShadow: "3px 4px 0px rgba(30,26,38,0.10)",
     cursor: "pointer",
   },
   cardTopRow: {
@@ -248,31 +285,31 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignItems: "center",
     marginBottom: "8px",
   },
-  cardDate: { fontSize: "11px", fontWeight: "900", color: textAlpha.faint },
+  cardDate: { fontSize: "11px", fontWeight: "900", color: inkAlpha.faint },
   sectionLabel: {
     fontSize: "11px",
     fontWeight: "900",
-    color: BRAND.primary,
+    color: BRAND.lavenderDeep,
     margin: "0 0 2px 0",
     letterSpacing: "0.5px",
   },
   sectionLabelResponse: {
     fontSize: "11px",
     fontWeight: "900",
-    color: BRAND.primary,
+    color: BRAND.lavenderDeep,
     margin: "10px 0 2px 0",
     letterSpacing: "0.5px",
   },
-  transcriptText: { fontSize: "14px", color: textAlpha.soft, margin: 0, lineHeight: "1.5", fontStyle: "italic" },
-  responseTextStyle: { fontSize: "14px", color: BRAND.primary, margin: 0, lineHeight: "1.5", fontWeight: "bold" },
-  expandHint: { fontSize: "11px", color: textAlpha.faint, margin: "10px 0 0 0", textAlign: "right" },
+  transcriptText: { fontSize: "14px", color: inkAlpha.soft, margin: 0, lineHeight: "1.5", fontStyle: "italic" },
+  responseTextStyle: { fontSize: "14px", color: BRAND.ink, margin: 0, lineHeight: "1.5", fontWeight: "bold" },
+  expandHint: { fontSize: "11px", color: inkAlpha.faint, margin: "10px 0 0 0", textAlign: "right" },
   bottomNav: {
     position: "fixed",
     bottom: 0,
     left: 0,
     right: 0,
-    background: "#111",
-    borderTop: `2px solid ${BRAND.mint}`,
+    background: BRAND.card,
+    borderTop: "2.5px solid #111",
     display: "flex",
     zIndex: 100,
   },
@@ -280,15 +317,14 @@ const styles: { [key: string]: React.CSSProperties } = {
     flex: 1,
     background: "transparent",
     border: "none",
-    color: "rgba(255,255,255,0.5)",
+    color: inkAlpha.faint,
     padding: "10px 0 14px 0",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    gap: "2px",
+    gap: "3px",
     cursor: "pointer",
   },
-  navItemActive: { color: BRAND.mint },
-  navIcon: { fontSize: "18px" },
+  navItemActive: { color: BRAND.lavenderDeep },
   navText: { fontSize: "10px", fontWeight: "900", letterSpacing: "0.5px" },
 };
