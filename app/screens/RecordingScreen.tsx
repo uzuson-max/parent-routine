@@ -1,6 +1,7 @@
 
+
 import { useEffect, useRef, useState } from "react";
-import { BRAND, textAlpha, texturedSkyBackground } from "@/lib/theme";
+import { BRAND, textAlpha, pageBackground } from "@/lib/theme";
 
 interface RecordingScreenProps {
   initialTopic?: string;
@@ -168,18 +169,18 @@ function formatTime(s: number) {
 }
 
 const styles: { [key: string]: React.CSSProperties } = {
-  container: { minHeight: "100vh", ...texturedSkyBackground, color: BRAND.text, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "24px" },
+  container: { minHeight: "100vh", ...pageBackground, color: BRAND.primary, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "24px" },
   contentWrapper: { width: "100%", maxWidth: "380px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: "20px" },
   topBar: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" },
-  topicBadge: { background: BRAND.yellow, color: BRAND.text, padding: "8px 14px", fontSize: "14px", fontWeight: "900", border: "2px solid #111", boxShadow: "3px 3px 0px #111" },
-  modeToggleButton: { background: BRAND.ivory, color: BRAND.text, border: "2px solid #111", borderRadius: "50%", width: "40px", height: "40px", fontSize: "18px", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" },
-  brandTitle: { fontSize: "13px", fontWeight: "700", color: BRAND.text, width: "100%" },
-  heroBox: { width: "140px", height: "140px", borderRadius: "50%", border: "3px solid #111", background: BRAND.ivory, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "4px 4px 0px #111" },
+  topicBadge: { background: BRAND.yellow, color: BRAND.primary, padding: "8px 14px", fontSize: "14px", fontWeight: "900", border: "2px solid #111", boxShadow: "3px 3px 0px #111" },
+  modeToggleButton: { background: BRAND.card, color: BRAND.primary, border: "2px solid #111", borderRadius: "50%", width: "40px", height: "40px", fontSize: "18px", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" },
+  brandTitle: { fontSize: "13px", fontWeight: "700", color: BRAND.primary, width: "100%" },
+  heroBox: { width: "140px", height: "140px", borderRadius: "50%", border: "3px solid #111", background: BRAND.card, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "4px 4px 0px #111" },
   micIcon: { fontSize: "48px" },
-  timerBox: { fontSize: "48px", fontWeight: "900", color: BRAND.text, letterSpacing: "4px", margin: "16px 0" },
-  textarea: { width: "100%", minHeight: "180px", padding: "16px", border: "2px solid #111", background: BRAND.ivory, color: BRAND.text, fontSize: "16px", fontWeight: "600", boxShadow: "3px 3px 0px #111", resize: "vertical", fontFamily: "inherit" },
-  recordingButton: { width: "100%", padding: "16px", border: "2px solid #111", background: BRAND.yellow, color: BRAND.text, fontSize: "16px", fontWeight: "900", cursor: "pointer", boxShadow: "3px 3px 0px #111" },
+  timerBox: { fontSize: "48px", fontWeight: "900", color: BRAND.primary, letterSpacing: "4px", margin: "16px 0" },
+  textarea: { width: "100%", minHeight: "180px", padding: "16px", border: "2px solid #111", background: BRAND.card, color: BRAND.primary, fontSize: "16px", fontWeight: "600", boxShadow: "3px 3px 0px #111", resize: "vertical", fontFamily: "inherit" },
+  recordingButton: { width: "100%", padding: "16px", border: "2px solid #111", background: BRAND.yellow, color: BRAND.primary, fontSize: "16px", fontWeight: "900", cursor: "pointer", boxShadow: "3px 3px 0px #111" },
   disabledButton: { opacity: 0.5, cursor: "not-allowed" },
-  mainCopy: { color: BRAND.text, fontSize: "18px", fontWeight: "900", margin: 0 },
+  mainCopy: { color: BRAND.primary, fontSize: "18px", fontWeight: "900", margin: 0 },
   subCopy: { color: textAlpha.muted, fontSize: "13px", margin: 0 },
 };
