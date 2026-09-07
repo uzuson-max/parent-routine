@@ -2,6 +2,7 @@
 "use client";
 
 import { useState } from "react";
+import { BRAND, textAlpha } from "@/lib/theme";
 
 function normalizePhone(raw: string): string {
   return raw.replace(/[^0-9]/g, "");
@@ -10,7 +11,7 @@ function normalizePhone(raw: string): string {
 export default function PhoneInputScreen({
   onSubmit,
   titleLines = ["번호를 남겨두면", "참견이가 필요할 때 전화할게."],
-  subhead = "한 번만 물어볼게, 다음부턴 안 물어봐.",
+  subhead = "한 번만 물어볼게. 다음부턴 안 물어봐.",
   buttonLabel = "됐어",
 }: {
   onSubmit: (phone: string) => void;
@@ -44,8 +45,8 @@ export default function PhoneInputScreen({
 
 const styles: { [key: string]: React.CSSProperties } = {
   container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 32px" },
-  headline: { color: "#fff", fontSize: 22, fontWeight: 700, textAlign: "center", margin: 0 },
-  subhead: { color: "#999", fontSize: 14, marginTop: 8, marginBottom: 32, textAlign: "center" },
-  input: { width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "1px solid #333", background: "#1a1a1f", color: "#fff", fontSize: 16 },
-  button: { marginTop: 20, width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "none", background: "#ff5f6d", color: "#fff", fontSize: 16, fontWeight: 600 },
+  headline: { color: BRAND.text, fontSize: 22, fontWeight: 700, textAlign: "center", margin: 0 },
+  subhead: { color: textAlpha.muted, fontSize: 14, marginTop: 8, marginBottom: 32, textAlign: "center" },
+  input: { width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "2px solid #111", background: BRAND.ivory, color: BRAND.text, fontSize: 16 },
+  button: { marginTop: 20, width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "2px solid #111", boxShadow: "3px 3px 0px #111", background: BRAND.yellow, color: BRAND.text, fontSize: 16, fontWeight: 700 },
 };
