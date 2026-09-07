@@ -8,26 +8,24 @@ interface OnboardingScreenProps {
 }
 
 type Slide =
-  | { type: "text"; main: string; sub: string[]; tail: string }
+  | { type: "text"; main: string; sub?: string[]; tail?: string }
   | { type: "dialogue"; main: string; lines: string[] };
 
+// 참견이가 어떤 서비스인지 "기능 설명"이 아니라 "존재"로 아주 짧게 이해시키는 것이 목적.
+// 그래서 슬라이드 하나당 한 문장, 군더더기 없이.
 const SLIDES: Slide[] = [
   {
     type: "text",
-    main: "내 얘기 좀 들어봐.",
-    sub: ["오늘 있었던 일도", "내일 할 일도", "그냥 아무 말이나 해."],
-    tail: "참견이는 그걸 기억해.",
+    main: "내가 한 말을 기억해.",
   },
   {
     type: "dialogue",
-    main: "그리고 가끔 참견해.",
-    lines: ["운동한다며?", "그거 지난주에도 한다고 했는데.", "오. 이번엔 진짜 했네."],
+    main: "가끔 다시 꺼내서 참견해.",
+    lines: ["운동한다며?", "지난주에도 한다고 했는데.", "오, 이번엔 진짜 했네."],
   },
   {
     type: "text",
-    main: "시간이 지나면 더 재밌어져.",
-    sub: ["네가 했던 말", "하겠다고 한 것", "실제로 한 것", "자꾸 반복하는 것까지"],
-    tail: "참견이가 기억해둘게.",
+    main: "필요하면 문자도 하고,\n전화도 해.",
   },
 ];
 
@@ -57,12 +55,14 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
 
         {slide.type === "text" && (
           <>
-            <div style={styles.subBlock}>
-              {slide.sub.map((line, i) => (
-                <p key={i} style={styles.subLine}>{line}</p>
-              ))}
-            </div>
-            <p style={styles.tailCopy}>{slide.tail}</p>
+            {slide.sub && slide.sub.length > 0 && (
+              <div style={styles.subBlock}>
+                {slide.sub.map((line, i) => (
+                  <p key={i} style={styles.subLine}>{line}</p>
+                ))}
+              </div>
+            )}
+            {slide.tail && <p style={styles.tailCopy}>{slide.tail}</p>}
           </>
         )}
 
@@ -83,7 +83,7 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
             onComplete();
           }}
         >
-          참견이 시작하기
+          참견이 만나보기
         </button>
       ) : (
         <p style={styles.tapHint}>화면을 눌러서 계속</p>
@@ -118,7 +118,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     textAlign: "center",
     gap: "20px",
   },
-  mainCopy: { color: "#fff", fontSize: "30px", fontWeight: 900, margin: 0, lineHeight: 1.3 },
+  mainCopy: { color: "#fff", fontSize: "30px", fontWeight: 900, margin: 0, lineHeight: 1.3, whiteSpace: "pre-line" },
   subBlock: { display: "flex", flexDirection: "column", gap: "4px" },
   subLine: { color: "rgba(255,255,255,0.85)", fontSize: "16px", margin: 0, fontWeight: 700 },
   tailCopy: { color: "#E5FF5D", fontSize: "18px", fontWeight: 900, margin: 0 },
