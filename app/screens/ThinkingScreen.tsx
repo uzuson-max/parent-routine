@@ -1,9 +1,8 @@
 
-
 "use client";
 
 import { useEffect, useState } from "react";
-import { BRAND, textAlpha, texturedSkyBackground } from "@/lib/theme";
+import { BRAND, textAlpha, pageBackground } from "@/lib/theme";
 
 // 순차 문구: 실제 API가 끝나기 전까지 이 컴포넌트는 계속 떠 있고,
 // page.tsx에서 step이 "uploading"을 벗어나는 순간(=API 완료) 언마운트되어 결과 화면으로 넘어간다.
@@ -69,7 +68,7 @@ export default function ThinkingScreen() {
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
-    ...texturedSkyBackground,
+    ...pageBackground,
     display: "flex",
     flexDirection: "column",
     justifyContent: "center",
@@ -88,7 +87,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     height: "88px",
     borderRadius: "50%",
     border: "3px solid #111",
-    background: BRAND.ivory,
+    background: BRAND.card,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -96,7 +95,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   mic: { fontSize: "32px" },
   phrase: {
-    color: BRAND.text,
+    color: BRAND.primary,
     fontSize: "22px",
     fontWeight: 900,
     margin: 0,
