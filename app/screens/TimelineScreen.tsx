@@ -1,8 +1,7 @@
-
 "use client";
 
 import { useState } from "react";
-import { BRAND, textAlpha, texturedSkyBackground } from "@/lib/theme";
+import { BRAND, textAlpha, pageBackground } from "@/lib/theme";
 
 export interface RecordEntry {
   id: string;
@@ -154,8 +153,8 @@ export default function TimelineScreen({
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
-    ...texturedSkyBackground,
-    color: BRAND.text,
+    ...pageBackground,
+    color: BRAND.primary,
     padding: "24px 20px 0 20px",
     boxSizing: "border-box",
     display: "flex",
@@ -179,7 +178,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   mainCta: {
     width: "100%",
     background: BRAND.yellow,
-    color: BRAND.text,
+    color: BRAND.primary,
     border: "3px solid #111",
     boxShadow: "4px 4px 0px #111",
     padding: "22px 16px",
@@ -194,7 +193,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   ctaText: { fontSize: "18px", fontWeight: "900" },
   ctaLabel: { fontSize: "10px", fontWeight: "900", letterSpacing: "1.5px", opacity: 0.7 },
   memoryCard: {
-    background: BRAND.ivory,
+    background: BRAND.card,
     border: "2px solid #111",
     padding: "14px",
     boxShadow: "4px 4px 0px #111",
@@ -202,10 +201,10 @@ const styles: { [key: string]: React.CSSProperties } = {
   memoryLabel: {
     fontSize: "10px",
     fontWeight: "900",
-    color: BRAND.text,
+    color: BRAND.primary,
     letterSpacing: "1.5px",
   },
-  memoryTitle: { fontSize: "15px", fontWeight: "900", color: BRAND.text, margin: "6px 0 2px 0" },
+  memoryTitle: { fontSize: "15px", fontWeight: "900", color: BRAND.primary, margin: "6px 0 2px 0" },
   memoryProgress: { fontSize: "13px", color: textAlpha.muted, margin: 0, fontWeight: "bold" },
   recentHeader: { display: "flex", flexDirection: "column", gap: "2px", marginTop: "4px" },
   sectionEyebrow: {
@@ -214,11 +213,11 @@ const styles: { [key: string]: React.CSSProperties } = {
     letterSpacing: "1.5px",
     color: textAlpha.faint,
   },
-  recentTitle: { fontSize: "16px", fontWeight: "900", margin: 0, color: BRAND.text },
+  recentTitle: { fontSize: "16px", fontWeight: "900", margin: 0, color: BRAND.primary },
   listContainer: { display: "flex", flexDirection: "column", gap: "12px" },
   loadingCard: {
-    background: BRAND.ivory,
-    color: BRAND.text,
+    background: BRAND.card,
+    color: BRAND.primary,
     border: "2px solid #111",
     padding: "24px 20px",
     boxShadow: "4px 4px 0px #111",
@@ -226,8 +225,8 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   loadingText: { fontSize: "14px", fontWeight: "bold", margin: 0, color: textAlpha.faint },
   emptyCard: {
-    background: BRAND.ivory,
-    color: BRAND.text,
+    background: BRAND.card,
+    color: BRAND.primary,
     border: "2px solid #111",
     padding: "30px 20px",
     boxShadow: "4px 4px 0px #111",
@@ -236,8 +235,8 @@ const styles: { [key: string]: React.CSSProperties } = {
   emptyTitle: { fontSize: "18px", fontWeight: "900", margin: "0 0 8px 0" },
   emptySub: { fontSize: "13px", color: textAlpha.muted, margin: 0, lineHeight: "1.4", fontWeight: "bold" },
   card: {
-    background: BRAND.ivory,
-    color: BRAND.text,
+    background: BRAND.card,
+    color: BRAND.primary,
     border: "2px solid #111",
     padding: "16px",
     boxShadow: "4px 4px 0px #111",
@@ -253,19 +252,19 @@ const styles: { [key: string]: React.CSSProperties } = {
   sectionLabel: {
     fontSize: "11px",
     fontWeight: "900",
-    color: BRAND.skyDeep,
+    color: BRAND.primary,
     margin: "0 0 2px 0",
     letterSpacing: "0.5px",
   },
   sectionLabelResponse: {
     fontSize: "11px",
     fontWeight: "900",
-    color: BRAND.text,
+    color: BRAND.primary,
     margin: "10px 0 2px 0",
     letterSpacing: "0.5px",
   },
   transcriptText: { fontSize: "14px", color: textAlpha.soft, margin: 0, lineHeight: "1.5", fontStyle: "italic" },
-  responseTextStyle: { fontSize: "14px", color: BRAND.text, margin: 0, lineHeight: "1.5", fontWeight: "bold" },
+  responseTextStyle: { fontSize: "14px", color: BRAND.primary, margin: 0, lineHeight: "1.5", fontWeight: "bold" },
   expandHint: { fontSize: "11px", color: textAlpha.faint, margin: "10px 0 0 0", textAlign: "right" },
   bottomNav: {
     position: "fixed",
@@ -273,7 +272,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     left: 0,
     right: 0,
     background: "#111",
-    borderTop: `2px solid ${BRAND.sky}`,
+    borderTop: `2px solid ${BRAND.mint}`,
     display: "flex",
     zIndex: 100,
   },
@@ -289,7 +288,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     gap: "2px",
     cursor: "pointer",
   },
-  navItemActive: { color: BRAND.sky },
+  navItemActive: { color: BRAND.mint },
   navIcon: { fontSize: "18px" },
   navText: { fontSize: "10px", fontWeight: "900", letterSpacing: "0.5px" },
 };
