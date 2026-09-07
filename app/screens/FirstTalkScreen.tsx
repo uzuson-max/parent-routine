@@ -1,6 +1,8 @@
 
 "use client";
 
+import { BRAND, textAlpha, texturedSkyBackground } from "@/lib/theme";
+
 interface FirstTalkScreenProps {
   onStart: () => void;
 }
@@ -11,7 +13,7 @@ export default function FirstTalkScreen({ onStart }: FirstTalkScreenProps) {
     <div style={styles.container}>
       <div style={styles.contentWrapper}>
         <span style={styles.stamp}>참견이 등장.</span>
-        <h1 style={styles.headline}>아무 말이나 해봐.</h1>
+        <h1 style={styles.headline}>아무 말이나 해볼래?</h1>
         <p style={styles.subhead}>진짜 아무 말이나 괜찮아.</p>
       </div>
       <button style={styles.ctaButton} onClick={onStart}>
@@ -24,8 +26,8 @@ export default function FirstTalkScreen({ onStart }: FirstTalkScreenProps) {
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
-    background: "#C71585",
-    color: "#E5FF5D",
+    ...texturedSkyBackground,
+    color: BRAND.text,
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
@@ -44,8 +46,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     gap: "16px",
   },
   stamp: {
-    background: "#E5FF5D",
-    color: "#C71585",
+    background: BRAND.yellow,
+    color: BRAND.text,
     border: "2px solid #111",
     boxShadow: "3px 3px 0px #111",
     padding: "4px 10px",
@@ -53,15 +55,15 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 900,
     letterSpacing: "0.5px",
   },
-  headline: { color: "#fff", fontSize: "28px", fontWeight: 900, margin: 0, lineHeight: 1.35 },
-  subhead: { color: "rgba(255,255,255,0.85)", fontSize: "15px", fontWeight: 700, margin: 0 },
+  headline: { color: BRAND.text, fontSize: "28px", fontWeight: 900, margin: 0, lineHeight: 1.35 },
+  subhead: { color: textAlpha.soft, fontSize: "15px", fontWeight: 700, margin: 0 },
   ctaButton: {
     width: "100%",
     maxWidth: "380px",
     padding: "18px",
     border: "2px solid #111",
-    background: "#E5FF5D",
-    color: "#C71585",
+    background: BRAND.yellow,
+    color: BRAND.text,
     fontSize: "17px",
     fontWeight: 900,
     cursor: "pointer",
