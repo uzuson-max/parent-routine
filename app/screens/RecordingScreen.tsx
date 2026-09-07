@@ -1,6 +1,4 @@
-
-
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface RecordingScreenProps {
   initialTopic?: string;
@@ -15,10 +13,27 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 녹음이 끝난 뒤(혹은 컴포넌트가 언마운트될 때) 마이크 스트림을 반드시 해제하기 위한 참조.
+  // 이전 스트림을 stop() 하지 않고 두면 트랙이 계속 살아있는 채로 다음 녹음이 새 getUserMedia를
+  // 또 호출하게 되어, 브라우저/OS에 따라 마이크 권한이 매번 다시 뜨는 것처럼 보이는 원인이 된다.
+  const streamRef = useRef<MediaStream | null>(null);
+  // start()가 완료되기 전에 heroBox를 연속 클릭하면 getUserMedia가 중복 호출될 수 있어 가드한다.
+  const startingRef = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    };
+  }, []);
 
   const start = async () => {
+    if (startingRef.current || isRecording) return;
+    startingRef.current = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
       const recorder = new MediaRecorder(stream);
       chunksRef.current = [];
       recorder.ondataavailable = (e) => chunksRef.current.push(e.data);
@@ -29,6 +44,8 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
       timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
     } catch (e) {
       alert("마이크 권한이 필요해!");
+    } finally {
+      startingRef.current = false;
     }
   };
 
@@ -39,6 +56,10 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
     recorder.stop();
     recorder.onstop = () => {
       const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+      // 녹음이 끝났으니 마이크 트랙을 즉시 해제 — 다음 녹음 때 깨끗한 상태에서 다시 요청한다.
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      setIsRecording(false);
       onFinish(blob);
     };
   };
