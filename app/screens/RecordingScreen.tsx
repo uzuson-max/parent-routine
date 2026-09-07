@@ -1,4 +1,6 @@
+
 import { useEffect, useRef, useState } from "react";
+import { BRAND, textAlpha, texturedSkyBackground } from "@/lib/theme";
 
 interface RecordingScreenProps {
   initialTopic?: string;
@@ -150,7 +152,7 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
           </>
         ) : (
           <>
-            <p style={styles.mainCopy}>생각나는 대로 말해줘</p>
+            <p style={styles.mainCopy}>생각나는 대로 해도 돼</p>
             <p style={styles.subCopy}>횡설수설해도 됨</p>
           </>
         )}
@@ -166,18 +168,18 @@ function formatTime(s: number) {
 }
 
 const styles: { [key: string]: React.CSSProperties } = {
-  container: { minHeight: "100vh", background: "#C71585", color: "#E5FF5D", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "24px" },
+  container: { minHeight: "100vh", ...texturedSkyBackground, color: BRAND.text, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "24px" },
   contentWrapper: { width: "100%", maxWidth: "380px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: "20px" },
   topBar: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" },
-  topicBadge: { background: "#E5FF5D", color: "#C71585", padding: "8px 14px", fontSize: "14px", fontWeight: "900", border: "2px solid #111", boxShadow: "3px 3px 0px #111" },
-  modeToggleButton: { background: "transparent", color: "#E5FF5D", border: "2px solid #E5FF5D", borderRadius: "50%", width: "40px", height: "40px", fontSize: "18px", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" },
-  brandTitle: { fontSize: "13px", fontWeight: "700", color: "#E5FF5D", width: "100%" },
-  heroBox: { width: "140px", height: "140px", borderRadius: "50%", border: "3px solid #E5FF5D", background: "transparent", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "0 0 20px rgba(229, 255, 93, 0.3)" },
+  topicBadge: { background: BRAND.yellow, color: BRAND.text, padding: "8px 14px", fontSize: "14px", fontWeight: "900", border: "2px solid #111", boxShadow: "3px 3px 0px #111" },
+  modeToggleButton: { background: BRAND.ivory, color: BRAND.text, border: "2px solid #111", borderRadius: "50%", width: "40px", height: "40px", fontSize: "18px", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" },
+  brandTitle: { fontSize: "13px", fontWeight: "700", color: BRAND.text, width: "100%" },
+  heroBox: { width: "140px", height: "140px", borderRadius: "50%", border: "3px solid #111", background: BRAND.ivory, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "4px 4px 0px #111" },
   micIcon: { fontSize: "48px" },
-  timerBox: { fontSize: "48px", fontWeight: "900", color: "#E5FF5D", letterSpacing: "4px", margin: "16px 0" },
-  textarea: { width: "100%", minHeight: "180px", padding: "16px", border: "2px solid #111", background: "#E5FF5D", color: "#111", fontSize: "16px", fontWeight: "600", boxShadow: "3px 3px 0px #111", resize: "vertical", fontFamily: "inherit" },
-  recordingButton: { width: "100%", padding: "16px", border: "2px solid #111", background: "#E5FF5D", color: "#C71585", fontSize: "16px", fontWeight: "900", cursor: "pointer", boxShadow: "3px 3px 0px #111" },
+  timerBox: { fontSize: "48px", fontWeight: "900", color: BRAND.text, letterSpacing: "4px", margin: "16px 0" },
+  textarea: { width: "100%", minHeight: "180px", padding: "16px", border: "2px solid #111", background: BRAND.ivory, color: BRAND.text, fontSize: "16px", fontWeight: "600", boxShadow: "3px 3px 0px #111", resize: "vertical", fontFamily: "inherit" },
+  recordingButton: { width: "100%", padding: "16px", border: "2px solid #111", background: BRAND.yellow, color: BRAND.text, fontSize: "16px", fontWeight: "900", cursor: "pointer", boxShadow: "3px 3px 0px #111" },
   disabledButton: { opacity: 0.5, cursor: "not-allowed" },
-  mainCopy: { color: "#FFF", fontSize: "18px", fontWeight: "900", margin: 0 },
-  subCopy: { color: "rgba(255, 255, 255, 0.7)", fontSize: "13px", margin: 0 },
+  mainCopy: { color: BRAND.text, fontSize: "18px", fontWeight: "900", margin: 0 },
+  subCopy: { color: textAlpha.muted, fontSize: "13px", margin: 0 },
 };
