@@ -16,16 +16,16 @@ type Slide =
 const SLIDES: Slide[] = [
   {
     type: "text",
-    main: "내가 한 말을 기억해.",
+    main: "내가 한 말을\n기억해둘게.",
   },
   {
     type: "dialogue",
-    main: "가끔 다시 꺼내서 참견해.",
-    lines: ["운동한다며?", "지난주에도 한다고 했는데.", "오, 이번엔 진짜 했네."],
+    main: "가끔 다시 꺼내서\n참견할 거야.",
+    lines: ["운동한다며?", "그거 아직 안 했네?", "어? 이번엔 했네."],
   },
   {
     type: "text",
-    main: "필요하면 문자도 하고,\n전화도 해.",
+    main: "문자도 하고.\n전화도 할게.",
   },
 ];
 
@@ -83,20 +83,30 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
             onComplete();
           }}
         >
-          참견이 만나보기
+          한번 만나볼까?
         </button>
       ) : (
-        <p style={styles.tapHint}>화면을 눌러서 계속</p>
+        <p style={styles.tapHint}>화면 누르면 계속돼</p>
       )}
     </div>
   );
 }
 
+// 참견이 브랜드 컬러 — 하늘색을 메인으로, 아이보리/노랑/피치는 보조색으로만 제한적으로 사용.
+// (이번 작업 범위는 온보딩 화면뿐이라 이 팔레트는 아직 이 파일 안에서만 쓰인다.)
+const BRAND = {
+  sky: "#86A9D5", // 메인 브랜드 컬러 — 기존 #C71585 대체
+  ivory: "#FFF9EF", // 보조 배경(이 화면엔 카드 영역이 없어 아직 미사용)
+  yellow: "#F5D77E", // 포인트 — 버튼/작은 강조
+  peach: "#F2B7A5", // 포인트 — 말풍선 전용
+  text: "#3F3835", // 순수 검정 대신 짙은 브라운
+};
+
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
-    background: "#C71585",
-    color: "#E5FF5D",
+    background: BRAND.sky,
+    color: BRAND.text,
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
@@ -105,8 +115,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     cursor: "pointer",
   },
   dots: { display: "flex", gap: "8px" },
-  dot: { width: "8px", height: "8px", borderRadius: "50%", background: "rgba(229, 255, 93, 0.3)" },
-  dotActive: { background: "#E5FF5D" },
+  dot: { width: "8px", height: "8px", borderRadius: "50%", background: "rgba(63, 56, 53, 0.25)" },
+  dotActive: { background: BRAND.yellow },
   contentWrapper: {
     flex: 1,
     width: "100%",
@@ -118,14 +128,14 @@ const styles: { [key: string]: React.CSSProperties } = {
     textAlign: "center",
     gap: "20px",
   },
-  mainCopy: { color: "#fff", fontSize: "30px", fontWeight: 900, margin: 0, lineHeight: 1.3, whiteSpace: "pre-line" },
+  mainCopy: { color: BRAND.text, fontSize: "30px", fontWeight: 900, margin: 0, lineHeight: 1.3, whiteSpace: "pre-line" },
   subBlock: { display: "flex", flexDirection: "column", gap: "4px" },
-  subLine: { color: "rgba(255,255,255,0.85)", fontSize: "16px", margin: 0, fontWeight: 700 },
-  tailCopy: { color: "#E5FF5D", fontSize: "18px", fontWeight: 900, margin: 0 },
+  subLine: { color: "rgba(63, 56, 53, 0.75)", fontSize: "16px", margin: 0, fontWeight: 700 },
+  tailCopy: { color: BRAND.yellow, fontSize: "18px", fontWeight: 900, margin: 0 },
   dialogueBlock: { display: "flex", flexDirection: "column", gap: "10px", width: "100%" },
   bubble: {
-    background: "#E5FF5D",
-    color: "#C71585",
+    background: BRAND.peach,
+    color: BRAND.text,
     padding: "12px 16px",
     fontSize: "15px",
     fontWeight: 900,
@@ -138,12 +148,12 @@ const styles: { [key: string]: React.CSSProperties } = {
     maxWidth: "380px",
     padding: "18px",
     border: "2px solid #111",
-    background: "#E5FF5D",
-    color: "#C71585",
+    background: BRAND.yellow,
+    color: BRAND.text,
     fontSize: "17px",
     fontWeight: 900,
     cursor: "pointer",
     boxShadow: "3px 3px 0px #111",
   },
-  tapHint: { color: "rgba(255,255,255,0.5)", fontSize: "13px", margin: 0 },
+  tapHint: { color: "rgba(63, 56, 53, 0.6)", fontSize: "13px", margin: 0 },
 };
