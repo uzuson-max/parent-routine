@@ -2,6 +2,7 @@
 "use client";
 
 import { useState } from "react";
+import { BRAND, textAlpha, texturedSkyBackground } from "@/lib/theme";
 
 interface OnboardingScreenProps {
   onComplete: () => void;
@@ -16,7 +17,7 @@ type Slide =
 const SLIDES: Slide[] = [
   {
     type: "text",
-    main: "내가 한 말을\n기억해둘게.",
+    main: "니가 한 말을\n기억해둘게.",
   },
   {
     type: "dialogue",
@@ -92,20 +93,10 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
   );
 }
 
-// 참견이 브랜드 컬러 — 하늘색을 메인으로, 아이보리/노랑/피치는 보조색으로만 제한적으로 사용.
-// (이번 작업 범위는 온보딩 화면뿐이라 이 팔레트는 아직 이 파일 안에서만 쓰인다.)
-const BRAND = {
-  sky: "#86A9D5", // 메인 브랜드 컬러 — 기존 #C71585 대체
-  ivory: "#FFF9EF", // 보조 배경(이 화면엔 카드 영역이 없어 아직 미사용)
-  yellow: "#F5D77E", // 포인트 — 버튼/작은 강조
-  peach: "#F2B7A5", // 포인트 — 말풍선 전용
-  text: "#3F3835", // 순수 검정 대신 짙은 브라운
-};
-
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
-    background: BRAND.sky,
+    ...texturedSkyBackground,
     color: BRAND.text,
     display: "flex",
     flexDirection: "column",
