@@ -1,3 +1,4 @@
+
 "use client";
 import { useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
@@ -10,6 +11,7 @@ export default function ConfirmScreen({
   entryId,
   phone,
   onDone,
+  firstRun,
 }: {
   reaction?: string;
   commitment: string;
@@ -18,6 +20,8 @@ export default function ConfirmScreen({
   entryId: string;
   phone: string;
   onDone: (kept: boolean) => void;
+  // 사용자의 첫 번째 기록에 대한 응답일 때만 true.
+  firstRun?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const keep = async () => {
@@ -50,6 +54,7 @@ export default function ConfirmScreen({
   };
   return (
     <div style={styles.container}>
+      {firstRun && <span style={styles.stamp}>참견이 등장.</span>}
       {reaction && <p style={styles.reaction}>{reaction}</p>}
       <p style={styles.headline}>이건 기억해야지~</p>
       <div style={styles.commitmentBox}>
@@ -69,6 +74,7 @@ export default function ConfirmScreen({
 }
 const styles: { [key: string]: React.CSSProperties } = {
   container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 32px", textAlign: "center" },
+  stamp: { background: "#E5FF5D", color: "#C71585", border: "2px solid #111", boxShadow: "3px 3px 0px #111", padding: "4px 10px", fontSize: 12, fontWeight: 900, letterSpacing: "0.5px", marginBottom: 16 },
   reaction: { color: "#999", fontSize: 15, marginBottom: 16 },
   headline: { color: "#fff", fontSize: 22, fontWeight: 700, marginBottom: 24 },
   commitmentBox: { background: "#1a1a1f", border: "1px solid #333", borderRadius: 12, padding: "16px 20px", maxWidth: 320, marginBottom: 12 },
