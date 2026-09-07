@@ -1,7 +1,7 @@
 
 "use client";
 
-import { BRAND, textAlpha, texturedSkyBackground } from "@/lib/theme";
+import { BRAND, textAlpha, pageBackground } from "@/lib/theme";
 
 interface FirstTalkScreenProps {
   onStart: () => void;
@@ -26,8 +26,8 @@ export default function FirstTalkScreen({ onStart }: FirstTalkScreenProps) {
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
-    ...texturedSkyBackground,
-    color: BRAND.text,
+    ...pageBackground,
+    color: BRAND.primary,
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
@@ -47,7 +47,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   stamp: {
     background: BRAND.yellow,
-    color: BRAND.text,
+    color: BRAND.primary,
     border: "2px solid #111",
     boxShadow: "3px 3px 0px #111",
     padding: "4px 10px",
@@ -55,7 +55,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 900,
     letterSpacing: "0.5px",
   },
-  headline: { color: BRAND.text, fontSize: "28px", fontWeight: 900, margin: 0, lineHeight: 1.35 },
+  headline: { color: BRAND.primary, fontSize: "28px", fontWeight: 900, margin: 0, lineHeight: 1.35 },
   subhead: { color: textAlpha.soft, fontSize: "15px", fontWeight: 700, margin: 0 },
   ctaButton: {
     width: "100%",
@@ -63,7 +63,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     padding: "18px",
     border: "2px solid #111",
     background: BRAND.yellow,
-    color: BRAND.text,
+    color: BRAND.primary,
     fontSize: "17px",
     fontWeight: 900,
     cursor: "pointer",
