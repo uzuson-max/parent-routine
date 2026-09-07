@@ -1,4 +1,3 @@
-
 import { supabase } from '@/lib/supabase';
 import { sendRoutineCall } from '@/lib/twilio';
 import { sendSolapiSms } from '@/lib/solapi';
@@ -77,7 +76,7 @@ async function generateInterventionSms(commitment: string, stage: 1 | 2 | 3): Pr
 
   const commonRules = `[공통 규칙]
 - commitment의 의미와 행동 내용은 반드시 유지한다.
-- 존재하지 않는 과거 대화나 사실을 만들어내지 마라. 사용자가 하지 않은 말을 했다고 주장하지 마라. "전에 네가 ~라고 했잖아" 같은 새로운 과거 사실을 지어내지 마라.
+- 존재하지 않는 과거 대화나 사실을 만들어내지 마라. 사용자가 하지 않은 말을 했다고 주장하지 마라. "전에 니가 ~라고 했잖아" 같은 새로운 과거 사실을 지어내지 마라.
 - commitment("${commitment}")에 없는 시간, 장소, 상황 등의 사실을 만들어내지 마라.
 - 단계가 올라갈수록 더 집요하고 직접적이어야 한다. 1차/2차/3차가 서로 다른 방식으로 참견하는 느낌이 나야 한다. 같은 문장 구조를 반복하지 마라.
 - 특히 commitment 원문을 문자 첫머리에 그대로 복사하는 것을 피하라 (각 단계의 오프닝 스타일 지시를 따르면 자연히 피해진다). 다만 commitment 자체를 숨기라는 뜻은 아니다 — 필요하면 문자 안에서 무엇을 하기로 했는지 명확히 언급해도 된다, 단 매번 첫 문장을 원문 복사로 시작하지만 마라.
