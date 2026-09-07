@@ -2,6 +2,7 @@
 "use client";
 
 import { useState } from "react";
+import { BRAND, textAlpha, texturedSkyBackground } from "@/lib/theme";
 
 export interface RecordEntry {
   id: string;
@@ -87,8 +88,8 @@ export default function TimelineScreen({
           </div>
         ) : entries.length === 0 ? (
           <div style={styles.emptyCard}>
-            <p style={styles.emptyTitle}>아직 네 얘기가 없어.</p>
-            <p style={styles.emptySub}>위에 눌러서 뭐라도 말해봐.</p>
+            <p style={styles.emptyTitle}>아직 니 얘기가 없어.</p>
+            <p style={styles.emptySub}>위에서 아무 말이나 해볼래?</p>
           </div>
         ) : (
           entries.map((entry) => {
@@ -104,7 +105,7 @@ export default function TimelineScreen({
                   <span style={styles.cardDate}>{formatDateTime(entry.createdAt)}</span>
                 </div>
 
-                <p style={styles.sectionLabel}>내가 한 말</p>
+                <p style={styles.sectionLabel}>니가 한 말</p>
                 <p style={styles.transcriptText}>
                   &ldquo;{isOpen ? entry.transcript : truncate(entry.transcript, 40)}&rdquo;
                 </p>
@@ -118,7 +119,7 @@ export default function TimelineScreen({
                   </>
                 )}
 
-                {!isOpen && isLong && <p style={styles.expandHint}>눌러서 전체 보기</p>}
+                {!isOpen && isLong && <p style={styles.expandHint}>누르면 전체 보여</p>}
               </div>
             );
           })
@@ -153,8 +154,8 @@ export default function TimelineScreen({
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
-    background: "#C71585",
-    color: "#FFF",
+    ...texturedSkyBackground,
+    color: BRAND.text,
     padding: "24px 20px 0 20px",
     boxSizing: "border-box",
     display: "flex",
@@ -166,7 +167,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: "11px",
     fontWeight: "900",
     letterSpacing: "1.5px",
-    color: "rgba(255,255,255,0.65)",
+    color: textAlpha.faint,
   },
   greeting: {
     fontSize: "26px",
@@ -174,12 +175,11 @@ const styles: { [key: string]: React.CSSProperties } = {
     margin: 0,
     letterSpacing: "-0.5px",
     lineHeight: 1.3,
-    textShadow: "2px 2px 0px #111",
   },
   mainCta: {
     width: "100%",
-    background: "#E5FF5D",
-    color: "#C71585",
+    background: BRAND.yellow,
+    color: BRAND.text,
     border: "3px solid #111",
     boxShadow: "4px 4px 0px #111",
     padding: "22px 16px",
@@ -194,50 +194,50 @@ const styles: { [key: string]: React.CSSProperties } = {
   ctaText: { fontSize: "18px", fontWeight: "900" },
   ctaLabel: { fontSize: "10px", fontWeight: "900", letterSpacing: "1.5px", opacity: 0.7 },
   memoryCard: {
-    background: "#1E1E1E",
-    border: "2px solid #E5FF5D",
+    background: BRAND.ivory,
+    border: "2px solid #111",
     padding: "14px",
     boxShadow: "4px 4px 0px #111",
   },
   memoryLabel: {
     fontSize: "10px",
     fontWeight: "900",
-    color: "#E5FF5D",
+    color: BRAND.text,
     letterSpacing: "1.5px",
   },
-  memoryTitle: { fontSize: "15px", fontWeight: "900", color: "#FFF", margin: "6px 0 2px 0" },
-  memoryProgress: { fontSize: "13px", color: "rgba(255,255,255,0.7)", margin: 0, fontWeight: "bold" },
+  memoryTitle: { fontSize: "15px", fontWeight: "900", color: BRAND.text, margin: "6px 0 2px 0" },
+  memoryProgress: { fontSize: "13px", color: textAlpha.muted, margin: 0, fontWeight: "bold" },
   recentHeader: { display: "flex", flexDirection: "column", gap: "2px", marginTop: "4px" },
   sectionEyebrow: {
     fontSize: "10px",
     fontWeight: "900",
     letterSpacing: "1.5px",
-    color: "rgba(255,255,255,0.5)",
+    color: textAlpha.faint,
   },
-  recentTitle: { fontSize: "16px", fontWeight: "900", margin: 0, color: "#FFF" },
+  recentTitle: { fontSize: "16px", fontWeight: "900", margin: 0, color: BRAND.text },
   listContainer: { display: "flex", flexDirection: "column", gap: "12px" },
   loadingCard: {
-    background: "#FFF",
-    color: "#1E1E1E",
+    background: BRAND.ivory,
+    color: BRAND.text,
     border: "2px solid #111",
     padding: "24px 20px",
     boxShadow: "4px 4px 0px #111",
     textAlign: "center",
   },
-  loadingText: { fontSize: "14px", fontWeight: "bold", margin: 0, color: "#888" },
+  loadingText: { fontSize: "14px", fontWeight: "bold", margin: 0, color: textAlpha.faint },
   emptyCard: {
-    background: "#FFF",
-    color: "#1E1E1E",
+    background: BRAND.ivory,
+    color: BRAND.text,
     border: "2px solid #111",
     padding: "30px 20px",
     boxShadow: "4px 4px 0px #111",
     textAlign: "center",
   },
   emptyTitle: { fontSize: "18px", fontWeight: "900", margin: "0 0 8px 0" },
-  emptySub: { fontSize: "13px", color: "#666", margin: 0, lineHeight: "1.4", fontWeight: "bold" },
+  emptySub: { fontSize: "13px", color: textAlpha.muted, margin: 0, lineHeight: "1.4", fontWeight: "bold" },
   card: {
-    background: "#FFF",
-    color: "#1E1E1E",
+    background: BRAND.ivory,
+    color: BRAND.text,
     border: "2px solid #111",
     padding: "16px",
     boxShadow: "4px 4px 0px #111",
@@ -249,31 +249,31 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignItems: "center",
     marginBottom: "8px",
   },
-  cardDate: { fontSize: "11px", fontWeight: "900", color: "#888" },
+  cardDate: { fontSize: "11px", fontWeight: "900", color: textAlpha.faint },
   sectionLabel: {
     fontSize: "11px",
     fontWeight: "900",
-    color: "#C71585",
+    color: BRAND.skyDeep,
     margin: "0 0 2px 0",
     letterSpacing: "0.5px",
   },
   sectionLabelResponse: {
     fontSize: "11px",
     fontWeight: "900",
-    color: "#111",
+    color: BRAND.text,
     margin: "10px 0 2px 0",
     letterSpacing: "0.5px",
   },
-  transcriptText: { fontSize: "14px", color: "#333", margin: 0, lineHeight: "1.5", fontStyle: "italic" },
-  responseTextStyle: { fontSize: "14px", color: "#111", margin: 0, lineHeight: "1.5", fontWeight: "bold" },
-  expandHint: { fontSize: "11px", color: "#999", margin: "10px 0 0 0", textAlign: "right" },
+  transcriptText: { fontSize: "14px", color: textAlpha.soft, margin: 0, lineHeight: "1.5", fontStyle: "italic" },
+  responseTextStyle: { fontSize: "14px", color: BRAND.text, margin: 0, lineHeight: "1.5", fontWeight: "bold" },
+  expandHint: { fontSize: "11px", color: textAlpha.faint, margin: "10px 0 0 0", textAlign: "right" },
   bottomNav: {
     position: "fixed",
     bottom: 0,
     left: 0,
     right: 0,
     background: "#111",
-    borderTop: "2px solid #E5FF5D",
+    borderTop: `2px solid ${BRAND.sky}`,
     display: "flex",
     zIndex: 100,
   },
@@ -289,7 +289,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     gap: "2px",
     cursor: "pointer",
   },
-  navItemActive: { color: "#E5FF5D" },
+  navItemActive: { color: BRAND.sky },
   navIcon: { fontSize: "18px" },
   navText: { fontSize: "10px", fontWeight: "900", letterSpacing: "0.5px" },
 };
