@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -15,17 +14,24 @@ import NicknameScreen from "./screens/NicknameScreen";
 import CalendarScreen from "./screens/CalendarScreen";
 import OnboardingScreen from "./screens/OnboardingScreen";
 import ThinkingScreen from "./screens/ThinkingScreen"; // 👈 1. 상단 import에 추가 완료!
+import MicPermissionScreen from "./screens/MicPermissionScreen";
+import FirstTalkScreen from "./screens/FirstTalkScreen";
 
 const ONBOARDING_KEY = "ganseobi_onboarding_completed";
+// 첫 실행 사용자가 "첫 녹음 → 첫 기록"까지 마쳤는지 표시. 한 번 true가 되면 그 세션에서만
+// 닉네임/전화번호 같은 부가 입력을 건너뛰기 위한 용도로만 쓰고, 이후에는 기존 플로우를 그대로 탄다.
+const FIRST_ENTRY_DONE_KEY = "ganseobi_first_entry_done";
 
 type Step =
-  | "onboarding"       
-  | "landing"          
-  | "raw_landing"      
+  | "onboarding"
+  | "mic_permission"
+  | "first_talk"
+  | "landing"
+  | "raw_landing"
   | "recording"
   | "phone_input"
-  | "nickname"         
-  | "calendar"         
+  | "nickname"
+  | "calendar"
   | "uploading"
   | "no_action"
   | "awaiting_confirmation"
@@ -44,6 +50,9 @@ export default function Home() {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<RecordEntry[] | null>(null);
+  // 온보딩을 막 끝낸 사용자의 "첫 녹음 → 첫 기록" 여정 동안만 true.
+  // 이 값이 true인 동안에는 전화번호/닉네임 같은 부가 입력을 요구하지 않고 바로 홈까지 보낸다.
+  const [isFirstRun, setIsFirstRun] = useState(false);
 
   const fetchEntries = async () => {
     try {
@@ -151,7 +160,29 @@ export default function Home() {
         <OnboardingScreen
           onComplete={() => {
             if (typeof window !== "undefined") localStorage.setItem(ONBOARDING_KEY, "1");
-            setStep("landing");
+            // 온보딩을 막 끝낸 사람 = 이 앱을 처음 쓰는 사람.
+            // 바로 홈으로 보내지 않고 마이크 권한 안내 → 첫 녹음으로 이어지는 첫 실행 흐름을 태운다.
+            setIsFirstRun(true);
+            setStep("mic_permission");
+          }}
+        />
+      )}
+
+      {step === "mic_permission" && (
+        <MicPermissionScreen
+          onNext={() => {
+            // 허용/거부 여부와 무관하게 진행한다 — 거부해도 텍스트 입력으로 첫 대화를 할 수 있고,
+            // 브라우저/OS가 관리하는 권한 자체를 우리가 강제로 바꾸지는 않는다.
+            setStep("first_talk");
+          }}
+        />
+      )}
+
+      {step === "first_talk" && (
+        <FirstTalkScreen
+          onStart={() => {
+            setSelectedTopic("");
+            setStep("recording");
           }}
         />
       )}
@@ -189,6 +220,15 @@ export default function Home() {
           onFinish={(input: Blob | string) => {
             setAudioBlob(input);
             const savedPhone = typeof window !== "undefined" ? localStorage.getItem("ganseobi_phone") : null;
+
+            // 첫 실행의 첫 녹음은 전화번호가 없어도 바로 분석/저장까지 보낸다.
+            // 전화번호는 이제 서버에서도 선택값(없어도 녹음은 저장됨)이고, 실제 개입(전화)이
+            // 필요한 시점에 물어보는 기존 구조(awaiting_phone → PhoneInputScreen)를 그대로 둔다.
+            if (isFirstRun) {
+              doUpload(savedPhone || "", input);
+              return;
+            }
+
             if (savedPhone) {
               setPhone(savedPhone);
               doUpload(savedPhone, input);
@@ -245,6 +285,7 @@ export default function Home() {
           title={uploadData?.response?.response || "오늘은 그냥 들어둘게."}
           transcriptPreview={uploadData?.transcript}
           onRestart={() => resetAll()}
+          firstRun={isFirstRun}
         />
       )}
 
@@ -257,11 +298,12 @@ export default function Home() {
           entryId={entryId!}
           phone={phone}
           onDone={(kept: boolean) => setStep(kept ? "confirmed" : "no_action")}
+          firstRun={isFirstRun}
         />
       )}
 
       {step === "confirmed" && (
-        <MessageScreen title="기억해뒀어." subtitle="필요할 때 다시 꺼낼게." onRestart={() => resetAll()} />
+        <MessageScreen title="기억해뒀어." subtitle="필요할 때 다시 꺼낼게." onRestart={() => resetAll()} firstRun={isFirstRun} />
       )}
 
       {step === "calling" && entryId && (
@@ -280,6 +322,7 @@ export default function Home() {
           title="전화 연결이 잘 안 됐어."
           subtitle="그래도 오늘 한 얘기는 기억해뒀어."
           onRestart={() => resetAll()}
+          firstRun={isFirstRun}
         />
       )}
 
@@ -293,6 +336,7 @@ export default function Home() {
             setEntryId(null);
             setUploadData(null);
             setResult(null);
+            markFirstEntryDoneIfNeeded();
             setStep("landing");
           }}
         />
@@ -300,12 +344,28 @@ export default function Home() {
     </div>
   );
 
+  // 첫 실행 여정(온보딩→마이크 권한→첫 녹음)이 끝났음을 표시한다.
+  // 한 번 호출되면 이후 녹음부터는 완전히 기존 플로우(닉네임 질문 등 포함)를 그대로 탄다.
+  function markFirstEntryDoneIfNeeded() {
+    if (!isFirstRun) return;
+    if (typeof window !== "undefined") localStorage.setItem(FIRST_ENTRY_DONE_KEY, "1");
+    setIsFirstRun(false);
+  }
+
   function resetAll() {
     setAudioBlob(null);
     setSelectedTopic("");
     setEntryId(null);
     setUploadData(null);
     setResult(null);
+
+    // 첫 실행의 첫 기록 직후에는 회원가입성 질문(닉네임 등)을 요구하지 않고 바로 홈으로 보낸다.
+    // 닉네임은 원래 있던 구조 그대로 "다음" 녹음부터 필요해지는 시점에 물어본다.
+    if (isFirstRun) {
+      markFirstEntryDoneIfNeeded();
+      setStep("landing");
+      return;
+    }
 
     const alreadyAsked = typeof window !== "undefined" && localStorage.getItem("ganseobi_nickname_asked");
     if (!alreadyAsked) {
