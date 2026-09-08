@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState } from "react";
@@ -88,7 +87,7 @@ export default function TimelineScreen({
       {/* RECENT */}
       <div style={styles.recentHeader}>
         <span style={styles.sectionEyebrow}>RECENT</span>
-        <h2 style={styles.recentTitle}>최근에 나랑 나눈 얘기들</h2>
+        <h2 style={styles.recentTitle}>참견이가 기억하는 거</h2>
       </div>
 
       <div style={styles.listContainer}>
