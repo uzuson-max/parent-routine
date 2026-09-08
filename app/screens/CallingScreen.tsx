@@ -1,8 +1,8 @@
 
-
 "use client";
 import { useEffect, useState } from "react";
-import { BRAND, textAlpha } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { IconPhone } from "@/components/icons";
 
 export default function CallingScreen({
   entryId,
@@ -32,6 +32,9 @@ export default function CallingScreen({
 
   return (
     <div style={styles.container}>
+      <div style={styles.iconWrap}>
+        <IconPhone style={{ width: 32, height: 32, color: "#fff" }} />
+      </div>
       {status === "pending" && <span style={styles.stamp}>참견이 전화 중.</span>}
       <p style={styles.copy}>
         {status === "pending" && "번호 저장했어.\n이건 좀 전화로 얘기하고 싶은데.\n잠깐만. 전화할게."}
@@ -45,10 +48,21 @@ export default function CallingScreen({
 }
 
 const styles: { [key: string]: React.CSSProperties } = {
-  container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: "24px" },
+  container: { minHeight: "100vh", ...pageBackground, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: "20px", padding: "24px" },
+  iconWrap: {
+    width: "72px",
+    height: "72px",
+    borderRadius: "50%",
+    border: "3px solid #111",
+    background: BRAND.lavender,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    boxShadow: "4px 4px 0px #111",
+  },
   stamp: {
     background: BRAND.yellow,
-    color: BRAND.primary,
+    color: BRAND.ink,
     border: "2px solid #111",
     boxShadow: "3px 3px 0px #111",
     padding: "4px 10px",
@@ -56,6 +70,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 900,
     letterSpacing: "0.5px",
   },
-  copy: { color: BRAND.primary, fontSize: 20, textAlign: "center", whiteSpace: "pre-line", fontWeight: 700 },
-  homeButton: { background: "transparent", color: textAlpha.muted, border: `1px solid ${textAlpha.hairline}`, borderRadius: "20px", padding: "10px 20px", fontSize: 14, cursor: "pointer" },
+  copy: { color: BRAND.ink, fontSize: 20, textAlign: "center", whiteSpace: "pre-line", fontWeight: 900, lineHeight: 1.5 },
+  homeButton: { background: "transparent", color: inkAlpha.muted, border: `1.5px solid ${inkAlpha.hairline}`, borderRadius: "20px", padding: "10px 22px", fontSize: 14, fontWeight: 700, cursor: "pointer" },
 };
