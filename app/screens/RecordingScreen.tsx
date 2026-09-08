@@ -1,7 +1,7 @@
 
-
 import { useEffect, useRef, useState } from "react";
-import { BRAND, textAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { IconMic, IconMore } from "@/components/icons";
 
 interface RecordingScreenProps {
   initialTopic?: string;
@@ -79,7 +79,7 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
         <div style={styles.contentWrapper}>
           <div style={styles.topBar}>
             <div style={styles.topicBadge}>
-              🎯 {initialTopic ? `"${initialTopic}"` : "생각 남기기"}
+              {initialTopic ? `"${initialTopic}"` : "생각 남기기"}
             </div>
             <button
               style={styles.modeToggleButton}
@@ -87,7 +87,7 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
               aria-label="음성 입력으로 전환"
               title="음성으로 말할래"
             >
-              🎙
+              <IconMic style={{ width: 18, height: 18, color: BRAND.ink }} />
             </button>
           </div>
 
@@ -117,7 +117,7 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
       <div style={styles.contentWrapper}>
         <div style={styles.topBar}>
           <div style={styles.topicBadge}>
-            🎯 {initialTopic ? `"${initialTopic}"` : "생각 털어놓기"}
+            {initialTopic ? `"${initialTopic}"` : "생각 털어놓기"}
           </div>
           {!isRecording && (
             <button
@@ -126,17 +126,22 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
               aria-label="텍스트 입력으로 전환"
               title="타이핑으로 남길래"
             >
-              ⌨
+              <IconMore style={{ width: 18, height: 18, color: BRAND.ink }} />
             </button>
           )}
         </div>
 
-        {isRecording && <div style={styles.brandTitle}>● 듣는 중</div>}
+        {isRecording && (
+          <div style={styles.listeningTag}>
+            <span style={styles.recDot} />
+            듣는 중
+          </div>
+        )}
 
         {!isRecording ? (
-          <div style={styles.heroBox} onClick={start}>
-            <span style={styles.micIcon}>🎙</span>
-          </div>
+          <button style={styles.heroBox} onClick={start} aria-label="말하기 시작">
+            <IconMic style={{ width: 44, height: 44, color: "#fff" }} />
+          </button>
         ) : (
           <div style={styles.timerBox}>
             {formatTime(seconds)}
@@ -145,16 +150,16 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
 
         {isRecording ? (
           <>
-            <button style={styles.recordingButton} onClick={stop}>
-              ■ 그만 말할래
+            <button style={styles.stopButton} onClick={stop}>
+              그만 말할래
             </button>
             <p style={styles.mainCopy}>응, 듣고 있어</p>
-            <p style={styles.subCopy}>정리 안 해도 됨. 욕해도 됨.</p>
+            <p style={styles.subCopy}>정리 안 해도 됨. 중간에 생각 바뀌어도 됨</p>
           </>
         ) : (
           <>
             <p style={styles.mainCopy}>생각나는 대로 해도 돼</p>
-            <p style={styles.subCopy}>횡설수설해도 됨</p>
+            <p style={styles.subCopy}>횡설수설해도 됨. 참견이는 알아듣거든~</p>
           </>
         )}
       </div>
@@ -169,18 +174,31 @@ function formatTime(s: number) {
 }
 
 const styles: { [key: string]: React.CSSProperties } = {
-  container: { minHeight: "100vh", ...pageBackground, color: BRAND.primary, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "24px" },
+  container: { minHeight: "100vh", ...pageBackground, color: BRAND.ink, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "24px" },
   contentWrapper: { width: "100%", maxWidth: "380px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: "20px" },
   topBar: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" },
-  topicBadge: { background: BRAND.yellow, color: BRAND.primary, padding: "8px 14px", fontSize: "14px", fontWeight: "900", border: "2px solid #111", boxShadow: "3px 3px 0px #111" },
-  modeToggleButton: { background: BRAND.card, color: BRAND.primary, border: "2px solid #111", borderRadius: "50%", width: "40px", height: "40px", fontSize: "18px", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" },
-  brandTitle: { fontSize: "13px", fontWeight: "700", color: BRAND.primary, width: "100%" },
-  heroBox: { width: "140px", height: "140px", borderRadius: "50%", border: "3px solid #111", background: BRAND.card, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", cursor: "pointer", boxShadow: "4px 4px 0px #111" },
-  micIcon: { fontSize: "48px" },
-  timerBox: { fontSize: "48px", fontWeight: "900", color: BRAND.primary, letterSpacing: "4px", margin: "16px 0" },
-  textarea: { width: "100%", minHeight: "180px", padding: "16px", border: "2px solid #111", background: BRAND.card, color: BRAND.primary, fontSize: "16px", fontWeight: "600", boxShadow: "3px 3px 0px #111", resize: "vertical", fontFamily: "inherit" },
-  recordingButton: { width: "100%", padding: "16px", border: "2px solid #111", background: BRAND.yellow, color: BRAND.primary, fontSize: "16px", fontWeight: "900", cursor: "pointer", boxShadow: "3px 3px 0px #111" },
+  topicBadge: { background: BRAND.lavenderPale, color: BRAND.lavenderDeep, padding: "8px 14px", borderRadius: "20px", fontSize: "13px", fontWeight: "900", border: `1.5px solid ${BRAND.lavenderDeep}` },
+  modeToggleButton: { background: BRAND.card, color: BRAND.ink, border: "2px solid #111", borderRadius: "50%", width: "40px", height: "40px", fontSize: "18px", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" },
+  listeningTag: { display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", fontWeight: "900", color: BRAND.lavenderDeep, letterSpacing: "0.5px" },
+  recDot: { width: "8px", height: "8px", borderRadius: "50%", background: "#F04848" },
+  heroBox: {
+    width: "148px",
+    height: "148px",
+    borderRadius: "50%",
+    border: "3px solid #111",
+    background: BRAND.lavender,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    boxShadow: "5px 5px 0px #111",
+    padding: 0,
+  },
+  timerBox: { fontSize: "48px", fontWeight: "900", color: BRAND.ink, letterSpacing: "4px", margin: "16px 0" },
+  textarea: { width: "100%", minHeight: "180px", padding: "16px", border: "2px solid #111", borderRadius: "16px", background: BRAND.card, color: BRAND.ink, fontSize: "16px", fontWeight: "600", boxShadow: "3px 3px 0px rgba(30,26,38,0.12)", resize: "vertical", fontFamily: "inherit" },
+  recordingButton: { width: "100%", padding: "16px", border: "3px solid #111", borderRadius: "18px", background: BRAND.lavender, color: "#fff", fontSize: "16px", fontWeight: "900", cursor: "pointer", boxShadow: "4px 4px 0px #111" },
+  stopButton: { width: "100%", padding: "14px", border: "2px solid #111", borderRadius: "16px", background: BRAND.card, color: BRAND.ink, fontSize: "15px", fontWeight: "900", cursor: "pointer", boxShadow: "3px 3px 0px rgba(30,26,38,0.12)" },
   disabledButton: { opacity: 0.5, cursor: "not-allowed" },
-  mainCopy: { color: BRAND.primary, fontSize: "18px", fontWeight: "900", margin: 0 },
-  subCopy: { color: textAlpha.muted, fontSize: "13px", margin: 0 },
+  mainCopy: { color: BRAND.ink, fontSize: "18px", fontWeight: "900", margin: 0 },
+  subCopy: { color: inkAlpha.muted, fontSize: "13px", margin: 0 },
 };
