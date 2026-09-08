@@ -2,7 +2,8 @@
 "use client";
 
 import { useState } from "react";
-import { BRAND, textAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import Mascot from "@/components/Mascot";
 
 interface MicPermissionScreenProps {
   // granted: 실제 브라우저 마이크 권한이 허용됐는지 여부. 거부되어도 앱은 계속 진행시키고
@@ -33,6 +34,7 @@ export default function MicPermissionScreen({ onNext }: MicPermissionScreenProps
     return (
       <div style={styles.container}>
         <div style={styles.contentWrapper}>
+          <Mascot pose="기본" size={88} />
           <h1 style={styles.headline}>괜찮아.</h1>
           <p style={styles.subhead}>
             나중에 말할 때 다시 물어볼게.{"\n"}그때까지는 타이핑으로 해도 돼.
@@ -48,6 +50,7 @@ export default function MicPermissionScreen({ onNext }: MicPermissionScreenProps
   return (
     <div style={styles.container}>
       <div style={styles.contentWrapper}>
+        <Mascot pose="기본" size={88} />
         <h1 style={styles.headline}>
           참견이가 니 말을 들으려면{"\n"}마이크가 필요해.
         </h1>
@@ -64,7 +67,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
     ...pageBackground,
-    color: BRAND.primary,
+    color: BRAND.ink,
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
@@ -80,20 +83,21 @@ const styles: { [key: string]: React.CSSProperties } = {
     justifyContent: "center",
     alignItems: "center",
     textAlign: "center",
-    gap: "16px",
+    gap: "12px",
   },
-  headline: { color: BRAND.primary, fontSize: "28px", fontWeight: 900, margin: 0, lineHeight: 1.35, whiteSpace: "pre-line" },
-  subhead: { color: textAlpha.soft, fontSize: "15px", fontWeight: 700, margin: 0, whiteSpace: "pre-line", lineHeight: 1.5 },
+  headline: { color: BRAND.ink, fontSize: "26px", fontWeight: 900, margin: "8px 0 0 0", lineHeight: 1.35, whiteSpace: "pre-line" },
+  subhead: { color: inkAlpha.soft, fontSize: "15px", fontWeight: 700, margin: 0, whiteSpace: "pre-line", lineHeight: 1.5 },
   ctaButton: {
     width: "100%",
     maxWidth: "380px",
     padding: "18px",
-    border: "2px solid #111",
-    background: BRAND.yellow,
-    color: BRAND.primary,
+    border: "3px solid #111",
+    background: BRAND.lavender,
+    color: "#fff",
     fontSize: "17px",
     fontWeight: 900,
     cursor: "pointer",
-    boxShadow: "3px 3px 0px #111",
+    borderRadius: "18px",
+    boxShadow: "4px 4px 0px #111",
   },
 };
