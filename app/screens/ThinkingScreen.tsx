@@ -1,21 +1,22 @@
+// app/screens/ThinkingScreen.tsx
 
 "use client";
 
 import { useEffect, useState } from "react";
-import { BRAND, textAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { IconMic } from "@/components/icons";
 
 // 순차 문구: 실제 API가 끝나기 전까지 이 컴포넌트는 계속 떠 있고,
 // page.tsx에서 step이 "uploading"을 벗어나는 순간(=API 완료) 언마운트되어 결과 화면으로 넘어간다.
 // 즉 애니메이션 자체는 고정 타이머로 돌되, "다음 화면 전환"은 실제 API 응답이 트리거함.
 const PHRASES: { text: string; label: string; withDots?: boolean }[] = [
   { text: "잠깐만~", label: "LISTENED" },
-  
+
   { text: "뭘 참견하지~", label: "THINKING", withDots: true },
-  
-  { text: "생각중...", label: "THINKING" },
 
+  { text: "생각중", label: "THINKING", withDots: true },
 
-  { text: "할 말 생긴듯? 잠깐만 기다려!. ", label: "READY" },
+  { text: "잠깐만 기다려줘!", label: "READY", withDots: true },
 ];
 
 const STEP_DELAYS = [1300, 1300, 1500]; // 각 단계로 넘어가기까지 걸리는 시간(ms)
@@ -53,7 +54,7 @@ export default function ThinkingScreen() {
       <span style={styles.label}>{current.label}</span>
 
       <div style={styles.micWrap}>
-        <span style={styles.mic}>🎙️</span>
+        <IconMic style={{ width: 30, height: 30, color: "#fff" }} />
       </div>
 
       <p style={styles.phrase}>
@@ -79,22 +80,22 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontSize: "11px",
     fontWeight: 900,
     letterSpacing: "2px",
-    color: textAlpha.muted,
+    color: inkAlpha.muted,
   },
   micWrap: {
     width: "88px",
     height: "88px",
     borderRadius: "50%",
     border: "3px solid #111",
-    background: BRAND.card,
+    background: BRAND.lavender,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    boxShadow: "4px 4px 0px #111",
     animation: "ganseobiThinkPulse 1.4s ease-in-out infinite",
   },
-  mic: { fontSize: "32px" },
   phrase: {
-    color: BRAND.primary,
+    color: BRAND.ink,
     fontSize: "22px",
     fontWeight: 900,
     margin: 0,
