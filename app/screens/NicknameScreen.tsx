@@ -9,7 +9,10 @@ export default function NicknameScreen({
   onSkip,
 }: {
   onSubmit: (nickname: string) => void;
-  onSkip: () => void;
+  // 온보딩 체크리스트에서 쓸 때는 닉네임이 완전히 필수라 이 prop을 아예 안 넘긴다 —
+  // 그러면 "나중에" 버튼 자체가 안 보여서 입력하지 않고는 빠져나갈 수 없다.
+  // 기존 "닉네임" 단독 스텝(page.tsx, 첫 기록 이후 물어보는 경우)에서는 계속 넘겨서 스킵 가능하게 둔다.
+  onSkip?: () => void;
 }) {
   const [nickname, setNickname] = useState("");
 
@@ -28,7 +31,7 @@ export default function NicknameScreen({
       <button style={styles.button} disabled={!nickname.trim()} onClick={() => onSubmit(nickname.trim())}>
         이걸로 해
       </button>
-      <button style={styles.skipButton} onClick={onSkip}></button>
+      {onSkip && <button style={styles.skipButton} onClick={onSkip}>나중에</button>}
     </div>
   );
 }
