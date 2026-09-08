@@ -1,9 +1,9 @@
-
 "use client";
 
 import { useMemo, useState } from "react";
 import type { RecordEntry } from "./TimelineScreen";
-import { BRAND, textAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { IconMemory } from "@/components/icons";
 
 interface CalendarScreenProps {
   entries: RecordEntry[] | null;
@@ -68,6 +68,10 @@ export default function CalendarScreen({ entries, onBack }: CalendarScreenProps)
     <div style={styles.container}>
       <div style={styles.header}>
         <button style={styles.backBtn} onClick={onBack}>← 뒤로</button>
+        <div style={styles.titleRow}>
+          <IconMemory style={{ width: 18, height: 18, color: BRAND.lavenderDeep }} />
+          <span style={styles.titleText}>참견이가 기억하고 있는 것</span>
+        </div>
         <div style={styles.monthNav}>
           <button
             style={styles.navBtn}
@@ -132,7 +136,7 @@ export default function CalendarScreen({ entries, onBack }: CalendarScreenProps)
                   >
                     <span style={styles.entryTime}>{formatTime(entry.createdAt)}</span>
                     <p style={styles.entryPreview}>
-                      &ldquo;{isOpen ? entry.transcript : truncate(entry.transcript, 30)}&rdquo;
+                      너: &ldquo;{isOpen ? entry.transcript : truncate(entry.transcript, 30)}&rdquo;
                     </p>
                     {isOpen && entry.responseText && (
                       <p style={styles.entryResponse}>참견이: &ldquo;{entry.responseText}&rdquo;</p>
@@ -151,7 +155,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
     ...pageBackground,
-    color: BRAND.primary,
+    color: BRAND.ink,
     padding: "20px 20px 60px 20px",
     boxSizing: "border-box",
     display: "flex",
@@ -163,17 +167,20 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignSelf: "flex-start",
     background: "transparent",
     border: "none",
-    color: BRAND.primary,
+    color: BRAND.ink,
     fontSize: "14px",
     fontWeight: 900,
     cursor: "pointer",
     padding: 0,
   },
+  titleRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" },
+  titleText: { fontSize: "13px", fontWeight: 900, color: BRAND.lavenderDeep, letterSpacing: "0.2px" },
   monthNav: { display: "flex", alignItems: "center", justifyContent: "center", gap: "16px" },
   navBtn: {
     background: BRAND.card,
     border: "2px solid #111",
-    color: BRAND.primary,
+    borderRadius: "50%",
+    color: BRAND.ink,
     fontSize: "16px",
     fontWeight: 900,
     width: "32px",
@@ -190,13 +197,14 @@ const styles: { [key: string]: React.CSSProperties } = {
     textAlign: "center",
     fontSize: "11px",
     fontWeight: 900,
-    color: textAlpha.faint,
+    color: inkAlpha.faint,
     paddingBottom: "4px",
   },
   dayCell: {
     aspectRatio: "1",
     background: BRAND.card,
     border: "2px solid #111",
+    borderRadius: "10px",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
@@ -206,32 +214,33 @@ const styles: { [key: string]: React.CSSProperties } = {
     padding: 0,
   },
   dayCellSelected: {
-    background: BRAND.yellow,
-    border: "2px solid #111",
-    boxShadow: "3px 3px 0px #111",
+    background: BRAND.lavenderPale,
+    border: `2px solid ${BRAND.lavenderDeep}`,
+    boxShadow: "3px 3px 0px rgba(77,63,115,0.16)",
   },
-  dayNumber: { fontSize: "13px", fontWeight: 900, color: BRAND.primary },
-  dayNumberSelected: { color: BRAND.primary },
+  dayNumber: { fontSize: "13px", fontWeight: 900, color: BRAND.ink },
+  dayNumberSelected: { color: BRAND.lavenderDeep },
   dot: { width: "6px", height: "6px", borderRadius: "50%", background: BRAND.mint },
-  dotSelected: { width: "6px", height: "6px", borderRadius: "50%", background: BRAND.primary },
+  dotSelected: { width: "6px", height: "6px", borderRadius: "50%", background: BRAND.lavenderDeep },
   dayDetail: {
     background: BRAND.card,
-    color: BRAND.primary,
+    color: BRAND.ink,
     border: "2px solid #111",
-    boxShadow: "4px 4px 0px #111",
+    borderRadius: "16px",
+    boxShadow: "3px 4px 0px rgba(30,26,38,0.10)",
     padding: "16px",
     display: "flex",
     flexDirection: "column",
     gap: "10px",
   },
   dayDetailTitle: { fontSize: "15px", fontWeight: 900, margin: 0 },
-  emptyDayText: { fontSize: "14px", color: textAlpha.faint, fontWeight: "bold", margin: 0 },
+  emptyDayText: { fontSize: "14px", color: inkAlpha.faint, fontWeight: "bold", margin: 0 },
   entryRow: {
-    borderTop: `1px solid ${textAlpha.hairline}`,
+    borderTop: `1px solid ${inkAlpha.hairline}`,
     paddingTop: "10px",
     cursor: "pointer",
   },
-  entryTime: { fontSize: "11px", fontWeight: 900, color: BRAND.primary },
-  entryPreview: { fontSize: "13px", color: textAlpha.soft, margin: "4px 0 0 0", fontStyle: "italic", lineHeight: 1.4 },
-  entryResponse: { fontSize: "13px", color: BRAND.primary, margin: "6px 0 0 0", fontWeight: "bold", lineHeight: 1.4 },
+  entryTime: { fontSize: "11px", fontWeight: 900, color: inkAlpha.faint },
+  entryPreview: { fontSize: "13px", color: inkAlpha.soft, margin: "4px 0 0 0", fontStyle: "italic", lineHeight: 1.4 },
+  entryResponse: { fontSize: "13px", color: BRAND.lavenderDeep, margin: "6px 0 0 0", fontWeight: "900", lineHeight: 1.4 },
 };
