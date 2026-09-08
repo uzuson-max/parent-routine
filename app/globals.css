@@ -1,7 +1,7 @@
 
 @font-face {
   font-family: 'Yangjin';
-  src: url('/yangjin.ttf') format('truetype');
+  src: url('/yangjin.ttf.otf') format('opentype');
   font-weight: normal;
   font-style: normal;
   font-display: swap;
@@ -15,8 +15,8 @@
 body {
   margin: 0;
   padding: 0;
-  background-color: #86A9D5;
-  color: #3F3835;
+  background-color: #FFF6E5;
+  color: #1E1A26;
   box-sizing: border-box;
 }
 
