@@ -1,9 +1,10 @@
+// app/screens/PhoneInputScreen.tsx
 
 
 "use client";
 
 import { useState } from "react";
-import { BRAND, textAlpha } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
 
 function normalizePhone(raw: string): string {
   return raw.replace(/[^0-9]/g, "");
@@ -45,9 +46,9 @@ export default function PhoneInputScreen({
 }
 
 const styles: { [key: string]: React.CSSProperties } = {
-  container: { height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 32px" },
-  headline: { color: BRAND.primary, fontSize: 22, fontWeight: 700, textAlign: "center", margin: 0 },
-  subhead: { color: textAlpha.muted, fontSize: 14, marginTop: 8, marginBottom: 32, textAlign: "center" },
-  input: { width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "2px solid #111", background: BRAND.card, color: BRAND.primary, fontSize: 16 },
-  button: { marginTop: 20, width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 12, border: "2px solid #111", boxShadow: "3px 3px 0px #111", background: BRAND.yellow, color: BRAND.primary, fontSize: 16, fontWeight: 700 },
+  container: { minHeight: "100vh", ...pageBackground, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 32px" },
+  headline: { color: BRAND.ink, fontSize: 22, fontWeight: 900, textAlign: "center", margin: 0 },
+  subhead: { color: inkAlpha.muted, fontSize: 14, marginTop: 8, marginBottom: 32, textAlign: "center", fontWeight: 700 },
+  input: { width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 16, border: "2px solid #111", background: BRAND.card, color: BRAND.ink, fontSize: 16, boxShadow: "3px 3px 0px rgba(30,26,38,0.10)" },
+  button: { marginTop: 20, width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 18, border: "3px solid #111", boxShadow: "4px 4px 0px #111", background: BRAND.lavender, color: "#fff", fontSize: 16, fontWeight: 900, cursor: "pointer" },
 };
