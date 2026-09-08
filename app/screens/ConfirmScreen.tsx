@@ -1,5 +1,3 @@
-// app/screens/ConfirmScreen.tsx
-
 "use client";
 import { useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
