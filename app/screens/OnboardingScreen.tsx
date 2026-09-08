@@ -2,7 +2,8 @@
 "use client";
 
 import { useState } from "react";
-import { BRAND, textAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import Mascot from "@/components/Mascot";
 
 interface OnboardingScreenProps {
   onComplete: () => void;
@@ -52,6 +53,7 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
       </div>
 
       <div style={styles.contentWrapper}>
+        {isLast && <Mascot pose="말을거는" size={84} />}
         <h1 style={styles.mainCopy}>{slide.main}</h1>
 
         {slide.type === "text" && (
@@ -97,7 +99,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
     ...pageBackground,
-    color: BRAND.primary,
+    color: BRAND.ink,
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
@@ -106,8 +108,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     cursor: "pointer",
   },
   dots: { display: "flex", gap: "8px" },
-  dot: { width: "8px", height: "8px", borderRadius: "50%", background: "rgba(77, 63, 115, 0.25)" },
-  dotActive: { background: BRAND.yellow },
+  dot: { width: "8px", height: "8px", borderRadius: "50%", background: inkAlpha.hairline },
+  dotActive: { background: BRAND.lavender },
   contentWrapper: {
     flex: 1,
     width: "100%",
@@ -117,34 +119,36 @@ const styles: { [key: string]: React.CSSProperties } = {
     justifyContent: "center",
     alignItems: "center",
     textAlign: "center",
-    gap: "20px",
+    gap: "16px",
   },
-  mainCopy: { color: BRAND.primary, fontSize: "30px", fontWeight: 900, margin: 0, lineHeight: 1.3, whiteSpace: "pre-line" },
+  mainCopy: { color: BRAND.ink, fontSize: "30px", fontWeight: 900, margin: 0, lineHeight: 1.3, whiteSpace: "pre-line" },
   subBlock: { display: "flex", flexDirection: "column", gap: "4px" },
-  subLine: { color: textAlpha.soft, fontSize: "16px", margin: 0, fontWeight: 700 },
-  tailCopy: { color: BRAND.yellow, fontSize: "18px", fontWeight: 900, margin: 0 },
+  subLine: { color: inkAlpha.soft, fontSize: "16px", margin: 0, fontWeight: 700 },
+  tailCopy: { color: BRAND.lavenderDeep, fontSize: "18px", fontWeight: 900, margin: 0 },
   dialogueBlock: { display: "flex", flexDirection: "column", gap: "10px", width: "100%" },
   bubble: {
-    background: BRAND.pink,
-    color: BRAND.primary,
+    background: BRAND.pinkPale,
+    color: BRAND.ink,
     padding: "12px 16px",
     fontSize: "15px",
     fontWeight: 900,
     border: "2px solid #111",
-    boxShadow: "3px 3px 0px #111",
+    borderRadius: "14px 14px 14px 4px",
+    boxShadow: "3px 3px 0px rgba(30,26,38,0.15)",
     alignSelf: "flex-start",
   },
   ctaButton: {
     width: "100%",
     maxWidth: "380px",
     padding: "18px",
-    border: "2px solid #111",
-    background: BRAND.yellow,
-    color: BRAND.primary,
+    border: "3px solid #111",
+    background: BRAND.lavender,
+    color: "#fff",
     fontSize: "17px",
     fontWeight: 900,
     cursor: "pointer",
-    boxShadow: "3px 3px 0px #111",
+    borderRadius: "18px",
+    boxShadow: "4px 4px 0px #111",
   },
-  tapHint: { color: textAlpha.muted, fontSize: "13px", margin: 0 },
+  tapHint: { color: inkAlpha.muted, fontSize: "13px", margin: 0 },
 };
