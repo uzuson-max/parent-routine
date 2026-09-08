@@ -1,3 +1,5 @@
+// app/screens/ConfirmScreen.tsx
+
 "use client";
 import { useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
@@ -53,7 +55,7 @@ export default function ConfirmScreen({
       onDone(true);
     }
   };
- return (
+  return (
     <div style={styles.container}>
       {firstRun && <span style={styles.stamp}>참견이 등장.</span>}
       {reaction && <p style={styles.reaction}>{reaction}</p>}
@@ -65,16 +67,13 @@ export default function ConfirmScreen({
         </div>
         <p style={styles.commitmentText}>“{commitment}”</p>
       </div>
-      
-      {/* 주어 추가 구간 */}
-      <p style={styles.subhead}>참견이가 이 말 기억해 줄까?</p>
-      
+      <p style={styles.subhead}>이 말 맞지?</p>
       <div style={styles.buttonRow}>
         <button style={styles.secondaryButton} disabled={loading} onClick={() => onDone(false)}>
-          기억하지마
+          그냥 넘겨
         </button>
         <button style={styles.primaryButton} disabled={loading} onClick={keep}>
-          기억해
+          기억해둬
         </button>
       </div>
     </div>
