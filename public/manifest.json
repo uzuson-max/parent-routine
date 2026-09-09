@@ -1,0 +1,17 @@
+
+{
+  "name": "참견이",
+  "short_name": "참견이",
+  "description": "니 삶을 구경하다가 참견하는 컴패니언 참견이",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFF6E5",
+  "theme_color": "#FFF6E5",
+  "lang": "ko",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
