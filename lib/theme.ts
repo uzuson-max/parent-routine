@@ -47,6 +47,7 @@ export const inkAlpha = {
 // 촘촘한 도트 패턴을 얹어 살짝 질감을 준다. 구조/레이아웃에는 영향 없는 순수 배경 스타일이라
 // 모든 화면 컨테이너에 그대로 spread해서 쓴다.
 export const pageBackground: CSSProperties = {
+  minHeight: "100dvh", // iOS 사파리 주소창 때문에 100vh가 실제 화면보다 크게 잡히는 문제 방지
   backgroundColor: BRAND.bg,
   backgroundImage:
     "radial-gradient(rgba(77,63,115,0.05) 1px, transparent 1.5px), " +
