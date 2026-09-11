@@ -11,6 +11,7 @@ import MessageScreen from "./screens/MessageScreen";
 import CallingScreen from "./screens/CallingScreen";
 import ResultScreen from "./screens/ResultScreen";
 import NicknameScreen from "./screens/NicknameScreen";
+import PhoneVerifyScreen from "./screens/PhoneVerifyScreen";
 import CalendarScreen from "./screens/CalendarScreen";
 import OnboardingScreen from "./screens/OnboardingScreen";
 import ThinkingScreen from "./screens/ThinkingScreen"; // 👈 1. 상단 import에 추가 완료!
@@ -22,6 +23,9 @@ const ONBOARDING_KEY = "ganseobi_onboarding_completed";
 // 첫 실행 사용자가 "첫 녹음 → 첫 기록"까지 마쳤는지 표시. 한 번 true가 되면 그 세션에서만
 // 닉네임/전화번호 같은 부가 입력을 건너뛰기 위한 용도로만 쓰고, 이후에는 기존 플로우를 그대로 탄다.
 const FIRST_ENTRY_DONE_KEY = "ganseobi_first_entry_done";
+// 전화번호 인증(계정 연결) 화면을 한 번이라도 지나갔는지 표시. "나중에"로 건너뛴 경우도
+// 포함해서 true가 되며, 닉네임 질문과 동일한 패턴으로 세션마다 다시 묻지 않기 위한 용도.
+const PHONE_VERIFY_ASKED_KEY = "ganseobi_phone_verify_asked";
 
 type Step =
   | "onboarding"
@@ -32,6 +36,7 @@ type Step =
   | "recording"
   | "phone_input"
   | "nickname"
+  | "phone_verify"
   | "calendar"
   | "uploading"
   | "no_action"
@@ -268,11 +273,24 @@ export default function Home() {
               console.error("[Home] nickname save failed:", e);
             } finally {
               if (typeof window !== "undefined") localStorage.setItem("ganseobi_nickname_asked", "1");
-              setStep("landing");
+              afterNicknameStep();
             }
           }}
           onSkip={() => {
             if (typeof window !== "undefined") localStorage.setItem("ganseobi_nickname_asked", "1");
+            afterNicknameStep();
+          }}
+        />
+      )}
+
+      {step === "phone_verify" && (
+        <PhoneVerifyScreen
+          onLinked={() => {
+            if (typeof window !== "undefined") localStorage.setItem(PHONE_VERIFY_ASKED_KEY, "1");
+            setStep("landing");
+          }}
+          onSkip={() => {
+            if (typeof window !== "undefined") localStorage.setItem(PHONE_VERIFY_ASKED_KEY, "1");
             setStep("landing");
           }}
         />
@@ -345,6 +363,31 @@ export default function Home() {
     </div>
   );
 
+  // 닉네임 단계(질문했든 이미 지나갔든) 다음에 어디로 갈지 결정한다.
+  // 이미 이 세션에서 전화번호 인증을 물어본 적 있으면(연결했든 건너뛰었든) 다시 안 묻고,
+  // 아니면 지금 계정(auth.users)에 이미 인증된 phone이 있는지 서버에 확인해서만 새로 묻는다 —
+  // 예를 들어 이미 다른 기기에서 인증까지 끝낸 계정이면 여기서 또 물어볼 필요가 없다.
+  async function afterNicknameStep() {
+    try {
+      const alreadyAsked = typeof window !== "undefined" && localStorage.getItem(PHONE_VERIFY_ASKED_KEY);
+      if (alreadyAsked) {
+        setStep("landing");
+        return;
+      }
+      const { data: { user } } = await supabaseClient.auth.getUser();
+      if (user?.phone) {
+        // 이미 인증된 번호가 있는 계정 — 다시 물어볼 필요 없음, 플래그만 남겨서 재확인 생략.
+        if (typeof window !== "undefined") localStorage.setItem(PHONE_VERIFY_ASKED_KEY, "1");
+        setStep("landing");
+        return;
+      }
+      setStep("phone_verify");
+    } catch (e) {
+      console.error("[Home] phone verify 상태 확인 실패, 그냥 홈으로:", e);
+      setStep("landing");
+    }
+  }
+
   // 첫 실행 여정(온보딩→마이크 권한→첫 녹음)이 끝났음을 표시한다.
   // 한 번 호출되면 이후 녹음부터는 완전히 기존 플로우(닉네임 질문 등 포함)를 그대로 탄다.
   function markFirstEntryDoneIfNeeded() {
@@ -372,7 +415,7 @@ export default function Home() {
     if (!alreadyAsked) {
       setStep("nickname");
     } else {
-      setStep("landing");
+      afterNicknameStep();
     }
   }
 }
