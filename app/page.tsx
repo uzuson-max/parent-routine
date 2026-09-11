@@ -1,4 +1,4 @@
-"use client";
+
 
 import { useState, useEffect } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
@@ -11,11 +11,11 @@ import MessageScreen from "./screens/MessageScreen";
 import CallingScreen from "./screens/CallingScreen";
 import ResultScreen from "./screens/ResultScreen";
 import NicknameScreen from "./screens/NicknameScreen";
-import PhoneVerifyScreen from "./screens/PhoneVerifyScreen";
+import OnboardingChecklistScreen from "./screens/OnboardingChecklistScreen";
+import MyPageScreen from "./screens/MyPageScreen";
 import CalendarScreen from "./screens/CalendarScreen";
 import OnboardingScreen from "./screens/OnboardingScreen";
 import ThinkingScreen from "./screens/ThinkingScreen"; // 👈 1. 상단 import에 추가 완료!
-import MicPermissionScreen from "./screens/MicPermissionScreen";
 import FirstTalkScreen from "./screens/FirstTalkScreen";
 import { BRAND, pageBackground } from "@/lib/theme";
 
@@ -23,20 +23,17 @@ const ONBOARDING_KEY = "ganseobi_onboarding_completed";
 // 첫 실행 사용자가 "첫 녹음 → 첫 기록"까지 마쳤는지 표시. 한 번 true가 되면 그 세션에서만
 // 닉네임/전화번호 같은 부가 입력을 건너뛰기 위한 용도로만 쓰고, 이후에는 기존 플로우를 그대로 탄다.
 const FIRST_ENTRY_DONE_KEY = "ganseobi_first_entry_done";
-// 전화번호 인증(계정 연결) 화면을 한 번이라도 지나갔는지 표시. "나중에"로 건너뛴 경우도
-// 포함해서 true가 되며, 닉네임 질문과 동일한 패턴으로 세션마다 다시 묻지 않기 위한 용도.
-const PHONE_VERIFY_ASKED_KEY = "ganseobi_phone_verify_asked";
 
 type Step =
   | "onboarding"
-  | "mic_permission"
+  | "setup_checklist"
   | "first_talk"
   | "landing"
   | "raw_landing"
   | "recording"
   | "phone_input"
   | "nickname"
-  | "phone_verify"
+  | "mypage"
   | "calendar"
   | "uploading"
   | "no_action"
@@ -76,15 +73,27 @@ export default function Home() {
 
   useEffect(() => {
     const ensureSession = async () => {
-      if (typeof window !== "undefined" && !localStorage.getItem(ONBOARDING_KEY)) {
-        setStep("onboarding");
-      }
-
       const { data: { session } } = await supabaseClient.auth.getSession();
       if (!session) {
         const { error } = await supabaseClient.auth.signInAnonymously();
         if (error) console.error("[auth] 익명 로그인 실패:", error.message);
       }
+
+      // 온보딩 완료 여부(로컬 저장) + 지금 계정에 인증된 전화번호가 있는지(서버)를 같이 봐서
+      // 어디로 보낼지 정한다. 온보딩을 아예 처음 하는 사람은 인트로부터, 온보딩은 끝냈지만
+      // (저장공간이 리셋되는 등으로) 지금 계정에 인증된 번호가 없는 사람은 인트로는 건너뛰고
+      // 바로 필수 체크리스트(마이크+전화인증)로 보낸다 — 바로 이 경우가 "홈 화면 아이콘으로
+      // 들어가면 저장공간이 초기화되며 새 익명 계정이 생기는" 상황이라, 여기서 반드시 잡아야 한다.
+      const onboardingDone = typeof window !== "undefined" && localStorage.getItem(ONBOARDING_KEY);
+      if (!onboardingDone) {
+        setStep("onboarding");
+      } else {
+        const { data: { user } } = await supabaseClient.auth.getUser();
+        if (!user?.phone) {
+          setStep("setup_checklist");
+        }
+      }
+
       fetchEntries();
     };
     ensureSession();
@@ -167,21 +176,16 @@ export default function Home() {
           onComplete={() => {
             if (typeof window !== "undefined") localStorage.setItem(ONBOARDING_KEY, "1");
             // 온보딩을 막 끝낸 사람 = 이 앱을 처음 쓰는 사람.
-            // 바로 홈으로 보내지 않고 마이크 권한 안내 → 첫 녹음으로 이어지는 첫 실행 흐름을 태운다.
+            // 바로 홈으로 보내지 않고 필수 체크리스트(마이크+전화인증) → 첫 녹음으로 이어지는
+            // 첫 실행 흐름을 태운다.
             setIsFirstRun(true);
-            setStep("mic_permission");
+            setStep("setup_checklist");
           }}
         />
       )}
 
-      {step === "mic_permission" && (
-        <MicPermissionScreen
-          onNext={() => {
-            // 허용/거부 여부와 무관하게 진행한다 — 거부해도 텍스트 입력으로 첫 대화를 할 수 있고,
-            // 브라우저/OS가 관리하는 권한 자체를 우리가 강제로 바꾸지는 않는다.
-            setStep("first_talk");
-          }}
-        />
+      {step === "setup_checklist" && (
+        <OnboardingChecklistScreen onDone={() => afterSetupChecklist()} />
       )}
 
       {step === "first_talk" && (
@@ -197,11 +201,16 @@ export default function Home() {
         <TimelineScreen
           entries={entries}
           onOpenCalendar={() => setStep("calendar")}
+          onOpenMyPage={() => setStep("mypage")}
           onOpenRecording={() => {
             setSelectedTopic("");
             setStep("recording");
           }}
         />
+      )}
+
+      {step === "mypage" && (
+        <MyPageScreen onBack={() => setStep("landing")} />
       )}
 
       {step === "calendar" && (
@@ -273,24 +282,11 @@ export default function Home() {
               console.error("[Home] nickname save failed:", e);
             } finally {
               if (typeof window !== "undefined") localStorage.setItem("ganseobi_nickname_asked", "1");
-              afterNicknameStep();
+              setStep("landing");
             }
           }}
           onSkip={() => {
             if (typeof window !== "undefined") localStorage.setItem("ganseobi_nickname_asked", "1");
-            afterNicknameStep();
-          }}
-        />
-      )}
-
-      {step === "phone_verify" && (
-        <PhoneVerifyScreen
-          onLinked={() => {
-            if (typeof window !== "undefined") localStorage.setItem(PHONE_VERIFY_ASKED_KEY, "1");
-            setStep("landing");
-          }}
-          onSkip={() => {
-            if (typeof window !== "undefined") localStorage.setItem(PHONE_VERIFY_ASKED_KEY, "1");
             setStep("landing");
           }}
         />
@@ -363,32 +359,19 @@ export default function Home() {
     </div>
   );
 
-  // 닉네임 단계(질문했든 이미 지나갔든) 다음에 어디로 갈지 결정한다.
-  // 이미 이 세션에서 전화번호 인증을 물어본 적 있으면(연결했든 건너뛰었든) 다시 안 묻고,
-  // 아니면 지금 계정(auth.users)에 이미 인증된 phone이 있는지 서버에 확인해서만 새로 묻는다 —
-  // 예를 들어 이미 다른 기기에서 인증까지 끝낸 계정이면 여기서 또 물어볼 필요가 없다.
-  async function afterNicknameStep() {
-    try {
-      const alreadyAsked = typeof window !== "undefined" && localStorage.getItem(PHONE_VERIFY_ASKED_KEY);
-      if (alreadyAsked) {
-        setStep("landing");
-        return;
-      }
-      const { data: { user } } = await supabaseClient.auth.getUser();
-      if (user?.phone) {
-        // 이미 인증된 번호가 있는 계정 — 다시 물어볼 필요 없음, 플래그만 남겨서 재확인 생략.
-        if (typeof window !== "undefined") localStorage.setItem(PHONE_VERIFY_ASKED_KEY, "1");
-        setStep("landing");
-        return;
-      }
-      setStep("phone_verify");
-    } catch (e) {
-      console.error("[Home] phone verify 상태 확인 실패, 그냥 홈으로:", e);
+  // 필수 체크리스트(마이크+전화인증) 화면을 마친 뒤 어디로 갈지 결정한다.
+  // 온보딩을 막 끝낸 진짜 첫 실행이면 원래 계획대로 첫 대화(FirstTalkScreen)로 이어가고,
+  // (저장공간 리셋 등으로) 온보딩은 이미 끝났지만 전화 인증이 없어서 여기로 온 경우는
+  // 홈으로 바로 보낸다 — 이 사람은 원래 쓰던 사람이라 첫 실행 튜토리얼을 다시 볼 필요가 없다.
+  function afterSetupChecklist() {
+    if (isFirstRun) {
+      setStep("first_talk");
+    } else {
       setStep("landing");
     }
   }
 
-  // 첫 실행 여정(온보딩→마이크 권한→첫 녹음)이 끝났음을 표시한다.
+  // 첫 실행 여정(온보딩→필수 체크리스트→첫 녹음)이 끝났음을 표시한다.
   // 한 번 호출되면 이후 녹음부터는 완전히 기존 플로우(닉네임 질문 등 포함)를 그대로 탄다.
   function markFirstEntryDoneIfNeeded() {
     if (!isFirstRun) return;
@@ -415,7 +398,7 @@ export default function Home() {
     if (!alreadyAsked) {
       setStep("nickname");
     } else {
-      afterNicknameStep();
+      setStep("landing");
     }
   }
 }
