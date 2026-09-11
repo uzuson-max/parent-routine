@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
 import Mascot from "@/components/Mascot";
-import { IconHome, IconRecord, IconMemory, IconMic } from "@/components/icons";
+import { IconHome, IconRecord, IconMemory, IconMic, IconGear } from "@/components/icons";
 
 export interface RecordEntry {
   id: string;
@@ -22,6 +22,7 @@ export interface MemoryHighlight {
 interface TimelineScreenProps {
   onOpenRecording: () => void;
   onOpenCalendar: () => void;
+  onOpenMyPage: () => void;
   entries: RecordEntry[] | null;
   nickname?: string | null;
   memoryHighlight?: MemoryHighlight | null;
@@ -44,6 +45,7 @@ function truncate(text: string, max: number): string {
 export default function TimelineScreen({
   onOpenRecording,
   onOpenCalendar,
+  onOpenMyPage,
   entries,
   nickname,
   memoryHighlight,
@@ -154,6 +156,10 @@ export default function TimelineScreen({
         >
           <IconMemory style={{ width: 20, height: 20 }} />
           <span style={styles.navText}>MEMORY</span>
+        </button>
+        <button style={styles.navItem} onClick={onOpenMyPage}>
+          <IconGear style={{ width: 20, height: 20 }} />
+          <span style={styles.navText}>MY</span>
         </button>
       </div>
     </div>
