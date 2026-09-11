@@ -3,11 +3,6 @@ import { supabase } from '@/lib/supabase';
 
 export type EntityType = 'person' | 'pet' | 'place' | 'project' | 'object' | 'topic' | 'organization';
 
-// memory_type → entity_type 최선 추론 매핑.
-// memory candidate 스키마엔 entity_type이 따로 없어서(요청된 스키마를 그대로 따름),
-// entities.entity_type(NOT NULL) 채우려고 memory_type에서 유추한다. 완벽한 분류가 목적이 아니라
-// "고양이"/"엄마" 같은 표면형을 재사용 가능한 하나의 entity row로 정규화하는 게 목적이라
-// 애매하면 'topic'으로 둔다. 이미 있는 entity를 다시 찾을 땐 entity_type을 건드리지 않는다.
 const MEMORY_TYPE_TO_ENTITY_TYPE: Record<string, EntityType> = {
   person: 'person',
   relationship: 'person',
