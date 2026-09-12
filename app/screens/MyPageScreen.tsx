@@ -1,4 +1,3 @@
-
 //
 // 계정에 인증되어 있는 전화번호를 보여주고 바꿀 수 있는 화면.
 // 번호를 바꿔도 user_id는 그대로라 지금까지의 기록은 그대로 이 계정에 남는다 —
@@ -12,7 +11,7 @@
 
 import { useEffect, useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
-import { requestPhoneLink, confirmPhoneCode, type PhoneLinkVerifyType } from "@/lib/phoneAuthClient";
+import { requestPhoneLink, confirmPhoneCode, syncVerifiedPhoneToBackend, type PhoneLinkVerifyType } from "@/lib/phoneAuthClient";
 import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
 
 function maskPhone(e164: string | null | undefined): string {
@@ -65,6 +64,9 @@ export default function MyPageScreen({ onBack }: { onBack: () => void }) {
     setCurrentPhone(newPhone);
     setDone(true);
     setMode("view");
+    // 온보딩 체크리스트와 같은 이유 — 번호를 바꿔도 localStorage/user_memory가 예전 번호를
+    // 그대로 들고 있으면, 다음 녹음의 실제 전화 발신이 옛날 번호로 나갈 수 있다.
+    syncVerifiedPhoneToBackend(newPhone);
     setNewPhone("");
     setCode("");
   };
