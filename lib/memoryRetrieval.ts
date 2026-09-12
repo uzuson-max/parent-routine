@@ -1,4 +1,3 @@
-
 import { supabase } from '@/lib/supabase';
  
 export interface RelevantMemoryUnit {
@@ -68,9 +67,12 @@ function scoreCandidate(
   // "크림라면" 안에 "라면"이 들어있는 것처럼, 조사 제거만으로는 못 잡는 복합명사 부분 포함도
   // 약한 가중치로 잡아준다 (형태소 분석 없이 쓸 수 있는 가장 단순한 보정).
   const partialOverlap = new Set<string>();
+  // transcriptTokens는 Set인데, 프로젝트 tsconfig의 target이 es5라 Set을 for...of로 직접 도는 건
+  // 컴파일 에러가 난다(downlevelIteration 필요). 로직은 그대로 두고 순회 직전에만 배열로 바꾼다.
+  const transcriptTokenArr = Array.from(transcriptTokens);
   for (const ct of contentTokens) {
     if (exactOverlap.has(ct)) continue;
-    for (const tt of transcriptTokens) {
+    for (const tt of transcriptTokenArr) {
       if (tt.length >= 2 && ct.length >= 2 && (ct.includes(tt) || tt.includes(ct))) {
         partialOverlap.add(`${ct}~${tt}`);
       }
@@ -239,4 +241,3 @@ export async function markMemoriesReferenced(memoryUnitIds: number[]): Promise<v
     console.error('[memoryRetrieval] markMemoriesReferenced 실패 (무시):', err?.message);
   }
 }
- 
