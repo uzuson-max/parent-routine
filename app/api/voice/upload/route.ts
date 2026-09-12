@@ -6,6 +6,7 @@ import { generateResponse } from '@/lib/responseEngine';
 import { updateUserMemory } from '@/lib/memoryEngine';
 import { runMemoryPipeline } from '@/lib/memoryPipeline';
 import { retrieveRelevantMemories, markMemoriesReferenced } from '@/lib/memoryRetrieval';
+import { retrieveRelevantInsights, markInsightsSurfaced } from '@/lib/insightEngine';
 import { sendRoutineCall } from '@/lib/twilio';
 import OpenAI from 'openai';
  
@@ -122,6 +123,15 @@ export async function POST(request: Request) {
         console.error('memory retrieval 실패 (무시하고 진행):', retrievalErr?.message);
       }
 
+      // memory_insights(여러 memory_unit을 묶어 미리 판단해둔 관찰)에서 오늘 발화와 관련될 수도 있는
+      // 것을 retrieval — 실패해도 빈 배열로 계속 진행 (raw memory retrieval과 완전히 독립적인 별도 경로).
+      let relevantInsights: Awaited<ReturnType<typeof retrieveRelevantInsights>> = [];
+      try {
+        relevantInsights = await retrieveRelevantInsights(userId, transcript);
+      } catch (insightRetrievalErr: any) {
+        console.error('insight retrieval 실패 (무시하고 진행):', insightRetrievalErr?.message);
+      }
+
       try {
         responseResult = await generateResponse(
           transcript,
@@ -129,7 +139,8 @@ export async function POST(request: Request) {
           userId,
           memoryCandidates,
           existingCommitments,
-          relevantMemoryUnits
+          relevantMemoryUnits,
+          relevantInsights
         );
       } catch (respErr: any) {
         console.error('Response engine 에러 (무시하고 진행):', respErr?.message);
@@ -141,6 +152,15 @@ export async function POST(request: Request) {
           await markMemoriesReferenced([responseResult.memory_unit_id_used]);
         } catch (refErr: any) {
           console.error('memory_units 참조 기록 실패 (무시하고 진행):', refErr?.message);
+        }
+      }
+
+      // responseEngine이 실제로 특정 insight를 답변에 썼다면 last_surfaced_at/surfaced_count 갱신.
+      if (responseResult?.insight_id_used) {
+        try {
+          await markInsightsSurfaced([responseResult.insight_id_used]);
+        } catch (insightRefErr: any) {
+          console.error('memory_insights 참조 기록 실패 (무시하고 진행):', insightRefErr?.message);
         }
       }
 
