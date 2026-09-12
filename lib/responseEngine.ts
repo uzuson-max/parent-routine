@@ -1,6 +1,6 @@
-
 import { supabase } from '@/lib/supabase';
- 
+import { RelevantMemoryUnit } from '@/lib/memoryRetrieval';
+
 type Strategy =
   | 'CASUAL' | 'EMPATHY' | 'PLAYFUL' | 'TEASING' | 'MEMORY_REFERENCE'
   | 'CONTRADICTION' | 'QUESTION' | 'ENCOURAGEMENT' | 'INTERVENTION' | 'SILENT'
@@ -18,6 +18,7 @@ export interface ResponseResult {
   humor_opportunity: 'low' | 'medium' | 'high';
   memory_used: boolean;
   memory_reference: string | null;
+  memory_unit_id_used: number | null;
   channel: 'text' | 'voice' | 'call';
   response: string;
   relationship_level: number;
@@ -105,7 +106,8 @@ export async function generateResponse(
   analysis: any,
   userId: string,
   memoryCandidates: { memory_type: string; content: string }[] = [],
-  existingCommitments: { id: string; commitment: string }[] = []
+  existingCommitments: { id: string; commitment: string }[] = [],
+  relevantMemoryUnits: RelevantMemoryUnit[] = []
 ): Promise<ResponseResult> {
   const [entryCount, callAllowed, nickname] = await Promise.all([
     getEntryCount(userId),
@@ -121,6 +123,19 @@ export async function generateResponse(
   const existingCommitmentsBlock = existingCommitments.length > 0
     ? existingCommitments.map(c => `- "${c.commitment}"`).join('\n')
     : '(실제로 확정된 약속 없음)';
+
+  // memory_units에서 retrieval된, 오늘 발화와 관련될 가능성이 있는 과거 기억. relevanceScore/relevanceReason은
+  // 내부 랭킹용이라 절대 프롬프트에 넣지 않는다 (사용자에게든 LLM에게든 점수 자체를 노출하지 않는다).
+  const relevantMemoryUnitsBlock = relevantMemoryUnits.length > 0
+    ? relevantMemoryUnits
+        .map((m) => {
+          const subjectPart = m.subject ? `, 관련 대상: ${m.subject}` : '';
+          const temporalPart = m.temporal_context ? ` (그때 시점: ${m.temporal_context})` : '';
+          const emotionPart = m.emotion ? ` (그때 감정: ${m.emotion})` : '';
+          return `- (memory_unit_id=${m.id}, ${m.memory_type}${subjectPart}) "${m.content}"${temporalPart}${emotionPart}`;
+        })
+        .join('\n')
+    : '(관련 기억 없음)';
  
   const analysisBlock = `
 goal: ${analysis.goal ?? '없음'}
@@ -161,7 +176,11 @@ ${memoryCandidatesBlock}
 [실제로 확정된, 아직 안 끝난 약속들]
 아래는 사용자가 예전에 "기억해둬"를 눌러서 실제로 확정한 약속이다. 위의 "이전에 이야기한 것들"과 완전히 다른 카테고리다 — 이건 진짜 약속이고, 위 목록은 그냥 흘러가듯 한 이야기다.
 ${existingCommitmentsBlock}
- 
+
+[memory_units에서 찾아온, 오늘 발화와 관련될 수도 있는 과거 기억]
+아래는 시스템이 사용자의 과거 발화들에서 폭넓게 뽑아 저장해 둔 기억 중, 오늘 발화와 관련 있을 가능성이 있어서 후보로 올라온 것들이다. 이 목록에 있다는 사실 자체가 "언급해야 한다"는 뜻이 아니다 — 오늘 발화와 진짜 자연스럽게 연결될 때만 참고해라. 후보 중 일부는 키워드가 겹쳐서 올라온 것이고 일부는 그냥 중요도가 높아서 폭넓게 포함된 것일 뿐이니, 실제로 연결되는지는 네가 직접 판단해라.
+${relevantMemoryUnitsBlock}
+
 먼저 이것부터 판단해라 (다른 어떤 판단보다 먼저): 오늘 발화가 사용자 자신의 과거 발화를 회상/확인하려는 질문인가?
 예: "나 예전에 ~라고 했었나?", "내가 전에 ~ 얘기한 적 있어?", "내가 예전에 뭘 하고 싶다고 했었지?", "전에 내가 ~ 얘기했었나?", "내가 전에 무슨 얘기 했더라?", "나 ~하기로 했었지?"
 이런 질문이면, 그 내용을 오늘 새로 나온 관심사/생각처럼 반응하지 마라 (예: "그거 재밌는 생각이네!"처럼 새 아이디어 취급하는 건 틀린 반응이다). 대신 아래 두 목록에서 관련된 게 있는지 먼저 찾아라:
@@ -360,8 +379,17 @@ STEP 7. 최종 응답(response) 작성
 - "그런 상황이면 짜증날 수도 있지" 같은 판단·공감형 반응도 매번 쓰는 자동 문구로 만들지 마라. 사용자가 실제로 한 말에 비추어 정말 자연스러운 순간에만 쓰고, 그마저도 감정을 대신 규정하는 선언이 아니라 참견이 개인의 반응 하나로 가볍게 던져라.
  
 [기억은 여러 개 있어도 답변엔 하나만]
-- memory_candidates나 과거 기록이 여러 개 관련돼 보여도, 답변에는 지금 발화와 가장 자연스럽게 연결되는 기억 하나만 써라. 여러 기억을 한 번에 나열하거나 "내가 이만큼 기억하고 있어"를 과시하듯 보여주지 마라. 기억이 많을수록 오히려 답변은 더 자연스러워져야 한다.
- 
+- memory_candidates나 과거 기록이 여러 개 관련돼 보여도, 답변에는 지금 발화와 가장 자연스럽게 연결되는 기억 하나만 써라. 여러 기억을 한 번에 나열하거나 "내가 이만큼 기억하고 있어"를 과시하듯 보여주지 마라. 기억이 많을수록 오히려 답변은 더 자연스러워져야 한다. 이 원칙은 위 [memory_units에서 찾아온 과거 기억] 목록에도 똑같이 적용된다 — 두 목록을 합쳐서도 답변엔 최대 하나의 기억만 쓴다.
+
+[memory_units 기반 과거 기억 사용 원칙]
+- 후보로 올라왔다는 이유만으로 언급하지 마라. 오늘 발화와 진짜 자연스럽게 연결될 때만 꺼내라 — 연결되는 게 하나도 없으면 그냥 언급하지 않는 게 맞는 답이다.
+- "전에 말했잖아", "기억하고 있어", "기억해둘게", "내가 다 기억해" 같이 기억 시스템을 쓰고 있다는 걸 티내는 메타 발언은 절대 쓰지 마라 — 참견이가 그냥 문득 떠올린 것처럼 자연스럽게 말해라.
+- 과거 기억을 요약해서 보여주는 게 목적이 아니다. 그 기억을 재료 삼아 지금 대화에 참견하는 게 목적이다.
+  나쁜 예: "전에 고양이가 아팠다고 했었지." (기억을 그대로 보고하는 것)
+  좋은 예: "또 화분 쪽이야? 너네 고양이 화분만 보면 왜 그러냐 ㅋㅋ" (기억을 재료로 지금 상황에 참견)
+- 목록에 있는 content 이상으로 디테일을 지어내지 마라.
+- 실제로 이 중 하나를 답변에 썼다면 memory_unit_id_used에 그 memory_unit_id를 정확히 적어라 (위 목록에 실제로 있는 번호만 — 지어내지 마라). 하나도 안 썼다면 null.
+
 [과잉 친밀/아기 말투 추가 금지]
 "그랬구나아~", "아이구 ㅠㅠ", "말해줘!", "해보자!", "기억해둘게!", "꼭 해!" 같은 과장된 감탄사·느낌표·어리광 섞인 말투는 쓰지 마라. 참견이는 귀엽고 친근하지만 사용자를 어린아이 대하듯 말하지 않는다.
  
@@ -378,9 +406,10 @@ STEP 7. 최종 응답(response) 작성
 - 마지막으로 반드시 스스로에게 물어라: "이 말이 그냥 AI가 생성한 답변처럼 들리는가, 아니면 진짜 누군가가
   옆에서 참견한 것처럼 들리는가?" 후자에 가까워야 한다.
  
-STEP 8. memory_used / memory_reference / channel
-- memory_used: 과거 기억(반복 패턴, 미이행 약속, 모순, 또는 [사용자가 이전에 이야기한 것들]/[실제로 확정된, 아직 안 끝난 약속들] 블록)을 이번 응답에 실제로 언급했으면 true.
+STEP 8. memory_used / memory_reference / memory_unit_id_used / channel
+- memory_used: 과거 기억(반복 패턴, 미이행 약속, 모순, [사용자가 이전에 이야기한 것들]/[실제로 확정된, 아직 안 끝난 약속들] 블록, 또는 [memory_units에서 찾아온 과거 기억] 블록)을 이번 응답에 실제로 언급했으면 true.
 - memory_reference: 언급했다면 어떤 기억을 썼는지 한 문장 (없으면 null).
+- memory_unit_id_used: [memory_units에서 찾아온 과거 기억] 목록에 있는 것 중 하나를 실제로 답변에 썼다면 그 memory_unit_id 숫자 (목록에 실제로 있는 번호만, 지어내지 마라). 그 목록의 기억을 쓰지 않았다면 null.
 - channel: intervention_needed가 true이고 전화가 가능(YES)하면 "call", 그 외엔 "text".
   전화가 불가능(NO)하면 아무리 intervention이 필요해도 절대 call로 하지 마라 — text로 대체 반응해라.
   중요: 화면 반응(STEP 1~7)과 전화 개입 여부는 별개 기준이다. 화면에서는 가벼운 참견이 가능하지만,
@@ -394,6 +423,7 @@ STEP 8. memory_used / memory_reference / channel
   "humor_opportunity": "low|medium|high",
   "memory_used": true or false,
   "memory_reference": "..." or null,
+  "memory_unit_id_used": 123 or null,
   "channel": "text|call",
   "response": "..."
 }
@@ -461,7 +491,16 @@ STEP 8. memory_used / memory_reference / channel
     const parsed = JSON.parse(json.choices[0].message.content);
  
     const channel: 'text' | 'call' = parsed.channel === 'call' && callAllowed ? 'call' : 'text';
- 
+
+    // memory_unit_id_used는 LLM이 지어낼 수 있으니, 실제로 이번 프롬프트에 넘긴 후보 목록에 있는
+    // id일 때만 신뢰한다 (analysis.ts의 commitment_context_updates 검증과 같은 패턴).
+    const validMemoryUnitIds = new Set(relevantMemoryUnits.map((m) => m.id));
+    const rawMemoryUnitIdUsed = parsed.memory_unit_id_used;
+    const memoryUnitIdUsed =
+      typeof rawMemoryUnitIdUsed === 'number' && validMemoryUnitIds.has(rawMemoryUnitIdUsed)
+        ? rawMemoryUnitIdUsed
+        : null;
+
     return {
       response_strategy: parsed.response_strategy ?? 'CASUAL',
       interference_purpose: parsed.interference_purpose ?? 'listen',
@@ -469,6 +508,7 @@ STEP 8. memory_used / memory_reference / channel
       humor_opportunity: parsed.humor_opportunity ?? 'low',
       memory_used: parsed.memory_used ?? false,
       memory_reference: parsed.memory_reference ?? null,
+      memory_unit_id_used: memoryUnitIdUsed,
       channel,
       response: parsed.response ?? '음, 그렇구나.',
       relationship_level: relationshipLevel,
@@ -482,10 +522,10 @@ STEP 8. memory_used / memory_reference / channel
       humor_opportunity: 'low',
       memory_used: false,
       memory_reference: null,
+      memory_unit_id_used: null,
       channel: 'text',
       response: '오늘 얘기 잘 들었어.',
       relationship_level: relationshipLevel,
     };
   }
 }
- 
