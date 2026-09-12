@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { RelevantMemoryUnit } from '@/lib/memoryRetrieval';
+import { RelevantInsight } from '@/lib/insightEngine';
 
 type Strategy =
   | 'CASUAL' | 'EMPATHY' | 'PLAYFUL' | 'TEASING' | 'MEMORY_REFERENCE'
@@ -19,6 +20,7 @@ export interface ResponseResult {
   memory_used: boolean;
   memory_reference: string | null;
   memory_unit_id_used: number | null;
+  insight_id_used: number | null;
   channel: 'text' | 'voice' | 'call';
   response: string;
   relationship_level: number;
@@ -107,7 +109,8 @@ export async function generateResponse(
   userId: string,
   memoryCandidates: { memory_type: string; content: string }[] = [],
   existingCommitments: { id: string; commitment: string }[] = [],
-  relevantMemoryUnits: RelevantMemoryUnit[] = []
+  relevantMemoryUnits: RelevantMemoryUnit[] = [],
+  relevantInsights: RelevantInsight[] = []
 ): Promise<ResponseResult> {
   const [entryCount, callAllowed, nickname] = await Promise.all([
     getEntryCount(userId),
@@ -136,7 +139,15 @@ export async function generateResponse(
         })
         .join('\n')
     : '(관련 기억 없음)';
- 
+
+  // memory_insights — 여러 memory_units를 합쳐서 이미 한 번 "관찰"로 판단된 것들. relevanceScore/
+  // relevanceReason은 memory_units 때와 똑같이 내부 랭킹용이라 프롬프트에 절대 넣지 않는다.
+  const relevantInsightsBlock = relevantInsights.length > 0
+    ? relevantInsights
+        .map((ins) => `- (insight_id=${ins.id}${ins.theme ? `, 주제: ${ins.theme}` : ''}) "${ins.content}"`)
+        .join('\n')
+    : '(관련 관찰 없음)';
+
   const analysisBlock = `
 goal: ${analysis.goal ?? '없음'}
 commitment: ${analysis.commitment ?? '없음'} (type: ${analysis.commitment_type ?? '-'}, confidence: ${analysis.commitment_confidence ?? '-'})
@@ -180,6 +191,13 @@ ${existingCommitmentsBlock}
 [memory_units에서 찾아온, 오늘 발화와 관련될 수도 있는 과거 기억]
 아래는 시스템이 사용자의 과거 발화들에서 폭넓게 뽑아 저장해 둔 기억 중, 오늘 발화와 관련 있을 가능성이 있어서 후보로 올라온 것들이다. 이 목록에 있다는 사실 자체가 "언급해야 한다"는 뜻이 아니다 — 오늘 발화와 진짜 자연스럽게 연결될 때만 참고해라. 후보 중 일부는 키워드가 겹쳐서 올라온 것이고 일부는 그냥 중요도가 높아서 폭넓게 포함된 것일 뿐이니, 실제로 연결되는지는 네가 직접 판단해라.
 ${relevantMemoryUnitsBlock}
+
+[참견이가 그동안 발견한, 이 사람에 대한 "관찰"들]
+아래는 위 [memory_units에서 찾아온 과거 기억]들이 서로 연결되는 걸 보고, 시스템이 미리 한 번 더
+판단해서 "이 사람은 이런 편이다" 수준으로 묶어둔 관찰이다. 이건 낱개 기억보다 한 단계 더 무거운
+발언이다 — 그래서 낱개 기억보다 훨씬 더 드물게, 오늘 발화와 진짜 확실하게 연결될 때만 써라.
+목록에 있다는 사실 자체가 언급 근거가 되지 않는다는 원칙은 위 memory_units와 완전히 같다.
+${relevantInsightsBlock}
 
 먼저 이것부터 판단해라 (다른 어떤 판단보다 먼저): 오늘 발화가 사용자 자신의 과거 발화를 회상/확인하려는 질문인가?
 예: "나 예전에 ~라고 했었나?", "내가 전에 ~ 얘기한 적 있어?", "내가 예전에 뭘 하고 싶다고 했었지?", "전에 내가 ~ 얘기했었나?", "내가 전에 무슨 얘기 했더라?", "나 ~하기로 했었지?"
@@ -382,7 +400,7 @@ STEP 7. 최종 응답(response) 작성
 - "그런 상황이면 짜증날 수도 있지" 같은 판단·공감형 반응도 매번 쓰는 자동 문구로 만들지 마라. 사용자가 실제로 한 말에 비추어 정말 자연스러운 순간에만 쓰고, 그마저도 감정을 대신 규정하는 선언이 아니라 참견이 개인의 반응 하나로 가볍게 던져라.
  
 [기억은 여러 개 있어도 답변엔 하나만]
-- memory_candidates나 과거 기록이 여러 개 관련돼 보여도, 답변에는 지금 발화와 가장 자연스럽게 연결되는 기억 하나만 써라. 여러 기억을 한 번에 나열하거나 "내가 이만큼 기억하고 있어"를 과시하듯 보여주지 마라. 기억이 많을수록 오히려 답변은 더 자연스러워져야 한다. 이 원칙은 위 [memory_units에서 찾아온 과거 기억] 목록에도 똑같이 적용된다 — 두 목록을 합쳐서도 답변엔 최대 하나의 기억만 쓴다.
+- memory_candidates나 과거 기록이 여러 개 관련돼 보여도, 답변에는 지금 발화와 가장 자연스럽게 연결되는 기억 하나만 써라. 여러 기억을 한 번에 나열하거나 "내가 이만큼 기억하고 있어"를 과시하듯 보여주지 마라. 기억이 많을수록 오히려 답변은 더 자연스러워져야 한다. 이 원칙은 위 [memory_units에서 찾아온 과거 기억]과 [참견이가 그동안 발견한 관찰] 목록에도 똑같이 적용된다 — 세 목록을 다 합쳐도 답변엔 최대 하나만 쓴다 (raw 기억 하나 쓰면 관찰은 안 쓰고, 관찰 하나 쓰면 raw 기억은 안 쓴다).
 
 [과거 기억(memory_units) 사용 우선순위 — 현재 대화 > 사소한 호기심 > 과거 기억]
 memory_units 기반 과거 기억을 쓸지 말지는 반드시 아래 순서로 판단해라. 순서를 건너뛰고 바로 기억부터 찾지 마라.
@@ -413,6 +431,17 @@ memory_units 기반 과거 기억을 쓸지 말지는 반드시 아래 순서로
 - CASE F. 오늘 발화="제주도 생각이 또 나.", 과거 기억="제주도에서 한 달 살아보고 싶다" → 이번엔 오늘 발화와 과거 기억이 직접 연결되므로 적극 사용해도 된다. "또 제주도야? ㅋㅋ 이번엔 진짜 한 달 살 거야?"
 CASE C와 E는 같은 원칙을 보여준다 — 표면적으로 단어가 겹쳐도(삼각김밥/제주도), 오늘 발화의 맥락이 그 기억과 실제로 연결되지 않으면 억지로 쓰지 마라. CASE B/D/F는 진짜로 연결되는 경우이니 자연스럽게 써도 된다.
 
+[관찰(insight) 사용 원칙 — raw 기억보다 훨씬 더 조심스럽게]
+- [참견이가 그동안 발견한 관찰]은 이미 여러 기억을 합쳐서 "이 사람은 이런 편이다"까지 판단이 끝난 결과물이다. 그래서 raw 기억 하나를 슬쩍 꺼내는 것보다 훨씬 더 무겁게 들린다 — 후보에 있어도 대부분은 안 쓰는 게 맞고, 정말 확실하게 들어맞을 때만 써라.
+- 관찰의 문장은 이미 참견이 말투로 다듬어져 있는 경우가 많다. 그렇다고 그대로 복사-붙여넣기만 하지 말고, 오늘 발화에 자연스럽게 이어지는 형태로 살짝 손봐서 써라.
+- 관찰을 근거나 통계처럼 들이대지 마라 ("데이터상 이번 달에 3번 발견됐어" 같은 표현 금지). 그냥 문득 알아챈 것처럼 말해라.
+  나쁜 예: "분석 결과 너는 라면에 확고한 취향이 있는 것으로 나타났어." (보고서 톤)
+  좋은 예: "또 라면이야? ㅋㅋ 너 라면 취향 은근 확고하잖아." (그냥 아는 사람처럼 툭 던짐)
+- 오늘 발화가 그 관찰의 주제와 약하게만 겹칠 때는(예: 관찰은 "라면 취향이 확고하다"인데 오늘은 그냥 "밥 먹었어") 쓰지 마라 — raw 기억의 CASE C/E와 같은 기준이다.
+- 관찰을 실제로 답변에 썼다면 insight_id_used에 그 insight_id를 정확히 적어라 (목록에 실제로 있는 번호만, 지어내지 마라). 안 썼다면 null. raw 기억을 썼을 땐 memory_unit_id_used만 채우고 insight_id_used는 null — 한 응답에 두 종류를 동시에 채우지 마라(위 "기억은 하나만" 원칙과 같은 이유).
+- CASE G. 오늘 발화="또 라면이야ㅋㅋ", 관찰="라면 먹을 때 계란보다 소세지를 넣는 취향이 확고하다" → "너 라면 취향 은근 확고하잖아. 오늘도 소세지야?" (오늘 발화가 관찰의 주제와 직접 겹치므로 자연스럽게 씀, insight_id_used에 그 id 기입)
+- CASE H. 오늘 발화="오늘 저녁 뭐 먹지.", 관찰="라면 먹을 때 계란보다 소세지를 넣는 취향이 확고하다" → 관찰을 쓰지 않는다. "뭐 땡기는 거 있어?"처럼 오늘 발화에만 반응한다 (라면 얘기가 아직 나오지도 않았는데 미리 취향 얘기를 꺼내는 건 억지 연결, insight_id_used는 null).
+
 [과잉 친밀/아기 말투 추가 금지]
 "그랬구나아~", "아이구 ㅠㅠ", "말해줘!", "해보자!", "기억해둘게!", "꼭 해!" 같은 과장된 감탄사·느낌표·어리광 섞인 말투는 쓰지 마라. 참견이는 귀엽고 친근하지만 사용자를 어린아이 대하듯 말하지 않는다.
  
@@ -429,10 +458,11 @@ CASE C와 E는 같은 원칙을 보여준다 — 표면적으로 단어가 겹�
 - 마지막으로 반드시 스스로에게 물어라: "이 말이 그냥 AI가 생성한 답변처럼 들리는가, 아니면 진짜 누군가가
   옆에서 참견한 것처럼 들리는가?" 후자에 가까워야 한다.
  
-STEP 8. memory_used / memory_reference / memory_unit_id_used / channel
-- memory_used: 과거 기억(반복 패턴, 미이행 약속, 모순, [사용자가 이전에 이야기한 것들]/[실제로 확정된, 아직 안 끝난 약속들] 블록, 또는 [memory_units에서 찾아온 과거 기억] 블록)을 이번 응답에 실제로 언급했으면 true.
-- memory_reference: 언급했다면 어떤 기억을 썼는지 한 문장 (없으면 null).
+STEP 8. memory_used / memory_reference / memory_unit_id_used / insight_id_used / channel
+- memory_used: 과거 기억(반복 패턴, 미이행 약속, 모순, [사용자가 이전에 이야기한 것들]/[실제로 확정된, 아직 안 끝난 약속들] 블록, [memory_units에서 찾아온 과거 기억] 블록, 또는 [참견이가 그동안 발견한 관찰] 블록)을 이번 응답에 실제로 언급했으면 true.
+- memory_reference: 언급했다면 어떤 기억/관찰을 썼는지 한 문장 (없으면 null).
 - memory_unit_id_used: [memory_units에서 찾아온 과거 기억] 목록에 "후보로 올라와 있었다"는 사실만으로 채우지 마라. 그 기억의 내용을 실제로 이번 response 문장에 녹여서 썼을 때만 그 memory_unit_id 숫자를 적어라 (목록에 실제로 있는 번호만, 지어내지 마라). 후보로는 넘어왔지만 답변에서 실제로 쓰지 않았다면 memory_unit_id_used는 반드시 null이고, 이 경우 memory_used도 false여야 한다 — 후보 존재 여부와 실제 사용 여부는 다른 질문이다.
+- insight_id_used: [참견이가 그동안 발견한 관찰] 목록 중 하나를 실제로 이번 응답에 썼을 때만 그 insight_id 숫자를 적어라 (목록에 실제로 있는 번호만, 지어내지 마라). 안 썼다면 null. memory_unit_id_used를 채운 응답이라면 insight_id_used는 반드시 null이어야 한다 (한 응답에 raw 기억과 관찰을 동시에 쓰지 않는다).
 - channel: intervention_needed가 true이고 전화가 가능(YES)하면 "call", 그 외엔 "text".
   전화가 불가능(NO)하면 아무리 intervention이 필요해도 절대 call로 하지 마라 — text로 대체 반응해라.
   중요: 화면 반응(STEP 1~7)과 전화 개입 여부는 별개 기준이다. 화면에서는 가벼운 참견이 가능하지만,
@@ -447,6 +477,7 @@ STEP 8. memory_used / memory_reference / memory_unit_id_used / channel
   "memory_used": true or false,
   "memory_reference": "..." or null,
   "memory_unit_id_used": 123 or null,
+  "insight_id_used": 123 or null,
   "channel": "text|call",
   "response": "..."
 }
@@ -524,6 +555,19 @@ STEP 8. memory_used / memory_reference / memory_unit_id_used / channel
         ? rawMemoryUnitIdUsed
         : null;
 
+    // insight_id_used도 memory_unit_id_used와 완전히 같은 이유로 검증한다 — LLM이 지어낼 수 있으니
+    // 실제로 이번 프롬프트에 넘긴 relevantInsights 후보 목록에 있는 id일 때만 신뢰한다.
+    const validInsightIds = new Set(relevantInsights.map((i) => i.id));
+    const rawInsightIdUsed = parsed.insight_id_used;
+    const candidateInsightIdUsed =
+      typeof rawInsightIdUsed === 'number' && validInsightIds.has(rawInsightIdUsed)
+        ? rawInsightIdUsed
+        : null;
+    // 방어적 이중 장치: 프롬프트에서 "한 응답에 raw 기억과 관찰을 동시에 쓰지 않는다"고 지시했지만,
+    // LLM이 실수로 둘 다 채워 보낼 가능성에 대비해 코드 레벨에서도 상호 배타를 강제한다.
+    // memory_unit_id_used가 채워졌다면(=raw 기억을 이미 썼다면) insight_id_used는 무조건 null로 덮어쓴다.
+    const insightIdUsed = memoryUnitIdUsed !== null ? null : candidateInsightIdUsed;
+
     return {
       response_strategy: parsed.response_strategy ?? 'CASUAL',
       interference_purpose: parsed.interference_purpose ?? 'listen',
@@ -532,6 +576,7 @@ STEP 8. memory_used / memory_reference / memory_unit_id_used / channel
       memory_used: parsed.memory_used ?? false,
       memory_reference: parsed.memory_reference ?? null,
       memory_unit_id_used: memoryUnitIdUsed,
+      insight_id_used: insightIdUsed,
       channel,
       response: parsed.response ?? '음, 그렇구나.',
       relationship_level: relationshipLevel,
@@ -546,6 +591,7 @@ STEP 8. memory_used / memory_reference / memory_unit_id_used / channel
       memory_used: false,
       memory_reference: null,
       memory_unit_id_used: null,
+      insight_id_used: null,
       channel: 'text',
       response: '오늘 얘기 잘 들었어.',
       relationship_level: relationshipLevel,
