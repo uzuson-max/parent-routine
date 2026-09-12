@@ -202,7 +202,11 @@ export async function POST(request: Request) {
             currentCallState = 'calling_sent';
             console.log('트윌로 전화 발신 성공:', callResult.sid);
           } else {
-            console.error('트윌로 전화 발신 실패:', callResult.error);
+            // code/moreInfo까지 같이 남겨야 Vercel 로그만 보고도 Twilio 에러 코드/문서 링크를 바로 확인할 수 있다.
+            console.error('트윌로 전화 발신 실패:', callResult.error, {
+              code: (callResult as any).code,
+              moreInfo: (callResult as any).moreInfo,
+            });
           }
         } catch (callErr: any) {
           console.error('전화 발신 중 예외 발생:', callErr?.message);
