@@ -14,7 +14,7 @@
 
 import { useState } from "react";
 import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
-import { requestPhoneLink, confirmPhoneCode, type PhoneLinkVerifyType } from "@/lib/phoneAuthClient";
+import { requestPhoneLink, confirmPhoneCode, syncVerifiedPhoneToBackend, type PhoneLinkVerifyType } from "@/lib/phoneAuthClient";
 import Mascot from "@/components/Mascot";
 
 type PhoneStage = "idle" | "code";
@@ -67,6 +67,9 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
       return;
     }
     setPhoneDone(true);
+    // 인증 직후 localStorage/user_memory에도 같은 번호를 반영 — 이게 없으면 방금 인증한
+    // 번호인데도 다음 녹음에서 PhoneInputScreen이 다시 뜨고, 실제 전화 발신용 번호도 비게 된다.
+    syncVerifiedPhoneToBackend(phone);
   };
 
   return (
