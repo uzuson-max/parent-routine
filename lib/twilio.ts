@@ -58,8 +58,17 @@ export async function sendRoutineCall({
     });
     return { success: true, sid: call.sid };
   } catch (err: any) {
-    console.error('Twilio 발신 실패:', err.message);
-    return { success: false, error: err.message };
+    // err.message만으로는("Policy evaluation failed" 같은 경우) 원인을 못 찾는다 —
+    // Twilio Node SDK의 RestException은 code(트윌로 에러 코드, 예: 21216)와
+    // moreInfo(그 코드 설명 문서 링크)를 같이 들고 있어서, 로그에 같이 남겨야
+    // Twilio 콘솔/문서에서 바로 원인을 찾을 수 있다.
+    console.error('Twilio 발신 실패:', {
+      message: err.message,
+      code: err.code,
+      status: err.status,
+      moreInfo: err.moreInfo,
+    });
+    return { success: false, error: err.message, code: err.code, moreInfo: err.moreInfo };
   }
 }
 
