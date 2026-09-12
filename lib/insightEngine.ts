@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { PERSONALITY_PROMPT } from '@/lib/responseEngine';
+import { tokenize } from '@/lib/memoryRetrieval';
 
 // ============================================================================
 // Pattern/Insight 레이어.
@@ -12,7 +13,11 @@ import { PERSONALITY_PROMPT } from '@/lib/responseEngine';
 // interventionEngine.ts와 똑같은 모양의 "배치 함수 + cron 라우트" 패턴으로, 별도 스케줄에서
 // (app/api/cron/generate-insights) 주기적으로 실행되는 걸 전제로 만들었다.
 //
-// responseEngine에 이 insight를 실제로 연결하는 건 이번 단계에 포함하지 않는다(다음 단계).
+// 아래 retrieveRelevantInsights / markInsightsSurfaced는 그 다음 단계 — responseEngine이 쌓인
+// insight를 실시간 대화에서 실제로 꺼내 쓸 수 있게 연결하는 부분이다. insight 생성(위 배치)과
+// insight 소비(아래 retrieval)는 memory_units가 memoryPipeline(쓰기)/memoryRetrieval(읽기)로
+// 나뉜 것과 똑같은 구조다 — 새 LLM 호출 없이 순수 키워드 매칭만 쓴다(실제 판단은 그대로
+// responseEngine의 기존 LLM 호출에 맡긴다).
 // ============================================================================
 
 export interface MemoryUnitLite {
@@ -373,5 +378,128 @@ export async function generateInsightsForAllUsers(
   } catch (err: any) {
     console.error('[insightEngine] generateInsightsForAllUsers 전체 실패:', err?.message);
     return {};
+  }
+}
+
+// ============================================================================
+// 여기부터 — 쌓인 insight를 responseEngine의 실시간 대화가 실제로 꺼내 쓸 수 있게 하는 부분.
+// ============================================================================
+
+export interface RelevantInsight {
+  id: number;
+  content: string;
+  theme: string | null;
+  confidence: number;
+  // 아래 두 필드는 내부 랭킹용이다. memoryRetrieval.ts의 RelevantMemoryUnit과 똑같은 원칙 —
+  // responseEngine 프롬프트에는 절대 넣지 않는다.
+  relevanceScore: number;
+  relevanceReason: string;
+}
+
+// 같은 insight를 너무 자주 다시 꺼내면 "관찰"이 아니라 "잔소리"가 된다. 한 번 실제로 대화에
+// 쓰인 insight는 최소 이 기간 동안은 다시 후보로 올리지 않는다.
+const INSIGHT_SURFACE_COOLDOWN_DAYS = 3;
+
+/**
+ * 지금 발화와 실제로 겹치는 insight만 후보로 올린다. memory_units의 retrieveRelevantMemories와
+ * 달리, insight는 이미 한 단계 더 해석이 들어간 "관찰"이라 후보 기준을 더 엄격하게 잡는다 —
+ * confidence가 아무리 높아도 오늘 발화와 키워드가 하나도 안 겹치면 애초에 후보에 넣지 않는다
+ * (raw memory 쪽은 importance만으로도 baseline pool에 들어갈 수 있는 것과 의도적으로 다르다).
+ * 최근에 이미 한 번 쓴 insight는 쿨다운 기간 동안 후보에서 제외한다.
+ * 실패해도 절대 던지지 않고 빈 배열을 반환한다.
+ */
+export async function retrieveRelevantInsights(
+  userId: string,
+  transcript: string,
+  limit = 3
+): Promise<RelevantInsight[]> {
+  try {
+    if (!transcript || !transcript.trim() || transcript === '(음성 변환 실패)') return [];
+
+    const { data, error } = await supabase
+      .from('memory_insights')
+      .select('id, content, theme, confidence, last_surfaced_at')
+      .eq('user_id', userId)
+      .eq('status', 'active')
+      .order('updated_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error('[insightEngine] retrieveRelevantInsights 조회 실패:', error.message);
+      return [];
+    }
+    if (!data || data.length === 0) return [];
+
+    const now = Date.now();
+    const cooldownMs = INSIGHT_SURFACE_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+    const transcriptTokens = tokenize(transcript);
+
+    const scored = data
+      .filter((ins: any) => {
+        if (!ins.last_surfaced_at) return true;
+        return now - new Date(ins.last_surfaced_at).getTime() >= cooldownMs;
+      })
+      .map((ins: any) => {
+        const contentTokens = tokenize(ins.content);
+        const overlap = contentTokens.filter((t) => transcriptTokens.includes(t));
+        const uniqueOverlap = Array.from(new Set(overlap));
+        return { ins, overlapCount: uniqueOverlap.length, overlapTokens: uniqueOverlap };
+      })
+      // insight는 raw memory보다 한 단계 더 무거운 발언이라, 키워드가 최소 하나는 실제로
+      // 겹칠 때만 후보로 올린다 — confidence만으로는 후보가 되지 않는다.
+      .filter((s: any) => s.overlapCount > 0)
+      .map((s: any) => ({
+        ins: s.ins,
+        score: s.overlapCount + (s.ins.confidence ?? 0.5),
+        reason: `keyword_overlap:${s.overlapTokens.join(',')}`,
+      }));
+
+    scored.sort((a: any, b: any) => b.score - a.score);
+
+    return scored.slice(0, limit).map(({ ins, score, reason }: any) => ({
+      id: ins.id,
+      content: ins.content,
+      theme: ins.theme ?? null,
+      confidence: ins.confidence ?? 0.5,
+      relevanceScore: score,
+      relevanceReason: reason,
+    }));
+  } catch (err: any) {
+    console.error('[insightEngine] retrieveRelevantInsights 전체 실패 (빈 배열 반환):', err?.message);
+    return [];
+  }
+}
+
+/**
+ * responseEngine이 실제로 특정 insight를 답변에 썼을 때 last_surfaced_at/surfaced_count를 갱신한다.
+ * markMemoriesReferenced(memoryRetrieval.ts)와 똑같은 패턴. 실패해도 절대 던지지 않는다.
+ */
+export async function markInsightsSurfaced(insightIds: number[]): Promise<void> {
+  if (!insightIds || insightIds.length === 0) return;
+  try {
+    for (const id of insightIds) {
+      const { data: row, error: fetchError } = await supabase
+        .from('memory_insights')
+        .select('surfaced_count')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (fetchError) {
+        console.error('[insightEngine] surfaced_count 조회 실패:', fetchError.message);
+        continue;
+      }
+
+      const { error } = await supabase
+        .from('memory_insights')
+        .update({
+          last_surfaced_at: new Date().toISOString(),
+          surfaced_count: (row?.surfaced_count ?? 0) + 1,
+        })
+        .eq('id', id);
+
+      if (error) console.error('[insightEngine] last_surfaced_at 업데이트 실패:', error.message);
+    }
+  } catch (err: any) {
+    console.error('[insightEngine] markInsightsSurfaced 실패 (무시):', err?.message);
   }
 }
