@@ -34,7 +34,8 @@ function stripParticle(token: string): string {
   return token;
 }
  
-function tokenize(text: string | null | undefined): string[] {
+// memoryPipeline.ts의 memory_links 생성 로직도 이 토크나이저를 그대로 재사용한다(중복 구현 방지).
+export function tokenize(text: string | null | undefined): string[] {
   if (!text) return [];
   // 한글/영문/숫자 2글자 이상 토큰만. 각 토큰에서 흔한 조사를 한 번 잘라낸 stem도 함께 담아서
   // "라면"과 "크림라면에" 같은 조사 차이로 인한 매칭 실패를 줄인다.
