@@ -1,4 +1,3 @@
- 
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { getUserIdFromRequest } from '@/lib/auth';
@@ -6,6 +5,7 @@ import { analyzeAndSchedule } from '@/lib/analysis';
 import { generateResponse } from '@/lib/responseEngine';
 import { updateUserMemory } from '@/lib/memoryEngine';
 import { runMemoryPipeline } from '@/lib/memoryPipeline';
+import { retrieveRelevantMemories, markMemoriesReferenced } from '@/lib/memoryRetrieval';
 import { sendRoutineCall } from '@/lib/twilio';
 import OpenAI from 'openai';
  
@@ -114,12 +114,36 @@ export async function POST(request: Request) {
     }
  
     if (analysisResult) {
+      // memory_units에서 오늘 발화와 관련될 수도 있는 과거 기억을 retrieval — 실패해도 빈 배열로 계속 진행.
+      let relevantMemoryUnits: Awaited<ReturnType<typeof retrieveRelevantMemories>> = [];
       try {
-        responseResult = await generateResponse(transcript, analysisResult, userId, memoryCandidates, existingCommitments);
+        relevantMemoryUnits = await retrieveRelevantMemories(userId, transcript);
+      } catch (retrievalErr: any) {
+        console.error('memory retrieval 실패 (무시하고 진행):', retrievalErr?.message);
+      }
+
+      try {
+        responseResult = await generateResponse(
+          transcript,
+          analysisResult,
+          userId,
+          memoryCandidates,
+          existingCommitments,
+          relevantMemoryUnits
+        );
       } catch (respErr: any) {
         console.error('Response engine 에러 (무시하고 진행):', respErr?.message);
       }
- 
+
+      // responseEngine이 실제로 특정 memory_unit을 답변에 썼다면 last_referenced_at/reference_count 갱신.
+      if (responseResult?.memory_unit_id_used) {
+        try {
+          await markMemoriesReferenced([responseResult.memory_unit_id_used]);
+        } catch (refErr: any) {
+          console.error('memory_units 참조 기록 실패 (무시하고 진행):', refErr?.message);
+        }
+      }
+
       try {
         await updateUserMemory(userId, analysisResult.detected_pattern ?? undefined, analysisResult.excuse ?? undefined);
       } catch (memErr: any) {
@@ -190,4 +214,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: globalErr.message }, { status: 500 });
   }
 }
- 
