@@ -220,6 +220,10 @@ export default function Home() {
         />
       )}
 
+      {step === "insights" && (
+       <DiscoveryScreen onBack={() => setStep("landing")} />
+      )}
+
       {step === "raw_landing" && (
         <LandingScreen
           onStart={(topic?: string) => {
