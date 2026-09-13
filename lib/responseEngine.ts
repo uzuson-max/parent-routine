@@ -102,20 +102,76 @@ async function fetchNickname(userId: string): Promise<string | null> {
     .maybeSingle();
   return data?.nickname ?? null;
 }
- 
+
+interface PreviousTurn {
+  transcript: string;
+  response: string;
+  minutesAgo: number;
+}
+
+// Phase 3 — "사용자의 후속 답변도 새로운 입력이다"가 실제로 작동하려면, 지금 이 발화가 참견이가
+// 바로 직전에 물어본 것에 대한 답일 수도 있다는 걸 프롬프트가 알아야 한다. 지금까지는 각 voice_entries
+// 호출이 서로 완전히 독립적이라(memory_units/insight retrieval은 "예전 기억"만 다루고 "바로 직전 턴"은
+// 아무 데도 없었다), "라면 먹었어~" → "무슨 라면?" → "크림라면"처럼 짧게 이어지는 실제 대화에서
+// 두 번째 발화("크림라면")만 뚝 떼어놓고 보면 참견이가 방금 무슨 질문을 했는지 알 방법이 없었다.
+// 새 테이블 없이 voice_entries 자체(transcript/call_message/created_at)만 조회하는 가장 작은 변경이다.
+// 실패해도 절대 던지지 않고 null을 반환한다 (직전 대화 없이 기존 방식대로 계속 진행).
+async function fetchPreviousTurn(userId: string, excludeEntryId: string): Promise<PreviousTurn | null> {
+  try {
+    const { data, error } = await supabase
+      .from('voice_entries')
+      .select('transcript, call_message, created_at')
+      .eq('user_id', userId)
+      .neq('id', excludeEntryId)
+      .not('transcript', 'is', null)
+      .not('call_message', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('[responseEngine] fetchPreviousTurn 조회 실패 (직전 대화 없이 계속):', error.message);
+      return null;
+    }
+    if (!data || !data.transcript || !data.call_message) return null;
+    if (data.transcript === '(음성 변환 실패)') return null;
+
+    const minutesAgo = Math.max(0, Math.round((Date.now() - new Date(data.created_at).getTime()) / 60000));
+    return { transcript: data.transcript, response: data.call_message, minutesAgo };
+  } catch (err: any) {
+    console.error('[responseEngine] fetchPreviousTurn 실패 (무시):', err?.message);
+    return null;
+  }
+}
+
+// "3시간 전" 같은 정확한 숫자보다, 참견이가 자연스럽게 판단할 수 있을 정도의 대략적인 표현이면 충분하다.
+// 정확한 컷오프로 "직전 대화 반영 여부"를 코드에서 강제로 끊지 않고, 이 표현 + 아래 프롬프트 지침을 근거로
+// 최종 판단은 LLM에게 맡긴다 (memory_units/insight를 다룰 때와 같은 원칙).
+function formatElapsed(minutesAgo: number): string {
+  if (minutesAgo < 2) return '방금 전';
+  if (minutesAgo < 60) return `${minutesAgo}분 전`;
+  const hours = Math.round(minutesAgo / 60);
+  if (hours < 24) return `${hours}시간 전`;
+  const days = Math.round(hours / 24);
+  if (days === 1) return '어제';
+  return `${days}일 전`;
+}
+
 export async function generateResponse(
   transcript: string,
   analysis: any,
   userId: string,
+  entryId: string,
   memoryCandidates: { memory_type: string; content: string }[] = [],
   existingCommitments: { id: string; commitment: string }[] = [],
   relevantMemoryUnits: RelevantMemoryUnit[] = [],
   relevantInsights: RelevantInsight[] = []
 ): Promise<ResponseResult> {
-  const [entryCount, callAllowed, nickname] = await Promise.all([
+  const [entryCount, callAllowed, nickname, previousTurn] = await Promise.all([
     getEntryCount(userId),
     canCallNow(userId),
     fetchNickname(userId),
+    fetchPreviousTurn(userId, entryId),
   ]);
   const relationshipLevel = calcRelationshipLevel(entryCount);
  
@@ -147,6 +203,15 @@ export async function generateResponse(
         .map((ins) => `- (insight_id=${ins.id}${ins.theme ? `, 주제: ${ins.theme}` : ''}) "${ins.content}"`)
         .join('\n')
     : '(관련 관찰 없음)';
+
+  // memory_units/insight는 "예전에 있었던 일"이고, 이건 그것과 완전히 다른 종류의 맥락이다 —
+  // 바로 직전 voice_entries 한 건(참견이가 방금 뭐라고 물었는지/말했는지)이다. 없으면(첫 발화거나
+  // 조회 실패) 그냥 지금 발화에만 반응하는 기존 동작 그대로다.
+  const previousTurnBlock = previousTurn
+    ? `${formatElapsed(previousTurn.minutesAgo)}, 아래처럼 대화가 있었다:
+사용자: "${previousTurn.transcript}"
+참견이: "${previousTurn.response}"`
+    : '(직전 대화 없음 — 오늘 발화가 새로운 시작이라고 보면 된다)';
 
   const analysisBlock = `
 goal: ${analysis.goal ?? '없음'}
@@ -198,6 +263,14 @@ ${relevantMemoryUnitsBlock}
 발언이다 — 그래서 낱개 기억보다 훨씬 더 드물게, 오늘 발화와 진짜 확실하게 연결될 때만 써라.
 목록에 있다는 사실 자체가 언급 근거가 되지 않는다는 원칙은 위 memory_units와 완전히 같다.
 ${relevantInsightsBlock}
+
+[바로 직전 대화 — 지금 발화가 그 이어지는 답변일 수도 있다]
+${previousTurnBlock}
+이게 있다면 가장 먼저 판단해라: 지금 사용자가 방금 한 말이, 참견이가 바로 위에서 막 물어보거나 이야기한 것에 대한 답/반응인가?
+- 답이라면: 완전히 새로운 화제가 시작된 것처럼 다시 처음부터 묻지 마라. 그 흐름을 자연스럽게 이어가라.
+  예: 참견이가 "무슨 라면인데?"라고 물었는데 사용자가 "크림라면"이라고만 답했다면 → "크림라면이 뭐야?"처럼 되묻지 말고, "크림라면? 뭐랑 같이 먹었어?"처럼 그 답을 이미 들은 것으로 취급하고 이어가라.
+- 시간이 꽤 지났거나(체감상 몇 시간 이상), 지금 발화가 위 대화와 명백히 다른 화제라면 억지로 잇지 말고 새로운 이야기로 자연스럽게 시작해라 — 매번 직전 대화를 소환할 필요는 없다.
+- 직전 대화가 없으면("(직전 대화 없음...)") 이 항목은 그냥 무시하고 지금 발화에만 반응해라.
 
 먼저 이것부터 판단해라 (다른 어떤 판단보다 먼저): 오늘 발화가 사용자 자신의 과거 발화를 회상/확인하려는 질문인가?
 예: "나 예전에 ~라고 했었나?", "내가 전에 ~ 얘기한 적 있어?", "내가 예전에 뭘 하고 싶다고 했었지?", "전에 내가 ~ 얘기했었나?", "내가 전에 무슨 얘기 했더라?", "나 ~하기로 했었지?"
@@ -441,6 +514,7 @@ CASE C와 E는 같은 원칙을 보여준다 — 표면적으로 단어가 겹�
 - 관찰을 실제로 답변에 썼다면 insight_id_used에 그 insight_id를 정확히 적어라 (목록에 실제로 있는 번호만, 지어내지 마라). 안 썼다면 null. raw 기억을 썼을 땐 memory_unit_id_used만 채우고 insight_id_used는 null — 한 응답에 두 종류를 동시에 채우지 마라(위 "기억은 하나만" 원칙과 같은 이유).
 - CASE G. 오늘 발화="또 라면이야ㅋㅋ", 관찰="라면 먹을 때 계란보다 소세지를 넣는 취향이 확고하다" → "너 라면 취향 은근 확고하잖아. 오늘도 소세지야?" (오늘 발화가 관찰의 주제와 직접 겹치므로 자연스럽게 씀, insight_id_used에 그 id 기입)
 - CASE H. 오늘 발화="오늘 저녁 뭐 먹지.", 관찰="라면 먹을 때 계란보다 소세지를 넣는 취향이 확고하다" → 관찰을 쓰지 않는다. "뭐 땡기는 거 있어?"처럼 오늘 발화에만 반응한다 (라면 얘기가 아직 나오지도 않았는데 미리 취향 얘기를 꺼내는 건 억지 연결, insight_id_used는 null).
+- CASE I (반복 발견 — 관찰 content가 이미 "OO 얘기 세 번째야" 식으로 정확한 횟수를 담고 있는 경우). 오늘 발화="또 제주도 생각나네.", 관찰="너 제주도 얘기 세 번째야." → 이 관찰은 이미 참견이 말투로, 정확한 숫자까지 담아 완성돼 있다. 굳이 다른 말로 풀어쓰거나 설명을 덧붙이지 말고 그대로(또는 오늘 발화에 맞게 아주 살짝만 다듬어서) 써라 — "세 번째"라는 표현을 "여러 번"이나 "자주" 같은 뭉뚱그린 말로 바꾸면 오히려 부정확해진다. 이런 반복 발견형 관찰은 그 문장 자체로 끝나도 충분하다 — 질문을 억지로 덧붙이지 않아도 된다.
 
 [과잉 친밀/아기 말투 추가 금지]
 "그랬구나아~", "아이구 ㅠㅠ", "말해줘!", "해보자!", "기억해둘게!", "꼭 해!" 같은 과장된 감탄사·느낌표·어리광 섞인 말투는 쓰지 마라. 참견이는 귀엽고 친근하지만 사용자를 어린아이 대하듯 말하지 않는다.
