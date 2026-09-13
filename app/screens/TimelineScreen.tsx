@@ -149,11 +149,7 @@ export default function TimelineScreen({
           <IconRecord style={{ width: 20, height: 20 }} />
           <span style={styles.navText}>기록</span>
         </button>
-        <button
-          style={styles.navItem}
-          onClick={onOpenCalendar}
-          title="Memory 전용 화면은 아직 없어서 우선 캘린더로 연결됨"
-        >
+        <button style={styles.navItem} onClick={onOpenInsights}>
           <IconMemory style={{ width: 20, height: 20 }} />
           <span style={styles.navText}>MEMORY</span>
         </button>
