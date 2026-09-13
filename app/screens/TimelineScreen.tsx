@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState } from "react";
@@ -23,6 +24,7 @@ interface TimelineScreenProps {
   onOpenRecording: () => void;
   onOpenCalendar: () => void;
   onOpenMyPage: () => void;
+  onOpenInsights: () => void;
   entries: RecordEntry[] | null;
   nickname?: string | null;
   memoryHighlight?: MemoryHighlight | null;
@@ -46,6 +48,7 @@ export default function TimelineScreen({
   onOpenRecording,
   onOpenCalendar,
   onOpenMyPage,
+  onOpenInsights,
   entries,
   nickname,
   memoryHighlight,
