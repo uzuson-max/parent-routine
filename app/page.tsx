@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -17,6 +18,7 @@ import CalendarScreen from "./screens/CalendarScreen";
 import OnboardingScreen from "./screens/OnboardingScreen";
 import ThinkingScreen from "./screens/ThinkingScreen"; // 👈 1. 상단 import에 추가 완료!
 import FirstTalkScreen from "./screens/FirstTalkScreen";
+import DiscoveryScreen from "./screens/DiscoveryScreen";
 import { BRAND, pageBackground } from "@/lib/theme";
 
 const ONBOARDING_KEY = "ganseobi_onboarding_completed";
@@ -35,6 +37,7 @@ type Step =
   | "nickname"
   | "mypage"
   | "calendar"
+  | "insights"
   | "uploading"
   | "no_action"
   | "awaiting_confirmation"
@@ -202,6 +205,7 @@ export default function Home() {
           entries={entries}
           onOpenCalendar={() => setStep("calendar")}
           onOpenMyPage={() => setStep("mypage")}
+          onOpenInsights={() => setStep("insights")}
           onOpenRecording={() => {
             setSelectedTopic("");
             setStep("recording");
@@ -221,7 +225,7 @@ export default function Home() {
       )}
 
       {step === "insights" && (
-       <DiscoveryScreen onBack={() => setStep("landing")} />
+        <DiscoveryScreen onBack={() => setStep("landing")} />
       )}
 
       {step === "raw_landing" && (
