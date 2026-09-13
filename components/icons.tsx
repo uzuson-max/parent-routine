@@ -1,4 +1,5 @@
 
+
 // 참견이 브랜드북(손그림/Y2K 톤앤매너)에 맞춘 픽토그램 세트.
 // 전부 순수 시각 요소 — 클릭 동작이나 데이터 로직은 없고, 쓰는 쪽(TimelineScreen 등)에서
 // 버튼/네비 아이템에 끼워 넣어 currentColor로 색을 물려받는다.
@@ -110,6 +111,15 @@ export function IconMore(props: IconProps) {
       <circle cx="18" cy="24" r="2.4" fill="currentColor" />
       <circle cx="24" cy="24" r="2.4" fill="currentColor" />
       <circle cx="30" cy="24" r="2.4" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function IconShare(props: IconProps) {
+  return (
+    <svg viewBox="0 0 48 48" fill="none" {...props}>
+      <path d="M24 30 V10 M24 10 l-7 7 M24 10 l7 7" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 24 v12 a2 2 0 0 0 2 2 h20 a2 2 0 0 0 2 -2 v-12" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
