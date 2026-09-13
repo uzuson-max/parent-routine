@@ -6,6 +6,10 @@
     {
       "path": "/api/cron/generate-insights",
       "schedule": "0 19 * * *"
+    },
+    {
+      "path": "/api/cron/send-insight-callbacks",
+      "schedule": "0 2 * * *"
     }
   ]
 }
