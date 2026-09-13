@@ -137,6 +137,7 @@ export async function POST(request: Request) {
           transcript,
           analysisResult,
           userId,
+          entry.id,
           memoryCandidates,
           existingCommitments,
           relevantMemoryUnits,
