@@ -36,6 +36,5 @@ export async function GET(request: Request) {
       .eq('id', entry.id);
     results.push({ id: entry.id, ...callResult });
   }
-
   return NextResponse.json({ success: true, results });
 }
