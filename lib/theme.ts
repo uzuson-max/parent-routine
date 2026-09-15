@@ -1,5 +1,4 @@
 
-
 import type { CSSProperties } from "react";
 
 // 참견이 앱 전체가 공유하는 브랜드 컬러 토큰.
@@ -46,8 +45,17 @@ export const inkAlpha = {
 // 크림 배경 — 완전 플랫 컬러로 두면 밋밋해서, 아주 은은한 대각선 그라데이션과
 // 촘촘한 도트 패턴을 얹어 살짝 질감을 준다. 구조/레이아웃에는 영향 없는 순수 배경 스타일이라
 // 모든 화면 컨테이너에 그대로 spread해서 쓴다.
+// 2026-09: 홈 등 여러 화면이 시계/상단 아이콘과 겹치고 화면이 세로로 길어져 스크롤되는
+// 문제 수정. app/globals.css의 body가 이미 padding-top/bottom: env(safe-area-inset-*)로
+// 노치·홈 인디케이터 영역을 확보해두고 있는데, 모든 화면 컨테이너가 여기에 다시 100dvh
+// (기기 화면 전체 높이, 안전영역 포함)를 그대로 요구해서 "body 여백 + 100dvh"만큼
+// 실제 화면보다 커져 버렸던 게 원인 — 그래서 상단 마스코트가 밀려 내려오지 못해 시계와
+// 겹치는 것처럼 보이고, 하단은 화면 밖으로 밀려나 스크롤이 생겼다. body가 이미 확보한
+// 안전영역만큼을 여기서 빼줘서 "body 여백 + 이 minHeight"가 정확히 화면 한 장 높이가
+// 되게 맞춘다. 모든 화면이 이 pageBackground를 그대로 spread해서 쓰기 때문에 여기 한 곳만
+// 고치면 전체 화면에 다 적용된다.
 export const pageBackground: CSSProperties = {
-  minHeight: "100dvh", // iOS 사파리 주소창 때문에 100vh가 실제 화면보다 크게 잡히는 문제 방지
+  minHeight: "calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
   backgroundColor: BRAND.bg,
   backgroundImage:
     "radial-gradient(rgba(77,63,115,0.05) 1px, transparent 1.5px), " +
