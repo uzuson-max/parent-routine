@@ -132,7 +132,7 @@ const MEMORY_UNIT_COLUMNS =
  * 일시적 조회 실패로 이미 확정된 commitment 하나가 잠깐 안 보이는 쪽이 훨씬 안전하다.
  * memory_units row 자체는 절대 건드리지 않는다 — 이건 순수 조회 결과를 걸러내는 필터일 뿐이다.
  */
-export async function filterConfirmedCommitments
+export async function filterConfirmedCommitments<
   T extends { memory_type: string; source_entry_id?: string | null }
 >(userId: string, units: T[]): Promise<T[]> {
   const commitmentUnits = units.filter((u) => u.memory_type === 'commitment');
