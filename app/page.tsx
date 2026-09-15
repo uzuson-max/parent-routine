@@ -56,6 +56,11 @@ export default function Home() {
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [entries, setEntries] = useState<RecordEntry[] | null>(null);
+  // undefined = 아직 안 불러옴, null = 불러왔지만 지금 보여줄 진짜 참견이 없음,
+  // 객체 = 아직 아무 데도 안 꺼낸 진짜 proactive callback(memory_insight) 하나.
+  // 홈을 다시 방문할 때마다 새로 불러오지 않는다 — 한 번 화면에 뜬 참견은 사용자가
+  // 실제로 답하러 가기 전까지(onOpenRecording에서 비움) 그대로 남아 있어야 하기 때문.
+  const [proactiveLine, setProactiveLine] = useState<{ id: number; content: string } | null | undefined>(undefined);
   // 온보딩을 막 끝낸 사용자의 "첫 녹음 → 첫 기록" 여정 동안만 true.
   // 이 값이 true인 동안에는 전화번호/닉네임 같은 부가 입력을 요구하지 않고 바로 홈까지 보낸다.
   const [isFirstRun, setIsFirstRun] = useState(false);
@@ -71,6 +76,23 @@ export default function Home() {
       if (body.success) setEntries(body.data);
     } catch (e) {
       console.error("[Home] fetch entries failed:", e);
+    }
+  };
+
+  // 참견이가 지금 나를 찾아온 상태인지(=아직 안 꺼낸 memory_insight가 있는지) 딱 한 번 확인한다.
+  // step이 landing으로 바뀔 때마다 다시 부르지 않는다 — 그러면 캘린더 갔다가 홈에 돌아왔을 때
+  // 방금 본 참견이 사라져 보이는 문제가 생긴다(서버가 조회 즉시 surfaced 처리하기 때문).
+  const fetchProactiveLine = async () => {
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) return;
+      const res = await fetch("/api/user/proactive-line", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const body = await res.json();
+      if (body.success) setProactiveLine(body.data);
+    } catch (e) {
+      console.error("[Home] fetch proactive line failed:", e);
     }
   };
 
@@ -98,6 +120,7 @@ export default function Home() {
       }
 
       fetchEntries();
+      fetchProactiveLine();
     };
     ensureSession();
   }, []);
@@ -203,11 +226,15 @@ export default function Home() {
       {step === "landing" && (
         <TimelineScreen
           entries={entries}
+          proactiveLine={proactiveLine}
           onOpenCalendar={() => setStep("calendar")}
           onOpenMyPage={() => setStep("mypage")}
           onOpenInsights={() => setStep("insights")}
-          onOpenRecording={() => {
-            setSelectedTopic("");
+          onOpenRecording={(topic) => {
+            // 참견이가 던진 말에 답하러 가는 거면(topic 있음), 다음에 홈에 돌아왔을 때는
+            // 방금 남긴 반응이 새 한마디로 자연스럽게 이어지도록 비워둔다.
+            if (topic) setProactiveLine(null);
+            setSelectedTopic(topic || "");
             setStep("recording");
           }}
         />
@@ -419,6 +446,9 @@ const errorBannerStyle: React.CSSProperties = {
   background: BRAND.border,
   color: BRAND.yellow,
   padding: "12px 16px",
+  // position:fixed는 body의 padding-top(안전영역)을 무시하고 화면 맨 위에 그대로 붙기 때문에,
+  // 여기서 따로 상단 안전영역만큼 더 얹어줘야 시계/상태바 아이콘과 안 겹친다.
+  paddingTop: "calc(12px + env(safe-area-inset-top, 0px))",
   fontSize: 14,
   zIndex: 999,
   textAlign: "center",
