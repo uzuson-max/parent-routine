@@ -1,3 +1,4 @@
+
 import { supabase } from '@/lib/supabase';
  
 export interface RelevantMemoryUnit {
@@ -115,8 +116,73 @@ function scoreCandidate(
 }
  
 const MEMORY_UNIT_COLUMNS =
-  'id, memory_type, subject_entity_id, content, emotion, temporal_context, importance, retention, status, created_at, last_referenced_at, reference_count, entities(name)';
- 
+  'id, memory_type, subject_entity_id, content, emotion, temporal_context, importance, retention, status, created_at, last_referenced_at, reference_count, source_entry_id, entities(name)';
+
+/**
+ * memory_type='commitment'인 memory_unit 중, ConfirmScreen에서 사용자가 "기억해둬"를 눌러
+ * commitment_memory에 실제로 확정한 것만 통과시킨다. commitment가 아닌 memory_type은 이 필터의
+ * 영향을 전혀 받지 않고 그대로 통과한다 — retrieval/insight clustering/memory linking 어디서 호출하든
+ * 동일한 기준(source_entry_id ↔ commitment_memory.voice_entry_id 일치)을 공유하기 위해 여기 한 곳에만 둔다.
+ *
+ * 판단 근거는 오직 "같은 voice_entries.id를 가진 commitment_memory row가 있는가" 하나뿐이다.
+ * user_phone 등으로 추정 매칭하지 않는다 — commitment_memory.user_id로 소유자를 한정하고,
+ * source_entry_id(=memory_units 쪽) / voice_entry_id(=commitment_memory 쪽) 정확히 일치하는지만 본다.
+ *
+ * 조회 자체가 실패하면 안전한 쪽(=제외)으로 판단한다. 미확정 commitment가 새어나가는 것보다,
+ * 일시적 조회 실패로 이미 확정된 commitment 하나가 잠깐 안 보이는 쪽이 훨씬 안전하다.
+ * memory_units row 자체는 절대 건드리지 않는다 — 이건 순수 조회 결과를 걸러내는 필터일 뿐이다.
+ */
+export async function filterConfirmedCommitments
+  T extends { memory_type: string; source_entry_id?: string | null }
+>(userId: string, units: T[]): Promise<T[]> {
+  const commitmentUnits = units.filter((u) => u.memory_type === 'commitment');
+  if (commitmentUnits.length === 0) return units;
+
+  const entryIds = Array.from(
+    new Set(
+      commitmentUnits
+        .map((u) => u.source_entry_id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0)
+    )
+  );
+
+  // source_entry_id가 없는 commitment memory_unit은 확정 여부를 확인할 길이 없으므로 안전하게 제외한다.
+  if (entryIds.length === 0) {
+    return units.filter((u) => u.memory_type !== 'commitment');
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('commitment_memory')
+      .select('voice_entry_id')
+      .eq('user_id', userId)
+      .in('voice_entry_id', entryIds);
+
+    if (error) {
+      console.error(
+        '[memoryRetrieval] filterConfirmedCommitments: commitment_memory 조회 실패 — commitment-type memory 전부 제외:',
+        error.message
+      );
+      return units.filter((u) => u.memory_type !== 'commitment');
+    }
+
+    const confirmedEntryIds = new Set(
+      (data ?? []).map((r: any) => r.voice_entry_id).filter((id: any) => typeof id === 'string')
+    );
+
+    return units.filter((u) => {
+      if (u.memory_type !== 'commitment') return true;
+      return typeof u.source_entry_id === 'string' && confirmedEntryIds.has(u.source_entry_id);
+    });
+  } catch (err: any) {
+    console.error(
+      '[memoryRetrieval] filterConfirmedCommitments 실패 — commitment-type memory 전부 제외:',
+      err?.message
+    );
+    return units.filter((u) => u.memory_type !== 'commitment');
+  }
+}
+
 /**
  * 목표: "최근 기억 찾기"가 아니라 "현재 발화와 연결되는 과거 기억 찾기".
  * 1차 MVP — vector DB/embedding 없이 순수 애플리케이션 레벨 하이브리드 스코어링만 사용한다.
@@ -178,10 +244,14 @@ export async function retrieveRelevantMemories(
     const merged = new Map<number, any>();
     for (const m of [...(basePool ?? []), ...entityPool]) merged.set(m.id, m);
     if (merged.size === 0) return [];
- 
+
+    // 미확정 commitment-type memory는 여기서 후보 풀에서 걸러낸다 (commitment 아닌 타입은 영향 없음).
+    const eligibleUnits = await filterConfirmedCommitments(userId, Array.from(merged.values()));
+    if (eligibleUnits.length === 0) return [];
+
     const transcriptTokens = new Set(tokenize(transcript));
- 
-    const scored = Array.from(merged.values()).map((m) => {
+
+    const scored = eligibleUnits.map((m) => {
       const { score, reason } = scoreCandidate(m, transcript, transcriptTokens, matchedEntityIds);
       return { m, score, reason };
     });
