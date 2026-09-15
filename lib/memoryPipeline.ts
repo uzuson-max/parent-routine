@@ -1,7 +1,8 @@
+
 import { supabase } from '@/lib/supabase';
 import { extractMemoryCandidates, MemoryCandidate } from '@/lib/memoryExtraction';
 import { resolveEntity } from '@/lib/entityResolver';
-import { tokenize } from '@/lib/memoryRetrieval';
+import { tokenize, filterConfirmedCommitments } from '@/lib/memoryRetrieval';
  
 // memoryExtraction.ts의 MemoryType(추출 판단용)과 memory_units.memory_type의 실제 DB CHECK 제약은
 // 완전히 같지 않다. DB가 실제로 허용하는 값은:
@@ -60,13 +61,23 @@ const MAX_LINKS_PER_MEMORY = 5;
 async function linkRelatedMemories(
   userId: string,
   newMemoryId: number,
+  newMemoryType: string,
+  newSourceEntryId: string,
   newContent: string,
   newSubjectEntityId: string | null
 ): Promise<void> {
   try {
+    // 미확정 commitment-type memory는 링크 생성 자체(다른 기억과 연결되는 것)에 참여시키지 않는다 —
+    // ConfirmScreen에서 "그냥 넘겨"를 선택한 commitment가 다른 기억과 링크로 엮여 insight 클러스터링
+    // 경로로 되돌아오는 걸 막기 위함이다. commitment가 아닌 memory_type은 이 검사의 영향을 받지 않는다.
+    const [selfEligible] = await filterConfirmedCommitments(userId, [
+      { memory_type: newMemoryType, source_entry_id: newSourceEntryId },
+    ]);
+    if (!selfEligible) return;
+
     const { data: pool, error } = await supabase
       .from('memory_units')
-      .select('id, content, subject_entity_id')
+      .select('id, content, subject_entity_id, memory_type, source_entry_id')
       .eq('user_id', userId)
       .in('status', ['open', 'resolved'])
       .neq('id', newMemoryId)
@@ -79,11 +90,15 @@ async function linkRelatedMemories(
     }
     if (!pool || pool.length === 0) return;
 
+    // 링크 후보 풀에서도 미확정 commitment-type memory는 제외한다 (commitment 아닌 타입은 그대로 유지).
+    const eligiblePool = await filterConfirmedCommitments(userId, pool);
+    if (eligiblePool.length === 0) return;
+
     const newTokens = tokenize(newContent).filter((t) => !LINK_STOPWORDS.has(t));
     if (newTokens.length === 0 && !newSubjectEntityId) return;
 
     const matches: { id: number; strength: number }[] = [];
-    for (const m of pool) {
+    for (const m of eligiblePool) {
       let strength = 0;
       if (newSubjectEntityId && m.subject_entity_id === newSubjectEntityId) strength += 2;
       if (newTokens.length > 0) {
@@ -220,7 +235,7 @@ export async function runMemoryPipeline(
           inserted++;
           // 링크 생성은 부가 기능이라 실패해도 위 inserted 카운트에는 영향 없음 (함수 내부에서 절대 던지지 않음).
           if (insertedRow?.id != null) {
-            await linkRelatedMemories(userId, insertedRow.id, c.content, subjectEntityId);
+            await linkRelatedMemories(userId, insertedRow.id, dbMemoryType, entryId, c.content, subjectEntityId);
           }
         }
       } catch (innerErr: any) {
