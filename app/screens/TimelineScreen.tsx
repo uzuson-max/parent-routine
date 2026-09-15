@@ -1,7 +1,6 @@
 
 "use client";
 
-import { useState } from "react";
 import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
 import Mascot from "@/components/Mascot";
 import { IconHome, IconRecord, IconMemory, IconMic, IconGear } from "@/components/icons";
@@ -13,13 +12,6 @@ export interface RecordEntry {
   responseText: string | null;
 }
 
-// 진행 중인 commitment/goal 하이라이트 — 현재는 데이터 소스(API)가 없어 optional.
-// 향후 commitment_memory 요약을 내려주는 엔드포인트가 생기면 page.tsx에서 이 prop을 채워주면 됨.
-export interface MemoryHighlight {
-  title: string;
-  progressLabel: string; // 예: "1 / 3", "진행 중"
-}
-
 interface TimelineScreenProps {
   onOpenRecording: () => void;
   onOpenCalendar: () => void;
@@ -27,21 +19,19 @@ interface TimelineScreenProps {
   onOpenInsights: () => void;
   entries: RecordEntry[] | null;
   nickname?: string | null;
-  memoryHighlight?: MemoryHighlight | null;
-}
-
-function formatDateTime(iso: string): string {
-  const d = new Date(iso);
-  const month = d.getMonth() + 1;
-  const date = d.getDate();
-  const hh = d.getHours().toString().padStart(2, "0");
-  const mm = d.getMinutes().toString().padStart(2, "0");
-  return `${month}월 ${date}일 ${hh}:${mm}`;
 }
 
 function truncate(text: string, max: number): string {
   const clean = text.trim();
   return clean.length > max ? clean.slice(0, max) + "…" : clean;
+}
+
+// entries가 어떤 순서로 내려오든(최신순/오래된순 상관없이) 안전하게 가장 최근 항목을 고른다.
+function pickLatestEntry(entries: RecordEntry[] | null): RecordEntry | null {
+  if (!entries || entries.length === 0) return null;
+  return entries.reduce((latest, e) =>
+    new Date(e.createdAt).getTime() > new Date(latest.createdAt).getTime() ? e : latest
+  );
 }
 
 export default function TimelineScreen({
@@ -51,24 +41,35 @@ export default function TimelineScreen({
   onOpenInsights,
   entries,
   nickname,
-  memoryHighlight,
 }: TimelineScreenProps) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  // 홈의 주인공은 "니가 남긴 기록 목록"이 아니라 "참견이가 지금 하고 싶은 한마디"다.
+  // 그래서 니가 방금 한 말에 참견이가 뭐라고 반응했는지(가장 최근 entry의 responseText)를
+  // 그대로 끌어와서 말풍선에 띄운다 — 새로운 데이터 소스나 API 호출 없이 이미 홈에서 받고
+  // 있던 entries만으로 계산한다. 아직 아무 말도 안 한 사람(또는 로딩 중)에게는 담백한
+  // 기본 한마디로 대체한다.
+  const latestEntry = pickLatestEntry(entries);
+  const currentLine =
+    latestEntry?.responseText && latestEntry.responseText.trim()
+      ? truncate(latestEntry.responseText, 70)
+      : nickname
+      ? `${nickname}, 오늘은 무슨 얘기해볼까?`
+      : "오늘은 무슨 얘기해볼까?";
 
   return (
     <div style={styles.container}>
-      {/* TOP — 참견이가 여기서 기다리고 있다는 느낌: 마스코트 + 말풍선 */}
+      {/* TOP — 참견이가 여기서 기다리고 있다는 느낌: 마스코트 + 말풍선(= 참견이의 현재 한마디) */}
       <div style={styles.topSection}>
         <Mascot pose="말을거는" size={72} />
         <div style={styles.speechBubble}>
-          <span style={styles.eyebrow}>{nickname ? `HEY, ${nickname}` : "HEY"}</span>
-          <h1 style={styles.greeting}>
-            {nickname ? `${nickname}, 오늘은 무슨 얘기해볼까?` : "오늘은 무슨 얘기해볼까?"}
-          </h1>
+          <span style={styles.eyebrow}>{nickname ? `HEY, ${nickname}` : "참견이"}</span>
+          <h1 style={styles.greeting}>{currentLine}</h1>
         </div>
       </div>
 
-      {/* MAIN CTA — 화면에서 가장 큰 행동 */}
+      {/* 화면 중앙의 여백 — 홈에 정보가 몰려있지 않게, 한마디와 버튼 사이를 비워둔다 */}
+      <div style={{ flex: 1 }} />
+
+      {/* MAIN CTA — 화면에서 가장 큰 행동, 유일한 주 버튼 */}
       <button style={styles.mainCta} onClick={onOpenRecording}>
         <span style={styles.ctaMicWrap}>
           <IconMic style={{ width: 22, height: 22, color: "#fff" }} />
@@ -77,72 +78,9 @@ export default function TimelineScreen({
         <span style={styles.ctaLabel}>TALK TO ME~</span>
       </button>
 
-      {/* MEMORY — 데이터 있을 때만 노출 */}
-      {memoryHighlight && (
-        <div style={styles.memoryCard}>
-          <div style={styles.memoryHead}>
-            <IconMemory style={{ width: 18, height: 18, color: BRAND.lavenderDeep }} />
-            <span style={styles.memoryLabel}>참견이가 기억하고 있어</span>
-          </div>
-          <p style={styles.memoryTitle}>{memoryHighlight.title}</p>
-          <p style={styles.memoryProgress}>{memoryHighlight.progressLabel}</p>
-        </div>
-      )}
-
-      {/* RECENT */}
-      <div style={styles.recentHeader}>
-        <span style={styles.sectionEyebrow}>RECENT</span>
-        <h2 style={styles.recentTitle}>참견이가 기억하는 거</h2>
-      </div>
-
-      <div style={styles.listContainer}>
-        {entries === null ? (
-          <div style={styles.loadingCard}>
-            <p style={styles.loadingText}>불러오는 중...</p>
-          </div>
-        ) : entries.length === 0 ? (
-          <div style={styles.emptyCard}>
-            <p style={styles.emptyTitle}>아직 니 얘기가 없어.</p>
-            <p style={styles.emptySub}>위에서 아무 말이나 해볼래?</p>
-          </div>
-        ) : (
-          entries.map((entry) => {
-            const isOpen = expandedId === entry.id;
-            const isLong = entry.transcript.length > 40;
-            return (
-              <div
-                key={entry.id}
-                style={styles.card}
-                onClick={() => setExpandedId(isOpen ? null : entry.id)}
-              >
-                <div style={styles.cardTopRow}>
-                  <span style={styles.cardDate}>{formatDateTime(entry.createdAt)}</span>
-                </div>
-
-                <p style={styles.sectionLabel}>니가 한 말</p>
-                <p style={styles.transcriptText}>
-                  &ldquo;{isOpen ? entry.transcript : truncate(entry.transcript, 40)}&rdquo;
-                </p>
-
-                {entry.responseText && (
-                  <>
-                    <p style={styles.sectionLabelResponse}>참견이</p>
-                    <p style={styles.responseTextStyle}>
-                      &ldquo;{isOpen ? entry.responseText : truncate(entry.responseText, 40)}&rdquo;
-                    </p>
-                  </>
-                )}
-
-                {!isOpen && isLong && <p style={styles.expandHint}>누르면 전체 보여</p>}
-              </div>
-            );
-          })
-        )}
-      </div>
-
       <div style={{ height: "76px" }} />
 
-      {/* NAVIGATION */}
+      {/* NAVIGATION — 최근 내가 남긴 말(기록)·이전 참견(MEMORY)으로 가는 아주 작은 보조 진입점 */}
       <div style={styles.bottomNav}>
         <div style={{ ...styles.navItem, ...styles.navItemActive }}>
           <IconHome style={{ width: 20, height: 20 }} />
@@ -228,85 +166,6 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   ctaText: { fontSize: "18px", fontWeight: "900" },
   ctaLabel: { fontSize: "10px", fontWeight: "900", letterSpacing: "1.5px", opacity: 0.85 },
-  memoryCard: {
-    background: BRAND.lavenderPale,
-    border: `2px solid ${BRAND.lavenderDeep}`,
-    borderRadius: "16px",
-    padding: "14px 16px",
-    boxShadow: "3px 4px 0px rgba(77,63,115,0.16)",
-  },
-  memoryHead: { display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" },
-  memoryLabel: {
-    fontSize: "12px",
-    fontWeight: "900",
-    color: BRAND.lavenderDeep,
-    letterSpacing: "0.3px",
-  },
-  memoryTitle: { fontSize: "15px", fontWeight: "900", color: BRAND.ink, margin: "0 0 2px 0" },
-  memoryProgress: { fontSize: "13px", color: BRAND.lavenderDeep, margin: 0, fontWeight: "bold" },
-  recentHeader: { display: "flex", flexDirection: "column", gap: "2px", marginTop: "4px" },
-  sectionEyebrow: {
-    fontSize: "10px",
-    fontWeight: "900",
-    letterSpacing: "1.5px",
-    color: inkAlpha.faint,
-  },
-  recentTitle: { fontSize: "16px", fontWeight: "900", margin: 0, color: BRAND.ink },
-  listContainer: { display: "flex", flexDirection: "column", gap: "12px" },
-  loadingCard: {
-    background: BRAND.card,
-    color: BRAND.ink,
-    border: "2px solid #111",
-    borderRadius: "16px",
-    padding: "24px 20px",
-    boxShadow: "3px 4px 0px rgba(30,26,38,0.10)",
-    textAlign: "center",
-  },
-  loadingText: { fontSize: "14px", fontWeight: "bold", margin: 0, color: inkAlpha.faint },
-  emptyCard: {
-    background: BRAND.card,
-    color: BRAND.ink,
-    border: "2px solid #111",
-    borderRadius: "16px",
-    padding: "30px 20px",
-    boxShadow: "3px 4px 0px rgba(30,26,38,0.10)",
-    textAlign: "center",
-  },
-  emptyTitle: { fontSize: "18px", fontWeight: "900", margin: "0 0 8px 0" },
-  emptySub: { fontSize: "13px", color: inkAlpha.muted, margin: 0, lineHeight: "1.4", fontWeight: "bold" },
-  card: {
-    background: BRAND.card,
-    color: BRAND.ink,
-    border: "2px solid #111",
-    borderRadius: "16px",
-    padding: "16px",
-    boxShadow: "3px 4px 0px rgba(30,26,38,0.10)",
-    cursor: "pointer",
-  },
-  cardTopRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "8px",
-  },
-  cardDate: { fontSize: "11px", fontWeight: "900", color: inkAlpha.faint },
-  sectionLabel: {
-    fontSize: "11px",
-    fontWeight: "900",
-    color: BRAND.lavenderDeep,
-    margin: "0 0 2px 0",
-    letterSpacing: "0.5px",
-  },
-  sectionLabelResponse: {
-    fontSize: "11px",
-    fontWeight: "900",
-    color: BRAND.lavenderDeep,
-    margin: "10px 0 2px 0",
-    letterSpacing: "0.5px",
-  },
-  transcriptText: { fontSize: "14px", color: inkAlpha.soft, margin: 0, lineHeight: "1.5", fontStyle: "italic" },
-  responseTextStyle: { fontSize: "14px", color: BRAND.ink, margin: 0, lineHeight: "1.5", fontWeight: "bold" },
-  expandHint: { fontSize: "11px", color: inkAlpha.faint, margin: "10px 0 0 0", textAlign: "right" },
   bottomNav: {
     position: "fixed",
     bottom: 0,
