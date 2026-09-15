@@ -1,6 +1,7 @@
+
 import { supabase } from '@/lib/supabase';
 import { PERSONALITY_PROMPT } from '@/lib/responseEngine';
-import { tokenize } from '@/lib/memoryRetrieval';
+import { tokenize, filterConfirmedCommitments } from '@/lib/memoryRetrieval';
 
 // ============================================================================
 // Pattern/Insight 레이어.
@@ -28,6 +29,8 @@ export interface MemoryUnitLite {
   temporal_context: string | null;
   importance: number;
   created_at: string;
+  // filterConfirmedCommitments가 commitment-type memory를 걸러내는 데만 쓴다. 이 밖의 용도로는 쓰지 않는다.
+  source_entry_id: string | null;
 }
 
 interface LinkRow {
@@ -123,9 +126,9 @@ function idsEqual(a: number[], b: number[]): boolean {
 async function fetchActiveMemoriesAndLinks(
   userId: string
 ): Promise<{ memories: MemoryUnitLite[]; links: LinkRow[] }> {
-  const { data: memories, error: memErr } = await supabase
+  const { data: rawMemories, error: memErr } = await supabase
     .from('memory_units')
-    .select('id, content, memory_type, subject_entity_id, temporal_context, importance, created_at')
+    .select('id, content, memory_type, subject_entity_id, temporal_context, importance, created_at, source_entry_id')
     .eq('user_id', userId)
     .in('status', ['open', 'resolved'])
     .order('created_at', { ascending: false })
@@ -136,6 +139,10 @@ async function fetchActiveMemoriesAndLinks(
     return { memories: [], links: [] };
   }
 
+  // 미확정 commitment-type memory는 insight 클러스터링의 입력(memories)에서 제외한다.
+  // commitment가 아닌 memory_type은 이 필터의 영향을 받지 않는다.
+  const memories = await filterConfirmedCommitments<MemoryUnitLite>(userId, (rawMemories as MemoryUnitLite[]) ?? []);
+
   const { data: links, error: linkErr } = await supabase
     .from('memory_links')
     .select('from_memory_id, to_memory_id')
@@ -144,10 +151,10 @@ async function fetchActiveMemoriesAndLinks(
 
   if (linkErr) {
     console.error('[insightEngine] memory_links 조회 실패:', linkErr.message);
-    return { memories: memories ?? [], links: [] };
+    return { memories, links: [] };
   }
 
-  return { memories: memories ?? [], links: (links as LinkRow[]) ?? [] };
+  return { memories, links: (links as LinkRow[]) ?? [] };
 }
 
 async function fetchActiveInsights(userId: string): Promise<ActiveInsightRow[]> {
