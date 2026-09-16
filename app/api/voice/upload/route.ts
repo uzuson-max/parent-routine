@@ -1,3 +1,5 @@
+
+
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { getUserIdFromRequest } from '@/lib/auth';
@@ -24,6 +26,11 @@ export async function POST(request: Request) {
     const textInput = (formData.get('text') as string | null)?.trim() || null;
     const phoneFromForm = (formData.get('phone') as string) || null; // 이제 선택값 — 없어도 녹음은 된다
     const persona = (formData.get('persona') as string) || 'coach';
+    // 홈에서 참견이가 먼저 던진 proactive callback(app/api/user/proactive-line)에 "대답하기"로
+    // 들어왔을 때만 채워진다 (app/page.tsx doUpload가 selectedTopic이 있을 때만 append).
+    // 지금까지는 이 값을 읽지 않아서 RecordingScreen 상단 뱃지에만 보이고 실제 GPT 응답 생성에는
+    // 전혀 반영되지 않았다 — 아래에서 읽어서 generateResponse에 그대로 넘긴다.
+    const topicFromForm = (formData.get('topic') as string | null)?.trim() || undefined;
  
     if (!audio && !textInput) {
       return NextResponse.json({ success: false, error: '오디오 또는 텍스트가 필요합니다.' }, { status: 400 });
@@ -141,7 +148,8 @@ export async function POST(request: Request) {
           memoryCandidates,
           existingCommitments,
           relevantMemoryUnits,
-          relevantInsights
+          relevantInsights,
+          topicFromForm
         );
       } catch (respErr: any) {
         console.error('Response engine 에러 (무시하고 진행):', respErr?.message);
