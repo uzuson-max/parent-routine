@@ -73,13 +73,19 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
     onFinish(trimmed);
   };
 
+  // initialTopic은 지금 이 화면에서는 항상 하나의 의미만 가진다 — 홈에서 참견이가 먼저 던진
+  // proactive callback(대답하기)으로 들어왔을 때만 채워진다. 그냥 새 녹음을 시작하는 화면처럼
+  // 보이지 않도록, 이 문장이 "참견이가 방금 한 말"이라는 걸 짧게 티내준다 (새 화면/레이아웃 변경 없음).
+  const isReplyingToGanseobi = Boolean(initialTopic);
+
   if (mode === "text") {
     return (
       <div style={styles.container}>
         <div style={styles.contentWrapper}>
+          {isReplyingToGanseobi && <span style={styles.replyStamp}>참견이한테 대답하는 중</span>}
           <div style={styles.topBar}>
             <div style={styles.topicBadge}>
-              {initialTopic ? `"${initialTopic}"` : "생각 남기기"}
+              {initialTopic ? `참견이: "${initialTopic}"` : "생각 남기기"}
             </div>
             <button
               style={styles.modeToggleButton}
@@ -115,9 +121,10 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
   return (
     <div style={styles.container}>
       <div style={styles.contentWrapper}>
+        {isReplyingToGanseobi && <span style={styles.replyStamp}>참견이한테 대답하는 중</span>}
         <div style={styles.topBar}>
           <div style={styles.topicBadge}>
-            {initialTopic ? `"${initialTopic}"` : "생각 털어놓기"}
+            {initialTopic ? `참견이: "${initialTopic}"` : "생각 털어놓기"}
           </div>
           {!isRecording && (
             <button
@@ -158,8 +165,8 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
           </>
         ) : (
           <>
-            <p style={styles.mainCopy}>생각나는 대로 해도 돼</p>
-            <p style={styles.subCopy}>횡설수설해도 됨. 참견이는 알아듣거든~</p>
+            <p style={styles.mainCopy}>{isReplyingToGanseobi ? "말해서 대답해줘" : "생각나는 대로 해도 돼"}</p>
+            <p style={styles.subCopy}>{isReplyingToGanseobi ? "짧게 툭 던져도 됨. 참견이는 알아듣거든~" : "횡설수설해도 됨. 참견이는 알아듣거든~"}</p>
           </>
         )}
       </div>
@@ -178,6 +185,9 @@ const styles: { [key: string]: React.CSSProperties } = {
   contentWrapper: { width: "100%", maxWidth: "380px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: "20px" },
   topBar: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" },
   topicBadge: { background: BRAND.lavenderPale, color: BRAND.lavenderDeep, padding: "8px 14px", borderRadius: "20px", fontSize: "13px", fontWeight: "900", border: `1.5px solid ${BRAND.lavenderDeep}` },
+  // TimelineScreen의 "참견이 등장." 스탬프와 같은 시각 언어(노란 배경+검정 테두리 스티커) 재사용 —
+  // 새 스타일 시스템을 만들지 않고 기존 것만 가져다 쓴다.
+  replyStamp: { alignSelf: "flex-start", background: BRAND.yellow, color: BRAND.ink, border: "2px solid #111", boxShadow: "3px 3px 0px #111", padding: "4px 10px", fontSize: 12, fontWeight: 900, letterSpacing: "0.5px" },
   modeToggleButton: { background: BRAND.card, color: BRAND.ink, border: "2px solid #111", borderRadius: "50%", width: "40px", height: "40px", fontSize: "18px", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" },
   listeningTag: { display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", fontWeight: "900", color: BRAND.lavenderDeep, letterSpacing: "0.5px" },
   recDot: { width: "8px", height: "8px", borderRadius: "50%", background: "#F04848" },
