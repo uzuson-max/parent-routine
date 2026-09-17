@@ -146,8 +146,29 @@ export default function DiscoveryScreen({ onBack }: { onBack: () => void }) {
 }
 
 const styles: { [key: string]: React.CSSProperties } = {
-  container: { minHeight: "100vh", ...pageBackground, padding: "24px 20px 40px 20px", boxSizing: "border-box" },
-  backButton: { background: "transparent", border: "none", color: inkAlpha.muted, fontSize: 14, fontWeight: 900, cursor: "pointer", padding: 0, marginBottom: 16 },
+   container: {
+    minHeight: "100vh",
+    ...pageBackground,
+    // 24px 고정값만으로는 기기에 따라 env(safe-area-inset-top)이 0으로 잡히면서
+    // 상태표시줄/제스처 영역과 겹치는 경우가 있어서, max()로 최소 여백을 항상 보장한다.
+    paddingTop: "max(32px, calc(env(safe-area-inset-top, 0px) + 24px))",
+    paddingRight: 20,
+    paddingBottom: 40,
+    paddingLeft: 20,
+    boxSizing: "border-box",
+  },
+  backButton: {
+    background: "transparent",
+    border: "none",
+    color: inkAlpha.muted,
+    fontSize: 14,
+    fontWeight: 900,
+    cursor: "pointer",
+    // 텍스트 크기(14px)만큼만 히트박스가 잡혀서 탭이 잘 안 먹던 문제 — 여백을 줘서
+    // 실제 터치 영역을 넓힘(iOS 권장 최소 44px에 가깝게).
+    padding: "10px 12px 10px 0",
+    margin: "-10px 0 6px -4px",
+  },
   topSection: { display: "flex", alignItems: "center", gap: 12, marginBottom: 20 },
   eyebrow: { display: "block", fontSize: 11, fontWeight: 900, letterSpacing: 1.5, color: inkAlpha.faint },
   headline: { color: BRAND.ink, fontSize: 20, fontWeight: 900, margin: "2px 0 0 0" },
