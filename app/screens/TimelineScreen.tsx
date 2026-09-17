@@ -133,8 +133,12 @@ export default function TimelineScreen({
         )}
       </div>
 
-      {/* 화면 중앙의 여백 — 홈에 정보가 몰려있지 않게, 한마디와 버튼 사이를 비워둔다 */}
-      <div style={{ flex: 1 }} />
+      {/* 한마디와 버튼 사이 여백 — flex:1로 "남는 공간 전부"를 채우면 컨테이너의 minHeight
+          계산이 어긋나는 환경(예: 특정 인앱 브라우저에서 safe-area 값이 기대와 다르게 잡힐 때)
+          에서 마스코트는 맨 위에 붙고 버튼 위로 화면이 텅 비어버리는 문제가 있었다.
+          고정 높이로 바꾸고, 컨테이너 쪽 justifyContent: "center"로 전체 그룹을 세로 중앙에
+          모아서 위/아래 어느 쪽도 과하게 붙거나 비지 않게 한다. */}
+      <div style={styles.midSpacer} />
 
       {/* MAIN CTA — 화면에서 가장 큰 행동, 유일한 주 버튼. 참견에 답하는 것도 이 버튼 하나로 */}
       <button style={styles.mainCta} onClick={handleCtaClick}>
@@ -171,7 +175,7 @@ export default function TimelineScreen({
 }
 
 const styles: { [key: string]: React.CSSProperties } = {
- container: {
+  container: {
     ...pageBackground,
     color: BRAND.ink,
     boxSizing: "border-box",
@@ -186,6 +190,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     paddingTop: "max(20px, calc(env(safe-area-inset-top, 0px) + 12px))",
     paddingLeft: "20px",
     paddingRight: "20px",
+    // 하단 고정 네비(약 60px) + 여백을 항상 확보 — 예전엔 76px짜리 빈 div를 문서 흐름에
+    // 끼워넣었는데, 그건 실제로 필요한 것보다 화면을 더 길게 만드는 원인 중 하나였다.
     paddingBottom: "calc(78px + env(safe-area-inset-bottom, 0px))",
   },
   topSection: { display: "flex", alignItems: "center", gap: "12px" },
@@ -246,6 +252,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignItems: "center",
     justifyContent: "center",
   },
+  midSpacer: { height: "48px" },
   ctaText: { fontSize: "18px", fontWeight: "900" },
   ctaLabel: { fontSize: "10px", fontWeight: "900", letterSpacing: "1.5px", opacity: 0.85 },
   bottomNav: {
