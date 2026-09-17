@@ -171,18 +171,21 @@ export default function TimelineScreen({
 }
 
 const styles: { [key: string]: React.CSSProperties } = {
-  container: {
+ container: {
     ...pageBackground,
     color: BRAND.ink,
     boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
+    // 콘텐츠를 위쪽에 쌓아두고 남는 공간을 flex:1이 다 떠안는 대신, 마스코트~버튼 그룹을
+    // 세로 중앙에 모아서 화면 위/아래로 쭉 벌어져 보이는 것을 막는다.
+    justifyContent: "center",
     gap: "12px",
-    paddingTop: "16px",
+    // 16px 고정값만으로는 기기에 따라 env(safe-area-inset-top)이 기대만큼 안 잡히면서
+    // 상태표시줄과 겹쳐 보이는 경우가 있어서, max()로 최소 여백을 항상 보장한다.
+    paddingTop: "max(20px, calc(env(safe-area-inset-top, 0px) + 12px))",
     paddingLeft: "20px",
     paddingRight: "20px",
-    // 하단 고정 네비(약 60px) + 여백을 항상 확보 — 예전엔 76px짜리 빈 div를 문서 흐름에
-    // 끼워넣었는데, 그건 실제로 필요한 것보다 화면을 더 길게 만드는 원인 중 하나였다.
     paddingBottom: "calc(78px + env(safe-area-inset-bottom, 0px))",
   },
   topSection: { display: "flex", alignItems: "center", gap: "12px" },
