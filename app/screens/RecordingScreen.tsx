@@ -1,11 +1,35 @@
 
+
+import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
-import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground, radius, shadow, border, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import { IconMic, IconMore } from "@/components/icons";
 
 interface RecordingScreenProps {
   initialTopic?: string;
   onFinish: (input: Blob | string) => void;
+}
+
+// 녹음 중 상태를 텍스트 타이머 하나로만 보여주던 것 대신, 듣고 있다는 걸 시각적으로
+// 표현하는 작은 waveform. 실제 입력 레벨을 분석하지 않고(별도 오디오 분석 파이프라인 없이도)
+// 각 바가 서로 다른 딜레이로 오르내리게 해서 "말하는 리듬"처럼 보이게 한다.
+function Waveform({ color }: { color: string }) {
+  const bars = [0, 120, 60, 200, 40, 160, 90];
+  return (
+    <div style={styles.waveform} aria-hidden>
+      {bars.map((delay, i) => (
+        <span
+          key={i}
+          className="tactile-wave-bar"
+          style={{
+            ...styles.waveBar,
+            background: color,
+            animationDelay: `${delay}ms`,
+          }}
+        />
+      ))}
+    </div>
+  );
 }
 
 export default function RecordingScreen({ initialTopic, onFinish }: RecordingScreenProps) {
@@ -88,6 +112,7 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
               {initialTopic ? `참견이: "${initialTopic}"` : "생각 남기기"}
             </div>
             <button
+              className={TACTILE_PRESS_CLASS}
               style={styles.modeToggleButton}
               onClick={() => setMode("voice")}
               aria-label="음성 입력으로 전환"
@@ -106,6 +131,7 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
           />
 
           <button
+            className={TACTILE_PRESS_CLASS}
             style={{ ...styles.recordingButton, ...(textValue.trim() ? {} : styles.disabledButton) }}
             onClick={submitText}
             disabled={!textValue.trim()}
@@ -128,6 +154,7 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
           </div>
           {!isRecording && (
             <button
+              className={TACTILE_PRESS_CLASS}
               style={styles.modeToggleButton}
               onClick={() => setMode("text")}
               aria-label="텍스트 입력으로 전환"
@@ -146,18 +173,21 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
         )}
 
         {!isRecording ? (
-          <button style={styles.heroBox} onClick={start} aria-label="말하기 시작">
-            <IconMic style={{ width: 44, height: 44, color: "#fff" }} />
+          <button className={TACTILE_PRESS_CLASS} style={styles.heroBox} onClick={start} aria-label="말하기 시작">
+            <span style={styles.heroBoxHighlight} />
+            <IconMic style={{ width: 40, height: 40, color: "#fff", position: "relative" }} />
           </button>
         ) : (
-          <div style={styles.timerBox}>
-            {formatTime(seconds)}
+          <div className="tactile-breathe" style={styles.heroBoxRecording}>
+            <span style={styles.heroBoxHighlight} />
+            <Waveform color="rgba(255,255,255,0.92)" />
+            <span style={styles.timerText}>{formatTime(seconds)}</span>
           </div>
         )}
 
         {isRecording ? (
           <>
-            <button style={styles.stopButton} onClick={stop}>
+            <button className={TACTILE_PRESS_CLASS} style={styles.stopButton} onClick={stop}>
               그만 말할래
             </button>
             <p style={styles.mainCopy}>응, 듣고 있어</p>
@@ -180,35 +210,52 @@ function formatTime(s: number) {
   return `${m}:${r}`;
 }
 
+const heroBoxBase: CSSProperties = {
+  width: "144px",
+  height: "144px",
+  borderRadius: "50%", // 마이크 버튼은 브리핑이 지목한 유일한 "의도된 원형" 오브젝트로 남긴다
+  border: border.onLavender,
+  background: `radial-gradient(circle at 35% 28%, ${BRAND.lavenderSoft} 0%, ${BRAND.lavender} 62%, ${BRAND.lavenderDeep} 100%)`,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  cursor: "pointer",
+  boxShadow: shadow.lavender,
+  padding: 0,
+  position: "relative",
+  overflow: "hidden",
+};
+
 const styles: { [key: string]: React.CSSProperties } = {
   container: { minHeight: "100vh", ...pageBackground, color: BRAND.ink, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "24px" },
   contentWrapper: { width: "100%", maxWidth: "380px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: "20px" },
   topBar: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" },
-  topicBadge: { background: BRAND.lavenderPale, color: BRAND.lavenderDeep, padding: "8px 14px", borderRadius: "20px", fontSize: "13px", fontWeight: "900", border: `1.5px solid ${BRAND.lavenderDeep}` },
-  // TimelineScreen의 "참견이 등장." 스탬프와 같은 시각 언어(노란 배경+검정 테두리 스티커) 재사용 —
-  // 새 스타일 시스템을 만들지 않고 기존 것만 가져다 쓴다.
-  replyStamp: { alignSelf: "flex-start", background: BRAND.yellow, color: BRAND.ink, border: "2px solid #111", boxShadow: "3px 3px 0px #111", padding: "4px 10px", fontSize: 12, fontWeight: 900, letterSpacing: "0.5px" },
-  modeToggleButton: { background: BRAND.card, color: BRAND.ink, border: "2px solid #111", borderRadius: "50%", width: "40px", height: "40px", fontSize: "18px", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" },
-  listeningTag: { display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", fontWeight: "900", color: BRAND.lavenderDeep, letterSpacing: "0.5px" },
-  recDot: { width: "8px", height: "8px", borderRadius: "50%", background: "#F04848" },
-  heroBox: {
-    width: "148px",
-    height: "148px",
+  topicBadge: { ...tactile.badge, padding: "8px 14px", fontSize: "13px", fontWeight: 700 },
+  // TimelineScreen의 "참견이 등장." 스탬프와 같은 시각 언어(캐릭터 전용 스티커 스타일) 재사용 —
+  // 새 스타일 시스템을 만들지 않고 기존 것만 가져다 쓴다. 이 스탬프만은 브리핑 4번 예외를 적용한다.
+  replyStamp: { ...tactile.stamp, alignSelf: "flex-start", padding: "4px 10px", fontSize: 12, fontWeight: 700, letterSpacing: "0.3px" },
+  modeToggleButton: { ...tactile.secondaryButton, borderRadius: "50%", width: "40px", height: "40px", fontSize: "18px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" },
+  listeningTag: { display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", fontWeight: 700, color: BRAND.lavenderDeep, letterSpacing: "0.3px" },
+  recDot: { width: "8px", height: "8px", borderRadius: "50%", background: "#E2604F" },
+  heroBox: heroBoxBase,
+  heroBoxRecording: { ...heroBoxBase, cursor: "default", gap: "6px" },
+  heroBoxHighlight: {
+    position: "absolute",
+    top: "8%",
+    left: "18%",
+    width: "38%",
+    height: "22%",
     borderRadius: "50%",
-    border: "3px solid #111",
-    background: BRAND.lavender,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    cursor: "pointer",
-    boxShadow: "5px 5px 0px #111",
-    padding: 0,
+    background: "rgba(255,255,255,0.30)",
+    filter: "blur(2px)",
   },
-  timerBox: { fontSize: "48px", fontWeight: "900", color: BRAND.ink, letterSpacing: "4px", margin: "16px 0" },
-  textarea: { width: "100%", minHeight: "180px", padding: "16px", border: "2px solid #111", borderRadius: "16px", background: BRAND.card, color: BRAND.ink, fontSize: "16px", fontWeight: "600", boxShadow: "3px 3px 0px rgba(30,26,38,0.12)", resize: "vertical", fontFamily: "inherit" },
-  recordingButton: { width: "100%", padding: "16px", border: "3px solid #111", borderRadius: "18px", background: BRAND.lavender, color: "#fff", fontSize: "16px", fontWeight: "900", cursor: "pointer", boxShadow: "4px 4px 0px #111" },
-  stopButton: { width: "100%", padding: "14px", border: "2px solid #111", borderRadius: "16px", background: BRAND.card, color: BRAND.ink, fontSize: "15px", fontWeight: "900", cursor: "pointer", boxShadow: "3px 3px 0px rgba(30,26,38,0.12)" },
-  disabledButton: { opacity: 0.5, cursor: "not-allowed" },
-  mainCopy: { color: BRAND.ink, fontSize: "18px", fontWeight: "900", margin: 0 },
+  waveform: { display: "flex", alignItems: "center", gap: "3px", height: "26px", position: "relative" },
+  waveBar: { width: "3px", height: "100%", borderRadius: "2px" },
+  timerText: { fontSize: "13px", fontWeight: 700, color: "rgba(255,255,255,0.92)", letterSpacing: "1px", position: "relative" },
+  textarea: { width: "100%", minHeight: "180px", padding: "16px", ...tactile.input, fontSize: "16px", fontWeight: 500, resize: "vertical", fontFamily: "inherit" },
+  recordingButton: { width: "100%", padding: "16px", ...tactile.primaryButton, ...typography.ctaLabel },
+  stopButton: { width: "100%", padding: "14px", ...tactile.secondaryButton, fontSize: "15px", fontWeight: 700 },
+  disabledButton: { opacity: 0.45, cursor: "not-allowed" },
+  mainCopy: { color: BRAND.ink, fontSize: "18px", fontWeight: 700, margin: 0 },
   subCopy: { color: inkAlpha.muted, fontSize: "13px", margin: 0 },
 };
