@@ -114,3 +114,139 @@ export default function CalendarScreen({ entries, onBack }: CalendarScreenProps)
               <span style={{ ...styles.dayNumber, ...(isSelected ? styles.dayNumberSelected : {}) }}>{day}</span>
               {hasEntries && <span style={isSelected ? styles.dotSelected : styles.dot} />}
             </button>
+          );
+        })}
+      </div>
+
+      {selectedDateKey && (
+        <div style={styles.dayDetail}>
+          <p style={styles.dayDetailTitle}>{selectedDayLabel}</p>
+          {selectedEntries.length === 0 ? (
+            <p style={styles.emptyDayText}>아무 말도 안 한 날.</p>
+          ) : (
+            selectedEntries
+              .slice()
+              .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+              .map((entry) => {
+                const isOpen = expandedEntryId === entry.id;
+                return (
+                  <div
+                    key={entry.id}
+                    style={styles.entryRow}
+                    onClick={() => setExpandedEntryId(isOpen ? null : entry.id)}
+                  >
+                    <span style={styles.entryTime}>{formatTime(entry.createdAt)}</span>
+                    <p style={styles.entryPreview}>
+                      너: &ldquo;{isOpen ? entry.transcript : truncate(entry.transcript, 30)}&rdquo;
+                    </p>
+                    {isOpen && entry.responseText && (
+                      <p style={styles.entryResponse}>참견이: &ldquo;{entry.responseText}&rdquo;</p>
+                    )}
+                  </div>
+                );
+              })
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const styles: { [key: string]: React.CSSProperties } = {
+  container: {
+    minHeight: "100vh",
+    ...pageBackground,
+    color: BRAND.ink,
+    // 24px 고정값만으로는 기기에 따라 env(safe-area-inset-top)이 0으로 잡히면서
+    // 상태표시줄/제스처 영역과 겹치는 경우가 있어서, max()로 최소 여백을 항상 보장한다.
+    paddingTop: "max(32px, calc(env(safe-area-inset-top, 0px) + 24px))",
+    paddingRight: 20,
+    paddingBottom: 60,
+    paddingLeft: 20,
+    boxSizing: "border-box",
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
+  },
+  header: { display: "flex", flexDirection: "column", gap: "10px" },
+  backBtn: {
+    alignSelf: "flex-start",
+    background: "transparent",
+    border: "none",
+    color: BRAND.ink,
+    fontSize: "14px",
+    fontWeight: 900,
+    cursor: "pointer",
+    padding: 0,
+  },
+  titleRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" },
+  titleText: { fontSize: "13px", fontWeight: 900, color: BRAND.lavenderDeep, letterSpacing: "0.2px" },
+  monthNav: { display: "flex", alignItems: "center", justifyContent: "center", gap: "16px" },
+  navBtn: {
+    background: BRAND.card,
+    border: "2px solid #111",
+    borderRadius: "50%",
+    color: BRAND.ink,
+    fontSize: "16px",
+    fontWeight: 900,
+    width: "32px",
+    height: "32px",
+    cursor: "pointer",
+  },
+  monthLabel: { fontSize: "18px", fontWeight: 900 },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(7, 1fr)",
+    gap: "6px",
+  },
+  weekdayLabel: {
+    textAlign: "center",
+    fontSize: "11px",
+    fontWeight: 900,
+    color: inkAlpha.faint,
+    paddingBottom: "4px",
+  },
+  dayCell: {
+    aspectRatio: "1",
+    background: BRAND.card,
+    border: "2px solid #111",
+    borderRadius: "10px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: "4px",
+    cursor: "pointer",
+    padding: 0,
+  },
+  dayCellSelected: {
+    background: BRAND.lavenderPale,
+    border: `2px solid ${BRAND.lavenderDeep}`,
+    boxShadow: "3px 3px 0px rgba(77,63,115,0.16)",
+  },
+  dayNumber: { fontSize: "13px", fontWeight: 900, color: BRAND.ink },
+  dayNumberSelected: { color: BRAND.lavenderDeep },
+  dot: { width: "6px", height: "6px", borderRadius: "50%", background: BRAND.mint },
+  dotSelected: { width: "6px", height: "6px", borderRadius: "50%", background: BRAND.lavenderDeep },
+  dayDetail: {
+    background: BRAND.card,
+    color: BRAND.ink,
+    border: "2px solid #111",
+    borderRadius: "16px",
+    boxShadow: "3px 4px 0px rgba(30,26,38,0.10)",
+    padding: "16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+  },
+  dayDetailTitle: { fontSize: "15px", fontWeight: 900, margin: 0 },
+  emptyDayText: { fontSize: "14px", color: inkAlpha.faint, fontWeight: "bold", margin: 0 },
+  entryRow: {
+    borderTop: `1px solid ${inkAlpha.hairline}`,
+    paddingTop: "10px",
+    cursor: "pointer",
+  },
+  entryTime: { fontSize: "11px", fontWeight: 900, color: inkAlpha.faint },
+  entryPreview: { fontSize: "13px", color: inkAlpha.soft, margin: "4px 0 0 0", fontStyle: "italic", lineHeight: 1.4 },
+  entryResponse: { fontSize: "13px", color: BRAND.lavenderDeep, margin: "6px 0 0 0", fontWeight: "900", lineHeight: 1.4 },
+};
