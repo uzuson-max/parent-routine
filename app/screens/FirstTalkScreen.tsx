@@ -1,7 +1,8 @@
 
+
 "use client";
 
-import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import Mascot from "@/components/Mascot";
 import { IconMic } from "@/components/icons";
 
@@ -19,7 +20,7 @@ export default function FirstTalkScreen({ onStart }: FirstTalkScreenProps) {
         <h1 style={styles.headline}>아무 말이나 해볼래?</h1>
         <p style={styles.subhead}>진짜 아무 말이나 괜찮음!</p>
       </div>
-      <button style={styles.ctaButton} onClick={onStart}>
+      <button className={TACTILE_PRESS_CLASS} style={styles.ctaButton} onClick={onStart}>
         <span style={styles.ctaMicWrap}>
           <IconMic style={{ width: 20, height: 20, color: "#fff" }} />
         </span>
@@ -51,30 +52,16 @@ const styles: { [key: string]: React.CSSProperties } = {
     textAlign: "center",
     gap: "12px",
   },
-  stamp: {
-    background: BRAND.yellow,
-    color: BRAND.ink,
-    border: "2px solid #111",
-    boxShadow: "3px 3px 0px #111",
-    padding: "4px 10px",
-    fontSize: 12,
-    fontWeight: 900,
-    letterSpacing: "0.5px",
-  },
-  headline: { color: BRAND.ink, fontSize: "28px", fontWeight: 900, margin: "8px 0 0 0", lineHeight: 1.35 },
-  subhead: { color: inkAlpha.soft, fontSize: "15px", fontWeight: 700, margin: 0 },
+  stamp: { ...tactile.stamp, padding: "4px 10px", fontSize: 12, fontWeight: 700, letterSpacing: "0.3px" },
+  headline: { color: BRAND.ink, fontSize: "28px", fontWeight: 800, margin: "8px 0 0 0", lineHeight: 1.35 },
+  subhead: { color: inkAlpha.soft, fontSize: "15px", fontWeight: 500, margin: 0 },
   ctaButton: {
     width: "100%",
     maxWidth: "380px",
     padding: "18px",
-    border: "3px solid #111",
-    background: BRAND.lavender,
-    color: "#fff",
+    ...tactile.primaryButton,
     fontSize: "17px",
-    fontWeight: 900,
-    cursor: "pointer",
-    borderRadius: "18px",
-    boxShadow: "4px 4px 0px #111",
+    fontWeight: 700,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -84,7 +71,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     width: "30px",
     height: "30px",
     borderRadius: "50%",
-    background: "rgba(255,255,255,0.2)",
+    background: "rgba(255,255,255,0.18)",
+    border: "1px solid rgba(255,255,255,0.25)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
