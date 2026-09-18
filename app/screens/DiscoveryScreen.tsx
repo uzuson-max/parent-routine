@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
-import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import Mascot from "@/components/Mascot";
 import { IconShare } from "@/components/icons";
 
@@ -99,7 +99,7 @@ export default function DiscoveryScreen({ onBack }: { onBack: () => void }) {
 
   return (
     <div style={styles.container}>
-      <button style={styles.backButton} onClick={onBack}>← 뒤로</button>
+      <button className={TACTILE_PRESS_CLASS} style={styles.backButton} onClick={onBack}>← 뒤로</button>
 
       <div style={styles.topSection}>
         <Mascot pose="기억남" size={64} />
@@ -129,6 +129,7 @@ export default function DiscoveryScreen({ onBack }: { onBack: () => void }) {
               <div style={styles.cardBottomRow}>
                 <span style={styles.dateText}>{formatDate(insight.createdAt)}</span>
                 <button
+                  className={TACTILE_PRESS_CLASS}
                   style={styles.shareButton}
                   onClick={() => shareInsight(insight)}
                   disabled={busyId === insight.id}
@@ -158,40 +159,27 @@ const styles: { [key: string]: React.CSSProperties } = {
     boxSizing: "border-box",
   },
   backButton: {
-    background: "transparent",
+    ...tactile.ghostButton,
     border: "none",
-    color: inkAlpha.muted,
     fontSize: 14,
-    fontWeight: 900,
-    cursor: "pointer",
+    fontWeight: 600,
     // 텍스트 크기(14px)만큼만 히트박스가 잡혀서 탭이 잘 안 먹던 문제 — 여백을 줘서
     // 실제 터치 영역을 넓힘(iOS 권장 최소 44px에 가깝게).
     padding: "10px 12px 10px 0",
     margin: "-10px 0 6px -4px",
   },
   topSection: { display: "flex", alignItems: "center", gap: 12, marginBottom: 20 },
-  eyebrow: { display: "block", fontSize: 11, fontWeight: 900, letterSpacing: 1.5, color: inkAlpha.faint },
-  headline: { color: BRAND.ink, fontSize: 20, fontWeight: 900, margin: "2px 0 0 0" },
-  errorText: { color: "#D14343", fontSize: 12, fontWeight: 700, marginBottom: 12 },
+  eyebrow: { display: "block", fontSize: 11, fontWeight: 700, letterSpacing: 1.2, color: inkAlpha.faint },
+  headline: { color: BRAND.ink, fontSize: 20, fontWeight: 800, margin: "2px 0 0 0" },
+  errorText: { color: "#D14343", fontSize: 12, fontWeight: 500, marginBottom: 12 },
   listContainer: { display: "flex", flexDirection: "column", gap: 12 },
-  emptyCard: {
-    background: BRAND.card,
-    color: BRAND.ink,
-    border: "2px solid #111",
-    borderRadius: 16,
-    padding: "30px 20px",
-    boxShadow: "3px 4px 0px rgba(30,26,38,0.10)",
-    textAlign: "center",
-  },
-  emptyTitle: { fontSize: 16, fontWeight: 900, margin: "0 0 8px 0" },
-  emptySub: { fontSize: 13, color: inkAlpha.muted, margin: 0, lineHeight: 1.5, fontWeight: 700 },
+  emptyCard: { ...tactile.card, padding: "30px 20px", textAlign: "center" },
+  emptyTitle: { fontSize: 16, fontWeight: 700, margin: "0 0 8px 0" },
+  emptySub: { fontSize: 13, color: inkAlpha.muted, margin: 0, lineHeight: 1.5, fontWeight: 500 },
   card: {
     position: "relative",
-    background: BRAND.lavenderPale,
-    border: `2px solid ${BRAND.lavenderDeep}`,
-    borderRadius: 16,
+    ...tactile.cardAccent,
     padding: "18px 16px 14px 16px",
-    boxShadow: "3px 4px 0px rgba(77,63,115,0.16)",
   },
   newBadge: {
     position: "absolute",
@@ -199,27 +187,25 @@ const styles: { [key: string]: React.CSSProperties } = {
     right: 14,
     background: BRAND.yellow,
     color: BRAND.ink,
-    border: "2px solid #111",
+    border: `1px solid rgba(239,185,78,0.5)`,
     borderRadius: 999,
     padding: "3px 10px",
     fontSize: 10,
-    fontWeight: 900,
+    fontWeight: 700,
     letterSpacing: 0.3,
+    boxShadow: "0 2px 6px rgba(239,185,78,0.35)",
   },
-  contentText: { fontSize: 15, fontWeight: 900, color: BRAND.ink, margin: "0 0 14px 0", lineHeight: 1.5 },
+  contentText: { fontSize: 15, fontWeight: 700, color: BRAND.ink, margin: "0 0 14px 0", lineHeight: 1.5 },
   cardBottomRow: { display: "flex", justifyContent: "space-between", alignItems: "center" },
-  dateText: { fontSize: 11, fontWeight: 900, color: BRAND.lavenderDeep },
+  dateText: { fontSize: 11, fontWeight: 700, color: BRAND.lavenderDeep },
   shareButton: {
     display: "flex",
     alignItems: "center",
     gap: 6,
-    background: BRAND.lavender,
-    color: "#fff",
-    border: "2px solid #111",
+    ...tactile.primaryButton,
     borderRadius: 12,
     padding: "8px 12px",
     fontSize: 12,
-    fontWeight: 900,
-    cursor: "pointer",
+    fontWeight: 700,
   },
 };
