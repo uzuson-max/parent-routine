@@ -1,7 +1,8 @@
 
+
 "use client";
 import { useEffect, useState } from "react";
-import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground, tactile, typography, shadow, border, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import { IconPhone } from "@/components/icons";
 
 export default function CallingScreen({
@@ -40,7 +41,7 @@ export default function CallingScreen({
         {status === "pending" && "번호 저장했어.\n이건 좀 전화로 얘기하고 싶은데.\n잠깐만. 전화할게."}
         {status === "done" && "통화 끝!"}
       </p>
-      <button style={styles.homeButton} onClick={onHome}>
+      <button className={TACTILE_PRESS_CLASS} style={styles.homeButton} onClick={onHome}>
         홈으로
       </button>
     </div>
@@ -53,23 +54,14 @@ const styles: { [key: string]: React.CSSProperties } = {
     width: "72px",
     height: "72px",
     borderRadius: "50%",
-    border: "3px solid #111",
-    background: BRAND.lavender,
+    border: border.onLavender,
+    background: `radial-gradient(circle at 35% 28%, ${BRAND.lavenderSoft} 0%, ${BRAND.lavender} 100%)`,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    boxShadow: "4px 4px 0px #111",
+    boxShadow: shadow.lavender,
   },
-  stamp: {
-    background: BRAND.yellow,
-    color: BRAND.ink,
-    border: "2px solid #111",
-    boxShadow: "3px 3px 0px #111",
-    padding: "4px 10px",
-    fontSize: 12,
-    fontWeight: 900,
-    letterSpacing: "0.5px",
-  },
-  copy: { color: BRAND.ink, fontSize: 20, textAlign: "center", whiteSpace: "pre-line", fontWeight: 900, lineHeight: 1.5 },
-  homeButton: { background: "transparent", color: inkAlpha.muted, border: `1.5px solid ${inkAlpha.hairline}`, borderRadius: "20px", padding: "10px 22px", fontSize: 14, fontWeight: 700, cursor: "pointer" },
+  stamp: { ...tactile.stamp, padding: "4px 10px", fontSize: 12, fontWeight: 700, letterSpacing: "0.3px" },
+  copy: { color: BRAND.ink, fontSize: 20, textAlign: "center", whiteSpace: "pre-line", fontWeight: 700, lineHeight: 1.5 },
+  homeButton: { ...tactile.ghostButton, borderRadius: "20px", padding: "10px 22px", fontSize: 14, fontWeight: 600 },
 };
