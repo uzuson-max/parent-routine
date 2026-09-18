@@ -1,8 +1,9 @@
 
+
 "use client";
 
 import { useState } from "react";
-import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import Mascot from "@/components/Mascot";
 
 interface OnboardingScreenProps {
@@ -80,6 +81,7 @@ export default function OnboardingScreen({ onComplete }: OnboardingScreenProps) 
 
       {isLast ? (
         <button
+          className={TACTILE_PRESS_CLASS}
           style={styles.ctaButton}
           onClick={(e) => {
             e.stopPropagation();
@@ -121,34 +123,28 @@ const styles: { [key: string]: React.CSSProperties } = {
     textAlign: "center",
     gap: "16px",
   },
-  mainCopy: { color: BRAND.ink, fontSize: "30px", fontWeight: 900, margin: 0, lineHeight: 1.3, whiteSpace: "pre-line" },
+  mainCopy: { color: BRAND.ink, fontSize: "28px", fontWeight: 800, margin: 0, lineHeight: 1.3, whiteSpace: "pre-line" },
   subBlock: { display: "flex", flexDirection: "column", gap: "4px" },
-  subLine: { color: inkAlpha.soft, fontSize: "16px", margin: 0, fontWeight: 700 },
-  tailCopy: { color: BRAND.lavenderDeep, fontSize: "18px", fontWeight: 900, margin: 0 },
+  subLine: { color: inkAlpha.soft, fontSize: "16px", margin: 0, fontWeight: 500 },
+  tailCopy: { color: BRAND.lavenderDeep, fontSize: "18px", fontWeight: 700, margin: 0 },
   dialogueBlock: { display: "flex", flexDirection: "column", gap: "10px", width: "100%" },
   bubble: {
     background: BRAND.pinkPale,
     color: BRAND.ink,
     padding: "12px 16px",
-    fontSize: "15px",
-    fontWeight: 900,
-    border: "2px solid #111",
+    ...typography.bubbleLine,
+    border: `1px solid rgba(239,169,199,0.4)`,
     borderRadius: "14px 14px 14px 4px",
-    boxShadow: "3px 3px 0px rgba(30,26,38,0.15)",
+    boxShadow: "0 4px 12px rgba(34,28,44,0.06)",
     alignSelf: "flex-start",
   },
   ctaButton: {
     width: "100%",
     maxWidth: "380px",
     padding: "18px",
-    border: "3px solid #111",
-    background: BRAND.lavender,
-    color: "#fff",
+    ...tactile.primaryButton,
     fontSize: "17px",
-    fontWeight: 900,
-    cursor: "pointer",
-    borderRadius: "18px",
-    boxShadow: "4px 4px 0px #111",
+    fontWeight: 700,
   },
   tapHint: { color: inkAlpha.muted, fontSize: "13px", margin: 0 },
 };
