@@ -1,4 +1,8 @@
+
+
 "use client";
+
+import { BRAND, inkAlpha, pageBackground, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 
 interface ExtractedItem {
   type: string;
@@ -15,13 +19,13 @@ export default function PostRecordingScreen({ extractedItems, onConfirm }: PostR
   return (
     <div style={styles.container}>
       <div style={styles.contentBox}>
-        <span style={styles.badge}>INTERVENTION.LOG</span>
+        <span style={styles.badge}>INTERVENTION LOG</span>
         <h2 style={styles.title}>참견이가<br />몇 가지 주워갔어. 👀</h2>
         <p style={styles.subTitle}>이건 기억해둘게.</p>
 
         <div style={styles.itemCardList}>
           {extractedItems.map((item, idx) => (
-            <div key={idx} style={styles.itemCard}>
+            <div key={idx} className="tactile-lift-in" style={styles.itemCard}>
               <span style={styles.itemType}>{item.type}</span>
               <div style={styles.itemContent}>
                 <strong>{item.title}</strong> — {item.desc}
@@ -30,7 +34,7 @@ export default function PostRecordingScreen({ extractedItems, onConfirm }: PostR
           ))}
         </div>
 
-        <button style={styles.ctaButton} onClick={onConfirm}>
+        <button className={TACTILE_PRESS_CLASS} style={styles.ctaButton} onClick={onConfirm}>
           확인, 구경하러 가기 →
         </button>
       </div>
@@ -41,8 +45,8 @@ export default function PostRecordingScreen({ extractedItems, onConfirm }: PostR
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
-    background: "#C71585",
-    color: "#FFF",
+    ...pageBackground,
+    color: BRAND.ink,
     display: "flex",
     flexDirection: "column",
     justifyContent: "center",
@@ -58,25 +62,24 @@ const styles: { [key: string]: React.CSSProperties } = {
     gap: "16px",
   },
   badge: {
+    ...tactile.badge,
     fontSize: "10px",
-    fontWeight: "900",
-    background: "#E5FF5D",
-    color: "#C71585",
-    padding: "2px 6px",
+    fontWeight: 700,
+    padding: "2px 8px",
     alignSelf: "flex-start",
   },
   title: {
-    fontSize: "32px",
-    fontWeight: "900",
-    lineHeight: "1.2",
+    fontSize: "30px",
+    fontWeight: 800,
+    lineHeight: "1.25",
     margin: 0,
-    textShadow: "2px 2px 0px #111",
+    color: BRAND.ink,
   },
   subTitle: {
     fontSize: "14px",
-    color: "rgba(255,255,255,0.8)",
+    color: inkAlpha.muted,
     margin: "-8px 0 10px 0",
-    fontWeight: "bold",
+    fontWeight: 500,
   },
   itemCardList: {
     display: "flex",
@@ -84,34 +87,27 @@ const styles: { [key: string]: React.CSSProperties } = {
     gap: "10px",
   },
   itemCard: {
-    background: "#FFF",
-    color: "#1E1E1E",
-    border: "2px solid #111",
+    ...tactile.card,
     padding: "14px",
-    boxShadow: "3px 3px 0px #111",
     display: "flex",
     flexDirection: "column",
     gap: "4px",
   },
   itemType: {
     fontSize: "10px",
-    fontWeight: "900",
-    color: "#C71585",
+    fontWeight: 700,
+    color: BRAND.lavenderDeep,
   },
   itemContent: {
     fontSize: "14px",
-    fontWeight: "bold",
+    fontWeight: 500,
+    color: BRAND.ink,
   },
   ctaButton: {
     width: "100%",
-    background: "#E5FF5D",
-    color: "#C71585",
-    border: "3px solid #111",
-    boxShadow: "4px 4px 0px #111",
+    ...tactile.primaryButton,
     padding: "16px",
-    fontSize: "16px",
-    fontWeight: "900",
-    cursor: "pointer",
+    ...typography.ctaLabel,
     marginTop: "10px",
   },
 };
