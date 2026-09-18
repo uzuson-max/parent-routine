@@ -1,8 +1,9 @@
 
+
 "use client";
 
 import { useState } from "react";
-import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 
 export default function NicknameScreen({
   onSubmit,
@@ -28,7 +29,7 @@ export default function NicknameScreen({
         onChange={(e) => setNickname(e.target.value)}
       />
 
-      <button style={styles.button} disabled={!nickname.trim()} onClick={() => onSubmit(nickname.trim())}>
+      <button className={TACTILE_PRESS_CLASS} style={styles.button} disabled={!nickname.trim()} onClick={() => onSubmit(nickname.trim())}>
         이걸로 해
       </button>
       {onSkip && <button style={styles.skipButton} onClick={onSkip}>나중에</button>}
@@ -38,8 +39,8 @@ export default function NicknameScreen({
 
 const styles: { [key: string]: React.CSSProperties } = {
   container: { minHeight: "100vh", ...pageBackground, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "0 32px" },
-  headline: { color: BRAND.ink, fontSize: 22, fontWeight: 900, textAlign: "center", margin: "0 0 24px" },
-  input: { width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 16, border: "2px solid #111", background: BRAND.card, color: BRAND.ink, fontSize: 16, textAlign: "center", boxShadow: "3px 3px 0px rgba(30,26,38,0.10)" },
-  button: { marginTop: 16, width: "100%", maxWidth: 320, padding: "14px 16px", borderRadius: 18, border: "3px solid #111", boxShadow: "4px 4px 0px #111", background: BRAND.lavender, color: "#fff", fontSize: 16, fontWeight: 900, cursor: "pointer" },
+  headline: { ...typography.headline, color: BRAND.ink, textAlign: "center", margin: "0 0 24px" },
+  input: { width: "100%", maxWidth: 320, padding: "14px 16px", ...tactile.input, fontSize: 16, textAlign: "center" },
+  button: { marginTop: 16, width: "100%", maxWidth: 320, padding: "14px 16px", ...tactile.primaryButton, ...typography.ctaLabel },
   skipButton: { marginTop: 10, padding: "8px 16px", border: "none", background: "transparent", color: inkAlpha.faint, fontSize: 14, cursor: "pointer" },
 };
