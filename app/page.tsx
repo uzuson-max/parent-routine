@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -241,7 +240,7 @@ export default function Home() {
       )}
 
       {step === "mypage" && (
-        <MyPageScreen onBack={() => setStep("landing")} />
+        <MyPageScreen onBack={() => setStep("landing")} onOpenRecords={() => setStep("calendar")} />
       )}
 
       {step === "calendar" && (
