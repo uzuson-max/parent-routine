@@ -3,7 +3,7 @@
 
 import { useMemo, useState } from "react";
 import type { RecordEntry } from "./TimelineScreen";
-import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import { IconMemory } from "@/components/icons";
 
 interface CalendarScreenProps {
@@ -68,13 +68,14 @@ export default function CalendarScreen({ entries, onBack }: CalendarScreenProps)
   return (
     <div style={styles.container}>
       <div style={styles.header}>
-        <button style={styles.backBtn} onClick={onBack}>← 뒤로</button>
+        <button className={TACTILE_PRESS_CLASS} style={styles.backBtn} onClick={onBack}>← 뒤로</button>
         <div style={styles.titleRow}>
           <IconMemory style={{ width: 18, height: 18, color: BRAND.lavenderDeep }} />
           <span style={styles.titleText}>참견이가 기억하고 있는 것</span>
         </div>
         <div style={styles.monthNav}>
           <button
+            className={TACTILE_PRESS_CLASS}
             style={styles.navBtn}
             onClick={() => {
               setMonthOffset((o) => o - 1);
@@ -85,6 +86,7 @@ export default function CalendarScreen({ entries, onBack }: CalendarScreenProps)
           </button>
           <span style={styles.monthLabel}>{year}년 {month + 1}월</span>
           <button
+            className={TACTILE_PRESS_CLASS}
             style={styles.navBtn}
             onClick={() => {
               setMonthOffset((o) => o + 1);
@@ -108,6 +110,7 @@ export default function CalendarScreen({ entries, onBack }: CalendarScreenProps)
           return (
             <button
               key={key}
+              className={TACTILE_PRESS_CLASS}
               style={{ ...styles.dayCell, ...(isSelected ? styles.dayCellSelected : {}) }}
               onClick={() => goToDate(key)}
             >
@@ -119,7 +122,7 @@ export default function CalendarScreen({ entries, onBack }: CalendarScreenProps)
       </div>
 
       {selectedDateKey && (
-        <div style={styles.dayDetail}>
+        <div className="tactile-lift-in" style={styles.dayDetail}>
           <p style={styles.dayDetailTitle}>{selectedDayLabel}</p>
           {selectedEntries.length === 0 ? (
             <p style={styles.emptyDayText}>아무 말도 안 한 날.</p>
@@ -170,30 +173,31 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   header: { display: "flex", flexDirection: "column", gap: "10px" },
   backBtn: {
+    ...tactile.ghostButton,
     alignSelf: "flex-start",
-    background: "transparent",
     border: "none",
     color: BRAND.ink,
     fontSize: "14px",
-    fontWeight: 900,
-    cursor: "pointer",
+    fontWeight: 600,
     padding: 0,
   },
   titleRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" },
-  titleText: { fontSize: "13px", fontWeight: 900, color: BRAND.lavenderDeep, letterSpacing: "0.2px" },
+  titleText: { fontSize: "13px", fontWeight: 700, color: BRAND.lavenderDeep, letterSpacing: "0.2px" },
   monthNav: { display: "flex", alignItems: "center", justifyContent: "center", gap: "16px" },
   navBtn: {
-    background: BRAND.card,
-    border: "2px solid #111",
+    ...tactile.secondaryButton,
     borderRadius: "50%",
     color: BRAND.ink,
     fontSize: "16px",
-    fontWeight: 900,
+    fontWeight: 700,
     width: "32px",
     height: "32px",
-    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
   },
-  monthLabel: { fontSize: "18px", fontWeight: 900 },
+  monthLabel: { fontSize: "18px", fontWeight: 800 },
   grid: {
     display: "grid",
     gridTemplateColumns: "repeat(7, 1fr)",
@@ -202,51 +206,46 @@ const styles: { [key: string]: React.CSSProperties } = {
   weekdayLabel: {
     textAlign: "center",
     fontSize: "11px",
-    fontWeight: 900,
+    fontWeight: 700,
     color: inkAlpha.faint,
     paddingBottom: "4px",
   },
   dayCell: {
     aspectRatio: "1",
-    background: BRAND.card,
-    border: "2px solid #111",
+    ...tactile.secondaryButton,
     borderRadius: "10px",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
     gap: "4px",
-    cursor: "pointer",
     padding: 0,
   },
   dayCellSelected: {
     background: BRAND.lavenderPale,
-    border: `2px solid ${BRAND.lavenderDeep}`,
-    boxShadow: "3px 3px 0px rgba(77,63,115,0.16)",
+    border: `1px solid rgba(77,63,115,0.25)`,
+    boxShadow: "none",
   },
-  dayNumber: { fontSize: "13px", fontWeight: 900, color: BRAND.ink },
+  dayNumber: { fontSize: "13px", fontWeight: 700, color: BRAND.ink },
   dayNumberSelected: { color: BRAND.lavenderDeep },
   dot: { width: "6px", height: "6px", borderRadius: "50%", background: BRAND.mint },
   dotSelected: { width: "6px", height: "6px", borderRadius: "50%", background: BRAND.lavenderDeep },
   dayDetail: {
-    background: BRAND.card,
+    ...tactile.card,
     color: BRAND.ink,
-    border: "2px solid #111",
-    borderRadius: "16px",
-    boxShadow: "3px 4px 0px rgba(30,26,38,0.10)",
     padding: "16px",
     display: "flex",
     flexDirection: "column",
     gap: "10px",
   },
-  dayDetailTitle: { fontSize: "15px", fontWeight: 900, margin: 0 },
-  emptyDayText: { fontSize: "14px", color: inkAlpha.faint, fontWeight: "bold", margin: 0 },
+  dayDetailTitle: { fontSize: "15px", fontWeight: 800, margin: 0 },
+  emptyDayText: { fontSize: "14px", color: inkAlpha.faint, fontWeight: 500, margin: 0 },
   entryRow: {
     borderTop: `1px solid ${inkAlpha.hairline}`,
     paddingTop: "10px",
     cursor: "pointer",
   },
-  entryTime: { fontSize: "11px", fontWeight: 900, color: inkAlpha.faint },
+  entryTime: { fontSize: "11px", fontWeight: 700, color: inkAlpha.faint },
   entryPreview: { fontSize: "13px", color: inkAlpha.soft, margin: "4px 0 0 0", fontStyle: "italic", lineHeight: 1.4 },
-  entryResponse: { fontSize: "13px", color: BRAND.lavenderDeep, margin: "6px 0 0 0", fontWeight: "900", lineHeight: 1.4 },
+  entryResponse: { fontSize: "13px", color: BRAND.lavenderDeep, margin: "6px 0 0 0", fontWeight: 700, lineHeight: 1.4 },
 };
