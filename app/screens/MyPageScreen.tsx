@@ -1,3 +1,4 @@
+
 //
 // 계정에 인증되어 있는 전화번호를 보여주고 바꿀 수 있는 화면.
 // 번호를 바꿔도 user_id는 그대로라 지금까지의 기록은 그대로 이 계정에 남는다 —
@@ -138,7 +139,17 @@ export default function MyPageScreen({ onBack }: { onBack: () => void }) {
 }
 
 const styles: { [key: string]: React.CSSProperties } = {
-  container: { minHeight: "100vh", ...pageBackground, padding: "24px 20px", boxSizing: "border-box" },
+  container: {
+    minHeight: "100vh",
+    ...pageBackground,
+    // 24px 고정값만으로는 기기에 따라 env(safe-area-inset-top)이 0으로 잡히면서
+    // 상태표시줄/제스처 영역과 겹치는 경우가 있어서, max()로 최소 여백을 항상 보장한다.
+    paddingTop: "max(32px, calc(env(safe-area-inset-top, 0px) + 24px))",
+    paddingRight: 20,
+    paddingBottom: 24,
+    paddingLeft: 20,
+    boxSizing: "border-box",
+  },
   backButton: { background: "transparent", border: "none", color: inkAlpha.muted, fontSize: 14, fontWeight: 900, cursor: "pointer", padding: 0, marginBottom: 16 },
   headline: { color: BRAND.ink, fontSize: 22, fontWeight: 900, margin: "0 0 20px 0" },
   card: { background: BRAND.card, border: "2px solid #111", borderRadius: 18, padding: "20px", boxShadow: "3px 4px 0px rgba(30,26,38,0.10)" },
