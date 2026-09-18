@@ -1,4 +1,5 @@
 
+
 //
 // 마이크 권한 + 전화번호 인증을 한 화면에서 체크리스트 형태로 끝내는 화면.
 // 원래는 마이크 권한(MicPermissionScreen)과 전화번호 인증(PhoneVerifyScreen)이 서로 다른
@@ -13,7 +14,7 @@
 "use client";
 
 import { useState } from "react";
-import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import { requestPhoneLink, confirmPhoneCode, syncVerifiedPhoneToBackend, type PhoneLinkVerifyType } from "@/lib/phoneAuthClient";
 import Mascot from "@/components/Mascot";
 
@@ -87,7 +88,7 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
         </div>
         <p style={styles.itemDesc}>말할 때만 사용할 거야. 거부해도 타이핑으로 계속할 수 있어.</p>
         {!micDone && (
-          <button style={styles.smallButton} onClick={requestMic} disabled={micBusy}>
+          <button className={TACTILE_PRESS_CLASS} style={styles.smallButton} onClick={requestMic} disabled={micBusy}>
             {micBusy ? "물어보는 중..." : "허용하기"}
           </button>
         )}
@@ -114,7 +115,7 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
             />
-            <button style={styles.smallButton} onClick={sendCode} disabled={!phone || phoneBusy}>
+            <button className={TACTILE_PRESS_CLASS} style={styles.smallButton} onClick={sendCode} disabled={!phone || phoneBusy}>
               {phoneBusy ? "보내는 중..." : "인증번호 받기"}
             </button>
           </div>
@@ -130,7 +131,7 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
               value={code}
               onChange={(e) => setCode(e.target.value)}
             />
-            <button style={styles.smallButton} onClick={verifyCode} disabled={!code || phoneBusy}>
+            <button className={TACTILE_PRESS_CLASS} style={styles.smallButton} onClick={verifyCode} disabled={!code || phoneBusy}>
               {phoneBusy ? "확인 중..." : "확인"}
             </button>
           </div>
@@ -139,6 +140,7 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
       </div>
 
       <button
+        className={TACTILE_PRESS_CLASS}
         style={{ ...styles.mainButton, ...(phoneDone ? {} : styles.mainButtonDisabled) }}
         disabled={!phoneDone}
         onClick={onDone}
@@ -160,42 +162,39 @@ const styles: { [key: string]: React.CSSProperties } = {
     gap: 20,
   },
   header: { display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginBottom: 8 },
-  headline: { color: BRAND.ink, fontSize: 22, fontWeight: 900, textAlign: "center", margin: 0, whiteSpace: "pre-line", lineHeight: 1.35 },
-  item: { background: BRAND.card, border: "2px solid #111", borderRadius: 18, padding: "16px 18px", boxShadow: "3px 4px 0px rgba(30,26,38,0.10)" },
+  headline: { ...typography.headline, color: BRAND.ink, textAlign: "center", margin: 0, whiteSpace: "pre-line", lineHeight: 1.35 },
+  item: { ...tactile.card, padding: "16px 18px" },
   itemTop: { display: "flex", alignItems: "center", gap: 10, marginBottom: 6 },
   checkbox: {
     width: 22,
     height: 22,
     minWidth: 22,
     borderRadius: "50%",
-    border: "2px solid #111",
+    border: `1px solid ${inkAlpha.hairline}`,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     fontSize: 13,
-    fontWeight: 900,
+    fontWeight: 700,
     color: "#fff",
+    background: inkAlpha.hairline,
   },
   checkboxDone: { background: BRAND.mint, borderColor: BRAND.mint },
-  itemTitle: { fontSize: 16, fontWeight: 900, color: BRAND.ink },
-  required: { fontSize: 11, fontWeight: 900, color: BRAND.lavenderDeep, marginLeft: 4 },
-  itemDesc: { fontSize: 13, color: inkAlpha.muted, margin: "0 0 12px 0", lineHeight: 1.5, fontWeight: 700, whiteSpace: "pre-line" },
+  itemTitle: { fontSize: 16, fontWeight: 700, color: BRAND.ink },
+  required: { fontSize: 11, fontWeight: 700, color: BRAND.lavenderDeep, marginLeft: 4 },
+  itemDesc: { fontSize: 13, color: inkAlpha.muted, margin: "0 0 12px 0", lineHeight: 1.5, fontWeight: 500, whiteSpace: "pre-line" },
   inlineRow: { display: "flex", gap: 8 },
-  input: { flex: 1, minWidth: 0, padding: "12px 14px", borderRadius: 14, border: "2px solid #111", background: "#fff", color: BRAND.ink, fontSize: 15 },
-  smallButton: { padding: "12px 16px", borderRadius: 14, border: "2px solid #111", background: BRAND.lavender, color: "#fff", fontSize: 14, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
-  error: { color: "#D14343", fontSize: 12, fontWeight: 700, marginTop: 8 },
+  input: { flex: 1, minWidth: 0, padding: "12px 14px", ...tactile.input, borderRadius: 14, fontSize: 15 },
+  smallButton: { padding: "12px 16px", ...tactile.primaryButton, borderRadius: 14, fontSize: 14, fontWeight: 700, whiteSpace: "nowrap" },
+  error: { color: "#D14343", fontSize: 12, fontWeight: 500, marginTop: 8 },
   mainButton: {
     marginTop: "auto",
     width: "100%",
     padding: "16px",
     borderRadius: 18,
-    border: "3px solid #111",
-    boxShadow: "4px 4px 0px #111",
-    background: BRAND.lavender,
-    color: "#fff",
+    ...tactile.primaryButton,
     fontSize: 16,
-    fontWeight: 900,
-    cursor: "pointer",
+    fontWeight: 700,
   },
   mainButtonDisabled: { opacity: 0.4, cursor: "not-allowed", boxShadow: "none" },
 };
