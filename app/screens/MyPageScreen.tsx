@@ -1,4 +1,5 @@
 
+
 //
 // 계정에 인증되어 있는 전화번호를 보여주고 바꿀 수 있는 화면.
 // 번호를 바꿔도 user_id는 그대로라 지금까지의 기록은 그대로 이 계정에 남는다 —
@@ -13,7 +14,7 @@
 import { useEffect, useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
 import { requestPhoneLink, confirmPhoneCode, syncVerifiedPhoneToBackend, type PhoneLinkVerifyType } from "@/lib/phoneAuthClient";
-import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 
 function maskPhone(e164: string | null | undefined): string {
   if (!e164) return "등록된 번호 없음";
@@ -74,7 +75,7 @@ export default function MyPageScreen({ onBack }: { onBack: () => void }) {
 
   return (
     <div style={styles.container}>
-      <button style={styles.backButton} onClick={onBack}>← 뒤로</button>
+      <button className={TACTILE_PRESS_CLASS} style={styles.backButton} onClick={onBack}>← 뒤로</button>
       <h1 style={styles.headline}>내 정보</h1>
 
       <div style={styles.card}>
@@ -84,6 +85,7 @@ export default function MyPageScreen({ onBack }: { onBack: () => void }) {
 
         {mode === "view" && (
           <button
+            className={TACTILE_PRESS_CLASS}
             style={styles.smallButton}
             onClick={() => {
               setMode("edit_phone");
@@ -105,10 +107,10 @@ export default function MyPageScreen({ onBack }: { onBack: () => void }) {
               onChange={(e) => setNewPhone(e.target.value)}
             />
             <div style={styles.rowGap}>
-              <button style={styles.smallButton} onClick={sendCode} disabled={!newPhone || busy}>
+              <button className={TACTILE_PRESS_CLASS} style={styles.smallButton} onClick={sendCode} disabled={!newPhone || busy}>
                 {busy ? "보내는 중..." : "인증번호 받기"}
               </button>
-              <button style={styles.cancelButton} onClick={() => setMode("view")}>취소</button>
+              <button className={TACTILE_PRESS_CLASS} style={styles.cancelButton} onClick={() => setMode("view")}>취소</button>
             </div>
           </div>
         )}
@@ -124,10 +126,10 @@ export default function MyPageScreen({ onBack }: { onBack: () => void }) {
               onChange={(e) => setCode(e.target.value)}
             />
             <div style={styles.rowGap}>
-              <button style={styles.smallButton} onClick={verifyCode} disabled={!code || busy}>
+              <button className={TACTILE_PRESS_CLASS} style={styles.smallButton} onClick={verifyCode} disabled={!code || busy}>
                 {busy ? "확인 중..." : "확인"}
               </button>
-              <button style={styles.cancelButton} onClick={() => setMode("view")}>취소</button>
+              <button className={TACTILE_PRESS_CLASS} style={styles.cancelButton} onClick={() => setMode("view")}>취소</button>
             </div>
           </div>
         )}
@@ -150,16 +152,16 @@ const styles: { [key: string]: React.CSSProperties } = {
     paddingLeft: 20,
     boxSizing: "border-box",
   },
-  backButton: { background: "transparent", border: "none", color: inkAlpha.muted, fontSize: 14, fontWeight: 900, cursor: "pointer", padding: 0, marginBottom: 16 },
-  headline: { color: BRAND.ink, fontSize: 22, fontWeight: 900, margin: "0 0 20px 0" },
-  card: { background: BRAND.card, border: "2px solid #111", borderRadius: 18, padding: "20px", boxShadow: "3px 4px 0px rgba(30,26,38,0.10)" },
-  label: { fontSize: 12, fontWeight: 900, color: inkAlpha.faint, margin: "0 0 4px 0", letterSpacing: 0.5 },
-  value: { fontSize: 18, fontWeight: 900, color: BRAND.ink, margin: "0 0 14px 0" },
-  doneNote: { fontSize: 13, color: BRAND.lavenderDeep, fontWeight: 700, margin: "-8px 0 14px 0" },
-  smallButton: { padding: "12px 16px", borderRadius: 14, border: "2px solid #111", background: BRAND.lavender, color: "#fff", fontSize: 14, fontWeight: 900, cursor: "pointer" },
-  cancelButton: { padding: "12px 16px", borderRadius: 14, border: "2px solid #111", background: "transparent", color: inkAlpha.muted, fontSize: 14, fontWeight: 900, cursor: "pointer" },
+  backButton: { ...tactile.ghostButton, border: "none", fontSize: 14, fontWeight: 600, padding: 0, marginBottom: 16 },
+  headline: { ...typography.headline, color: BRAND.ink, margin: "0 0 20px 0" },
+  card: { ...tactile.card, padding: "20px" },
+  label: { fontSize: 12, fontWeight: 700, color: inkAlpha.faint, margin: "0 0 4px 0", letterSpacing: 0.3 },
+  value: { fontSize: 18, fontWeight: 800, color: BRAND.ink, margin: "0 0 14px 0" },
+  doneNote: { fontSize: 13, color: BRAND.lavenderDeep, fontWeight: 500, margin: "-8px 0 14px 0" },
+  smallButton: { padding: "12px 16px", ...tactile.primaryButton, fontSize: 14, fontWeight: 700, borderRadius: 14 },
+  cancelButton: { padding: "12px 16px", ...tactile.ghostButton, fontSize: 14, fontWeight: 600, border: `1px solid ${inkAlpha.hairline}`, borderRadius: 14 },
   editBlock: { display: "flex", flexDirection: "column", gap: 10, marginTop: 4 },
   rowGap: { display: "flex", gap: 8 },
-  input: { padding: "12px 14px", borderRadius: 14, border: "2px solid #111", background: "#fff", color: BRAND.ink, fontSize: 15 },
-  error: { color: "#D14343", fontSize: 12, fontWeight: 700, marginTop: 10 },
+  input: { padding: "12px 14px", ...tactile.input, borderRadius: 14, fontSize: 15 },
+  error: { color: "#D14343", fontSize: 12, fontWeight: 500, marginTop: 10 },
 };
