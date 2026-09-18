@@ -64,4 +64,455 @@ function readIntervention(): InterventionLevel {
   return "medium";
 }
 
-type SheetKind = "intervention" | "delete_confirm" | nul
+type SheetKind = "intervention" | "delete_confirm" | null;
+
+export default function MyPageScreen({ onBack, onOpenRecords }: { onBack: () => void; onOpenRecords: () => void }) {
+  // --- 사용자 정보 ---
+  const [nickname, setNickname] = useState<string | null>(null);
+  const [entryCount, setEntryCount] = useState<number | null>(null);
+  const [currentPhone, setCurrentPhone] = useState<string | null>(null);
+
+  // --- 전화번호 인증(기존 로직 그대로) ---
+  const [phoneMode, setPhoneMode] = useState<PhoneMode>("view");
+  const [newPhone, setNewPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [verifyType, setVerifyType] = useState<PhoneLinkVerifyType>("phone_change");
+  const [phoneBusy, setPhoneBusy] = useState(false);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [phoneDone, setPhoneDone] = useState(false);
+
+  // --- 참견이 설정(로컬 저장) ---
+  const [soundOn, setSoundOn] = useState(true);
+  const [notificationsOn, setNotificationsOn] = useState(true);
+  const [interventionLevel, setInterventionLevel] = useState<InterventionLevel>("medium");
+
+  // --- 오버레이(bottom sheet) / 토스트 ---
+  const [sheet, setSheet] = useState<SheetKind>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  useEffect(() => {
+    setSoundOn(readBoolPref(SOUND_KEY, true));
+    setNotificationsOn(readBoolPref(NOTIFICATION_KEY, true));
+    setInterventionLevel(readIntervention());
+
+    supabaseClient.auth.getUser().then(({ data: { user } }) => {
+      setCurrentPhone(user?.phone ?? null);
+    });
+
+    supabaseClient.auth.getSession().then(({ data: { session } }) => {
+      if (!session) return;
+      fetchMe(session.access_token).then((profile) => {
+        if (!profile) return;
+        setNickname(profile.nickname);
+        setEntryCount(profile.entry_count);
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 1800);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    if (typeof window !== "undefined") window.localStorage.setItem(SOUND_KEY, next ? "1" : "0");
+  };
+
+  const toggleNotifications = () => {
+    const next = !notificationsOn;
+    setNotificationsOn(next);
+    if (typeof window !== "undefined") window.localStorage.setItem(NOTIFICATION_KEY, next ? "1" : "0");
+  };
+
+  const chooseIntervention = (level: InterventionLevel) => {
+    setInterventionLevel(level);
+    if (typeof window !== "undefined") window.localStorage.setItem(INTERVENTION_KEY, level);
+    setSheet(null);
+  };
+
+  const sendCode = async () => {
+    setPhoneBusy(true);
+    setPhoneError(null);
+    const { verifyType: vt, error: err } = await requestPhoneLink(newPhone, { allowExistingAccountFallback: false });
+    setPhoneBusy(false);
+    if (err || !vt) {
+      setPhoneError(err ?? "인증번호를 보내지 못했어.");
+      return;
+    }
+    setVerifyType(vt);
+    setPhoneMode("edit_code");
+  };
+
+  const verifyCode = async () => {
+    setPhoneBusy(true);
+    setPhoneError(null);
+    const { error: err } = await confirmPhoneCode(newPhone, code, verifyType);
+    setPhoneBusy(false);
+    if (err) {
+      setPhoneError(err);
+      return;
+    }
+    setCurrentPhone(newPhone);
+    setPhoneDone(true);
+    setPhoneMode("view");
+    syncVerifiedPhoneToBackend(newPhone);
+    setNewPhone("");
+    setCode("");
+  };
+
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await supabaseClient.auth.signOut();
+    } finally {
+      // 새로고침하면 기존 ensureSession 로직이 그대로 새 익명 세션을 만들어준다 —
+      // 로그아웃 후 흐름을 이 화면에서 새로 만들 필요가 없다.
+      if (typeof window !== "undefined") window.location.reload();
+    }
+  };
+
+  const interventionLabel = INTERVENTION_OPTIONS.find((o) => o.level === interventionLevel)?.label ?? "적당히";
+
+  return (
+    <div style={styles.container}>
+      <button className={TACTILE_PRESS_CLASS} style={styles.backButton} onClick={onBack}>← 뒤로</button>
+      <h1 style={styles.headline}>MY</h1>
+
+      {/* 사용자 정보 */}
+      <div style={styles.profileBlock}>
+        <p style={styles.profileName}>{nickname ? `${nickname}님` : "닉네임 없음"}</p>
+        <p style={styles.profileSub}>참견이와 함께한 생각 {entryCount ?? 0}개</p>
+      </div>
+
+      <div style={styles.group}>
+        {phoneMode === "view" ? (
+          <Row
+            label="전화번호"
+            value={phoneDone ? "번호가 바뀌었어" : maskPhone(currentPhone)}
+            onClick={() => {
+              setPhoneMode("edit_phone");
+              setPhoneError(null);
+              setPhoneDone(false);
+            }}
+          />
+        ) : (
+          <div style={styles.expandBlock}>
+            <p style={styles.expandLabel}>전화번호</p>
+            {phoneMode === "edit_phone" && (
+              <div style={styles.editBlock}>
+                <input
+                  style={styles.input}
+                  type="tel"
+                  placeholder="새 번호 (010-0000-0000)"
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
+                />
+                <div style={styles.rowGap}>
+                  <button className={TACTILE_PRESS_CLASS} style={styles.smallButton} onClick={sendCode} disabled={!newPhone || phoneBusy}>
+                    {phoneBusy ? "보내는 중..." : "인증번호 받기"}
+                  </button>
+                  <button className={TACTILE_PRESS_CLASS} style={styles.cancelButton} onClick={() => setPhoneMode("view")}>취소</button>
+                </div>
+              </div>
+            )}
+            {phoneMode === "edit_code" && (
+              <div style={styles.editBlock}>
+                <input
+                  style={styles.input}
+                  type="tel"
+                  inputMode="numeric"
+                  placeholder="인증번호 6자리"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                />
+                <div style={styles.rowGap}>
+                  <button className={TACTILE_PRESS_CLASS} style={styles.smallButton} onClick={verifyCode} disabled={!code || phoneBusy}>
+                    {phoneBusy ? "확인 중..." : "확인"}
+                  </button>
+                  <button className={TACTILE_PRESS_CLASS} style={styles.cancelButton} onClick={() => setPhoneMode("view")}>취소</button>
+                </div>
+              </div>
+            )}
+            {phoneError && <p style={styles.error}>{phoneError}</p>}
+          </div>
+        )}
+      </div>
+
+      {/* 참견이 */}
+      <p style={styles.sectionTitle}>참견이</p>
+      <div style={styles.group}>
+        <ToggleRow label="효과음" value={soundOn} onToggle={toggleSound} />
+        <Divider />
+        <ToggleRow label="알림" value={notificationsOn} onToggle={toggleNotifications} />
+        <Divider />
+        <Row label="참견 정도" value={`${interventionLabel} ›`} onClick={() => setSheet("intervention")} />
+      </div>
+
+      {/* 내 기록 */}
+      <p style={styles.sectionTitle}>내 기록</p>
+      <div style={styles.group}>
+        <Row label="내가 남긴 기억" onClick={onOpenRecords} />
+      </div>
+
+      {/* 기타 */}
+      <p style={styles.sectionTitle}>기타</p>
+      <div style={styles.group}>
+        <Row label="참견이에게 의견 보내기" onClick={() => setToast("의견 보내기는 곧 열릴 예정이야.")} />
+        <Divider />
+        <Row label="이용약관" onClick={() => setToast("이용약관 페이지는 아직 준비 중이야.")} />
+        <Divider />
+        <Row label="개인정보처리방침" onClick={() => setToast("개인정보처리방침 페이지는 아직 준비 중이야.")} />
+      </div>
+
+      {/* 계정 */}
+      <div style={styles.accountArea}>
+        <button className={TACTILE_PRESS_CLASS} style={styles.accountButton} onClick={handleLogout} disabled={loggingOut}>
+          {loggingOut ? "로그아웃 중..." : "로그아웃"}
+        </button>
+        <button className={TACTILE_PRESS_CLASS} style={styles.accountButtonDanger} onClick={() => setSheet("delete_confirm")}>
+          회원탈퇴
+        </button>
+      </div>
+
+      {sheet && (
+        <div style={styles.sheetBackdrop} onClick={() => setSheet(null)}>
+          <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
+            {sheet === "intervention" && (
+              <>
+                <p style={styles.sheetTitle}>참견 정도</p>
+                {INTERVENTION_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.level}
+                    className={TACTILE_PRESS_CLASS}
+                    style={{
+                      ...styles.sheetOption,
+                      ...(opt.level === interventionLevel ? styles.sheetOptionActive : null),
+                    }}
+                    onClick={() => chooseIntervention(opt.level)}
+                  >
+                    <span style={styles.sheetOptionDot}>{opt.level === interventionLevel ? "●" : "○"}</span>
+                    <span style={styles.sheetOptionText}>
+                      <span style={styles.sheetOptionLabel}>{opt.label}</span>
+                      <span style={styles.sheetOptionDesc}>{opt.desc}</span>
+                    </span>
+                  </button>
+                ))}
+              </>
+            )}
+
+            {sheet === "delete_confirm" && (
+              <>
+                <p style={styles.sheetTitle}>정말 탈퇴할래?</p>
+                <p style={styles.sheetDesc}>
+                  탈퇴 기능은 아직 준비 중이야. 지금은 계정을 안전하게 지울 수 없어서,
+                  급하면 위의 &apos;참견이에게 의견 보내기&apos;로 알려줘.
+                </p>
+                <button className={TACTILE_PRESS_CLASS} style={styles.sheetPrimary} onClick={() => setSheet(null)}>
+                  알겠어
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div style={styles.toast}>{toast}</div>
+      )}
+    </div>
+  );
+}
+
+function Row({
+  label,
+  value,
+  onClick,
+}: {
+  label: string;
+  value?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button className={TACTILE_PRESS_CLASS} style={styles.row} onClick={onClick}>
+      <span style={styles.rowLabel}>{label}</span>
+      <span style={styles.rowValue}>{value ?? "›"}</span>
+    </button>
+  );
+}
+
+function ToggleRow({ label, value, onToggle }: { label: string; value: boolean; onToggle: () => void }) {
+  return (
+    <div style={styles.row}>
+      <span style={styles.rowLabel}>{label}</span>
+      <button
+        className={TACTILE_PRESS_CLASS}
+        role="switch"
+        aria-checked={value}
+        style={{ ...styles.switchTrack, ...(value ? styles.switchTrackOn : null) }}
+        onClick={onToggle}
+      >
+        <span style={{ ...styles.switchKnob, ...(value ? styles.switchKnobOn : null) }} />
+      </button>
+    </div>
+  );
+}
+
+function Divider() {
+  return <div style={styles.divider} />;
+}
+
+const styles: { [key: string]: React.CSSProperties } = {
+  container: {
+    minHeight: "100vh",
+    ...pageBackground,
+    paddingTop: "max(32px, calc(env(safe-area-inset-top, 0px) + 24px))",
+    paddingRight: 20,
+    paddingBottom: "max(32px, calc(env(safe-area-inset-bottom, 0px) + 24px))",
+    paddingLeft: 20,
+    boxSizing: "border-box",
+    position: "relative",
+  },
+  backButton: { ...tactile.ghostButton, border: "none", fontSize: 14, fontWeight: 600, padding: 0, marginBottom: 16 },
+  headline: { ...typography.headline, color: BRAND.ink, margin: "0 0 20px 0" },
+
+  profileBlock: { padding: "4px 4px 20px 4px" },
+  profileName: { fontSize: 19, fontWeight: 800, color: BRAND.ink, margin: "0 0 4px 0" },
+  profileSub: { fontSize: 13, fontWeight: 500, color: inkAlpha.muted, margin: 0 },
+
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: inkAlpha.faint,
+    letterSpacing: 0.3,
+    margin: "22px 4px 8px 4px",
+  },
+
+  group: {
+    ...tactile.card,
+    padding: "2px 4px",
+  },
+
+  row: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    minHeight: 52,
+    padding: "12px 12px",
+    background: "transparent",
+    border: "none",
+    cursor: "pointer",
+    textAlign: "left",
+  },
+  rowLabel: { fontSize: 15, fontWeight: 600, color: BRAND.ink },
+  rowValue: { fontSize: 14, fontWeight: 500, color: inkAlpha.muted },
+
+  divider: { height: 1, background: inkAlpha.hairline, margin: "0 12px" },
+
+  expandBlock: { padding: "14px 12px" },
+  expandLabel: { fontSize: 12, fontWeight: 700, color: inkAlpha.faint, margin: "0 0 8px 0", letterSpacing: 0.3 },
+  editBlock: { display: "flex", flexDirection: "column", gap: 10 },
+  rowGap: { display: "flex", gap: 8 },
+  input: { padding: "12px 14px", ...tactile.input, borderRadius: 14, fontSize: 15 },
+  smallButton: { padding: "12px 16px", ...tactile.primaryButton, fontSize: 14, fontWeight: 700, borderRadius: 14 },
+  cancelButton: { padding: "12px 16px", ...tactile.ghostButton, fontSize: 14, fontWeight: 600, border: `1px solid ${inkAlpha.hairline}`, borderRadius: 14 },
+  error: { color: "#D14343", fontSize: 12, fontWeight: 500, marginTop: 10 },
+
+  switchTrack: {
+    width: 46,
+    height: 27,
+    borderRadius: 999,
+    background: inkAlpha.hairline,
+    border: "none",
+    position: "relative",
+    cursor: "pointer",
+    padding: 0,
+    transition: "background 0.15s ease",
+    flexShrink: 0,
+  },
+  switchTrackOn: { background: BRAND.lavender },
+  switchKnob: {
+    position: "absolute",
+    top: 3,
+    left: 3,
+    width: 21,
+    height: 21,
+    borderRadius: "50%",
+    background: "#fff",
+    boxShadow: "0 1px 2px rgba(34,28,44,0.25)",
+    transition: "transform 0.15s ease",
+    display: "block",
+  },
+  switchKnobOn: { transform: "translateX(19px)" },
+
+  accountArea: {
+    marginTop: 28,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 14,
+    paddingBottom: 8,
+  },
+  accountButton: { ...tactile.ghostButton, border: "none", background: "transparent", fontSize: 13, fontWeight: 600, padding: "6px 10px" },
+  accountButtonDanger: { ...tactile.ghostButton, border: "none", background: "transparent", fontSize: 13, fontWeight: 600, padding: "6px 10px", color: "#C24444" },
+
+  sheetBackdrop: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(34,28,44,0.32)",
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    zIndex: 1000,
+  },
+  sheet: {
+    width: "100%",
+    maxWidth: 480,
+    background: BRAND.card,
+    borderTopLeftRadius: 22,
+    borderTopRightRadius: 22,
+    padding: "20px 20px max(20px, calc(env(safe-area-inset-bottom, 0px) + 16px)) 20px",
+    boxSizing: "border-box",
+    boxShadow: "0 -4px 24px rgba(34,28,44,0.14)",
+  },
+  sheetTitle: { fontSize: 16, fontWeight: 800, color: BRAND.ink, margin: "0 0 14px 0" },
+  sheetDesc: { fontSize: 13, color: inkAlpha.muted, lineHeight: 1.5, margin: "0 0 16px 0", fontWeight: 500 },
+  sheetOption: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    width: "100%",
+    padding: "12px 10px",
+    background: "transparent",
+    border: "none",
+    borderRadius: 14,
+    cursor: "pointer",
+    textAlign: "left",
+  },
+  sheetOptionActive: { background: BRAND.lavenderPale },
+  sheetOptionDot: { fontSize: 15, color: BRAND.lavender, marginTop: 1 },
+  sheetOptionText: { display: "flex", flexDirection: "column", gap: 2 },
+  sheetOptionLabel: { fontSize: 15, fontWeight: 700, color: BRAND.ink },
+  sheetOptionDesc: { fontSize: 12, fontWeight: 500, color: inkAlpha.muted },
+  sheetPrimary: { ...tactile.primaryButton, width: "100%", padding: "14px 16px", fontSize: 15, fontWeight: 700, borderRadius: 14, marginTop: 4 },
+
+  toast: {
+    position: "fixed",
+    left: "50%",
+    bottom: "max(28px, calc(env(safe-area-inset-bottom, 0px) + 20px))",
+    transform: "translateX(-50%)",
+    background: BRAND.border,
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: 600,
+    padding: "10px 16px",
+    borderRadius: 999,
+    boxShadow: "0 6px 16px rgba(0,0,0,0.2)",
+    zIndex: 1100,
+    whiteSpace: "nowrap",
+  },
+};
