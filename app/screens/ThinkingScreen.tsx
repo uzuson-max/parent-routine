@@ -1,9 +1,9 @@
-// app/screens/ThinkingScreen.tsx
+
 
 "use client";
 
 import { useEffect, useState } from "react";
-import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground, shadow, border } from "@/lib/theme";
 import { IconMic } from "@/components/icons";
 
 // 순차 문구: 실제 API가 끝나기 전까지 이 컴포넌트는 계속 떠 있고,
@@ -78,26 +78,26 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   label: {
     fontSize: "11px",
-    fontWeight: 900,
-    letterSpacing: "2px",
+    fontWeight: 700,
+    letterSpacing: "1.5px",
     color: inkAlpha.muted,
   },
   micWrap: {
     width: "88px",
     height: "88px",
     borderRadius: "50%",
-    border: "3px solid #111",
-    background: BRAND.lavender,
+    border: border.onLavender,
+    background: `radial-gradient(circle at 35% 28%, ${BRAND.lavenderSoft} 0%, ${BRAND.lavender} 100%)`,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    boxShadow: "4px 4px 0px #111",
+    boxShadow: shadow.lavender,
     animation: "ganseobiThinkPulse 1.4s ease-in-out infinite",
   },
   phrase: {
     color: BRAND.ink,
     fontSize: "22px",
-    fontWeight: 900,
+    fontWeight: 700,
     margin: 0,
     minHeight: "28px",
     textAlign: "center",
