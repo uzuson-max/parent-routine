@@ -1,6 +1,9 @@
+
+
 "use client";
 
 import { useState } from "react";
+import { BRAND, inkAlpha, pageBackground, tactile, typography, radius, TACTILE_PRESS_CLASS } from "@/lib/theme";
 
 interface LandingScreenProps {
   onStart: (selectedText?: string) => void;
@@ -29,7 +32,7 @@ export default function LandingScreen({ onStart }: LandingScreenProps) {
   return (
     <div style={styles.container}>
       <div style={styles.headerRow}>
-        <span style={styles.badge}>GANSEOBI.EXE</span>
+        <span style={styles.badge}>GANSEOBI</span>
         <span style={styles.dateStamp}>08.29 SAT</span>
       </div>
 
@@ -47,12 +50,11 @@ export default function LandingScreen({ onStart }: LandingScreenProps) {
           return (
             <button
               key={idx}
+              className={TACTILE_PRESS_CLASS}
               onClick={() => handleChipClick(chip)}
               style={{
                 ...styles.chip,
-                background: isSelected ? "#E5FF5D" : "#FFF",
-                color: isSelected ? "#C71585" : "#1E1E1E",
-                transform: `rotate(${((idx % 3) - 1) * 2}deg)`,
+                ...(isSelected ? styles.chipSelected : {}),
               }}
             >
               #{chip}
@@ -62,7 +64,7 @@ export default function LandingScreen({ onStart }: LandingScreenProps) {
       </div>
 
       <div style={styles.ctaArea}>
-        <button style={styles.ctaButton} onClick={() => onStart(selectedChip || "그냥 아무 생각이나")}>
+        <button className={TACTILE_PRESS_CLASS} style={styles.ctaButton} onClick={() => onStart(selectedChip || "그냥 아무 생각이나")}>
           + 생각 하나 던지기
         </button>
         <p style={styles.footerNote}>정리할 필요 없음. 욕해도 됨.</p>
@@ -74,8 +76,8 @@ export default function LandingScreen({ onStart }: LandingScreenProps) {
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
     minHeight: "100vh",
-    background: "#C71585",
-    color: "#FFF",
+    ...pageBackground,
+    color: BRAND.ink,
     display: "flex",
     flexDirection: "column",
     justifyContent: "space-between",
@@ -89,17 +91,16 @@ const styles: { [key: string]: React.CSSProperties } = {
     width: "100%",
   },
   badge: {
-    background: "#E5FF5D",
-    color: "#C71585",
-    padding: "4px 8px",
+    ...tactile.badge,
+    padding: "4px 10px",
     fontSize: "11px",
-    fontWeight: "900",
-    letterSpacing: "1px",
+    fontWeight: 700,
+    letterSpacing: "0.06em",
   },
   dateStamp: {
     fontSize: "12px",
-    fontWeight: "bold",
-    color: "rgba(255,255,255,0.8)",
+    fontWeight: 600,
+    color: inkAlpha.faint,
   },
   heroSection: {
     display: "flex",
@@ -109,19 +110,19 @@ const styles: { [key: string]: React.CSSProperties } = {
     margin: "20px 0",
   },
   mainQuestion: {
-    fontSize: "42px",
-    fontWeight: "900",
-    lineHeight: "1.1",
-    letterSpacing: "-1px",
-    color: "#FFF",
-    textShadow: "3px 3px 0px #111",
+    fontSize: "40px",
+    fontWeight: 800,
+    lineHeight: "1.15",
+    letterSpacing: "-0.02em",
+    color: BRAND.ink,
     margin: "0 0 12px 0",
   },
   subGuide: {
     fontSize: "14px",
-    color: "rgba(255, 255, 255, 0.85)",
+    color: inkAlpha.muted,
     lineHeight: "1.4",
     margin: 0,
+    fontWeight: 500,
   },
   chipContainer: {
     display: "flex",
@@ -133,12 +134,16 @@ const styles: { [key: string]: React.CSSProperties } = {
     padding: "4px",
   },
   chip: {
-    border: "2px solid #111",
-    padding: "8px 12px",
+    ...tactile.secondaryButton,
+    padding: "8px 14px",
     fontSize: "12px",
-    fontWeight: "bold",
-    cursor: "pointer",
-    boxShadow: "3px 3px 0px #111",
+    fontWeight: 600,
+    color: BRAND.ink,
+  },
+  chipSelected: {
+    background: BRAND.lavenderPale,
+    color: BRAND.lavenderDeep,
+    border: `1px solid rgba(77,63,115,0.25)`,
   },
   ctaArea: {
     display: "flex",
@@ -150,18 +155,14 @@ const styles: { [key: string]: React.CSSProperties } = {
   ctaButton: {
     width: "100%",
     maxWidth: "360px",
-    background: "#E5FF5D",
-    color: "#C71585",
-    border: "3px solid #111",
-    boxShadow: "4px 4px 0px #111",
+    ...tactile.primaryButton,
     padding: "18px",
+    ...typography.ctaLabel,
     fontSize: "18px",
-    fontWeight: "900",
-    cursor: "pointer",
   },
   footerNote: {
     fontSize: "11px",
-    color: "rgba(255, 255, 255, 0.6)",
+    color: inkAlpha.faint,
     margin: 0,
   },
 };
