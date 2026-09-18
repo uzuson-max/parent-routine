@@ -1,19 +1,29 @@
-
-
 //
-// 계정에 인증되어 있는 전화번호를 보여주고 바꿀 수 있는 화면.
-// 번호를 바꿔도 user_id는 그대로라 지금까지의 기록은 그대로 이 계정에 남는다 —
-// Supabase auth의 phone 필드만 갱신되는 거라(updateUser + verifyOtp) 데이터 이전/마이그레이션이
-// 따로 필요하지 않다.
+// MY 화면 — 원래는 전화번호 인증 카드 하나만 있던 화면을 "참견이 기본 설정 + 내 정보"로 확장한다.
 //
-// requestPhoneLink를 allowExistingAccountFallback=false로 호출한다 — 온보딩 체크리스트와
-// 달리, 여기서 새 번호가 이미 다른 계정에 등록돼 있다고 그 계정으로 조용히 로그인 전환해버리면
-// 사용자가 원치 않게 다른 계정으로 넘어가는 사고가 될 수 있어서, 그 경우는 에러로만 알려준다.
+// 확장 원칙(이번 작업 범위):
+// - 기존 전화번호 인증/변경 로직(requestPhoneLink/confirmPhoneCode/syncVerifiedPhoneToBackend)은
+//   그대로 두고, 화면에서의 위치만 "전화번호" row 하나로 옮긴다.
+// - 닉네임/기록 수는 기존 /api/user/me(lib/userClient.fetchMe)를 그대로 재사용한다 — 새 API 없음.
+// - "내가 남긴 기억"은 새로운 memory 열람 화면을 만들지 않고, 이미 있는 CalendarScreen(기존
+//   "기록" 네비게이션 목적지, entries 기반)으로 그대로 연결한다.
+// - 효과음/알림/참견 정도는 이 앱에 아직 전역 상태/DB 컬럼이 전혀 없어서(레포 전체 검색으로 확인),
+//   localStorage에 값만 저장하는 설정 UI로 우선 구현한다. 알림 토글은 실제 OS notification
+//   permission을 다시 요청하지 않는다(그 로직 자체가 없으므로 충돌할 것도 없음) — 순수 사용자
+//   선호값이고, 실제 알림 발송/참견 강도 로직과의 연결은 추후 백엔드 작업이 필요하다.
+// - 의견 보내기/이용약관/개인정보처리방침은 연결할 기존 기능이나 URL이 없어서(레포 전체 검색으로
+//   확인), 임의로 새 URL을 만들지 않고 클릭 가능한 placeholder(짧은 안내 토스트)까지만 만든다.
+// - 회원탈퇴는 안전하게 구현된 삭제 API가 없어서(레포 전체 검색으로 확인) 실제 계정 삭제를
+//   구현하지 않고, 확인 시트 + 안내 메시지까지만 만든다.
+// - 로그아웃은 기존 supabaseClient.auth(anonymous sign-in에도 이미 쓰는 그 인스턴스)의
+//   표준 signOut()을 그대로 사용한다.
+//
 "use client";
 
 import { useEffect, useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
 import { requestPhoneLink, confirmPhoneCode, syncVerifiedPhoneToBackend, type PhoneLinkVerifyType } from "@/lib/phoneAuthClient";
+import { fetchMe } from "@/lib/userClient";
 import { BRAND, inkAlpha, pageBackground, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 
 function maskPhone(e164: string | null | undefined): string {
@@ -23,145 +33,35 @@ function maskPhone(e164: string | null | undefined): string {
   return `${digits.slice(0, 3)}-****-${digits.slice(-4)}`;
 }
 
-type Mode = "view" | "edit_phone" | "edit_code";
+type PhoneMode = "view" | "edit_phone" | "edit_code";
 
-export default function MyPageScreen({ onBack }: { onBack: () => void }) {
-  const [currentPhone, setCurrentPhone] = useState<string | null>(null);
-  const [mode, setMode] = useState<Mode>("view");
-  const [newPhone, setNewPhone] = useState("");
-  const [code, setCode] = useState("");
-  const [verifyType, setVerifyType] = useState<PhoneLinkVerifyType>("phone_change");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+// --- 참견 정도 -----------------------------------------------------------
+// 실제 intervention_stage(commitment_memory)는 "약속 하나가 지금 몇 번째 재촉 단계인지"를
+// 나타내는 값이라 이 설정과 의미가 다르다(사용자 전역 선호 vs 개별 약속의 진행 상태) — 그대로
+// 재사용할 수 없어서, 이번 작업에서는 로컬에 선호값만 저장해둔다.
+type InterventionLevel = "low" | "medium" | "high";
+const INTERVENTION_KEY = "ganseobi_intervention_level";
+const SOUND_KEY = "ganseobi_sound_enabled";
+const NOTIFICATION_KEY = "ganseobi_notifications_enabled";
 
-  useEffect(() => {
-    supabaseClient.auth.getUser().then(({ data: { user } }) => {
-      setCurrentPhone(user?.phone ?? null);
-    });
-  }, []);
+const INTERVENTION_OPTIONS: { level: InterventionLevel; label: string; desc: string }[] = [
+  { level: "low", label: "살짝", desc: "앱 안에서 조용히 참견해요." },
+  { level: "medium", label: "적당히", desc: "필요할 때 먼저 말을 걸어요." },
+  { level: "high", label: "많이", desc: "조금 더 적극적으로 참견해요." },
+];
 
-  const sendCode = async () => {
-    setBusy(true);
-    setError(null);
-    const { verifyType: vt, error: err } = await requestPhoneLink(newPhone, { allowExistingAccountFallback: false });
-    setBusy(false);
-    if (err || !vt) {
-      setError(err ?? "인증번호를 보내지 못했어.");
-      return;
-    }
-    setVerifyType(vt);
-    setMode("edit_code");
-  };
-
-  const verifyCode = async () => {
-    setBusy(true);
-    setError(null);
-    const { error: err } = await confirmPhoneCode(newPhone, code, verifyType);
-    setBusy(false);
-    if (err) {
-      setError(err);
-      return;
-    }
-    setCurrentPhone(newPhone);
-    setDone(true);
-    setMode("view");
-    // 온보딩 체크리스트와 같은 이유 — 번호를 바꿔도 localStorage/user_memory가 예전 번호를
-    // 그대로 들고 있으면, 다음 녹음의 실제 전화 발신이 옛날 번호로 나갈 수 있다.
-    syncVerifiedPhoneToBackend(newPhone);
-    setNewPhone("");
-    setCode("");
-  };
-
-  return (
-    <div style={styles.container}>
-      <button className={TACTILE_PRESS_CLASS} style={styles.backButton} onClick={onBack}>← 뒤로</button>
-      <h1 style={styles.headline}>내 정보</h1>
-
-      <div style={styles.card}>
-        <p style={styles.label}>인증된 번호</p>
-        <p style={styles.value}>{maskPhone(currentPhone)}</p>
-        {done && <p style={styles.doneNote}>번호가 바뀌었어.</p>}
-
-        {mode === "view" && (
-          <button
-            className={TACTILE_PRESS_CLASS}
-            style={styles.smallButton}
-            onClick={() => {
-              setMode("edit_phone");
-              setError(null);
-              setDone(false);
-            }}
-          >
-            번호 변경
-          </button>
-        )}
-
-        {mode === "edit_phone" && (
-          <div style={styles.editBlock}>
-            <input
-              style={styles.input}
-              type="tel"
-              placeholder="새 번호 (010-0000-0000)"
-              value={newPhone}
-              onChange={(e) => setNewPhone(e.target.value)}
-            />
-            <div style={styles.rowGap}>
-              <button className={TACTILE_PRESS_CLASS} style={styles.smallButton} onClick={sendCode} disabled={!newPhone || busy}>
-                {busy ? "보내는 중..." : "인증번호 받기"}
-              </button>
-              <button className={TACTILE_PRESS_CLASS} style={styles.cancelButton} onClick={() => setMode("view")}>취소</button>
-            </div>
-          </div>
-        )}
-
-        {mode === "edit_code" && (
-          <div style={styles.editBlock}>
-            <input
-              style={styles.input}
-              type="tel"
-              inputMode="numeric"
-              placeholder="인증번호 6자리"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
-            <div style={styles.rowGap}>
-              <button className={TACTILE_PRESS_CLASS} style={styles.smallButton} onClick={verifyCode} disabled={!code || busy}>
-                {busy ? "확인 중..." : "확인"}
-              </button>
-              <button className={TACTILE_PRESS_CLASS} style={styles.cancelButton} onClick={() => setMode("view")}>취소</button>
-            </div>
-          </div>
-        )}
-
-        {error && <p style={styles.error}>{error}</p>}
-      </div>
-    </div>
-  );
+function readBoolPref(key: string, fallback: boolean): boolean {
+  if (typeof window === "undefined") return fallback;
+  const raw = window.localStorage.getItem(key);
+  if (raw === null) return fallback;
+  return raw === "1";
 }
 
-const styles: { [key: string]: React.CSSProperties } = {
-  container: {
-    minHeight: "100vh",
-    ...pageBackground,
-    // 24px 고정값만으로는 기기에 따라 env(safe-area-inset-top)이 0으로 잡히면서
-    // 상태표시줄/제스처 영역과 겹치는 경우가 있어서, max()로 최소 여백을 항상 보장한다.
-    paddingTop: "max(32px, calc(env(safe-area-inset-top, 0px) + 24px))",
-    paddingRight: 20,
-    paddingBottom: 24,
-    paddingLeft: 20,
-    boxSizing: "border-box",
-  },
-  backButton: { ...tactile.ghostButton, border: "none", fontSize: 14, fontWeight: 600, padding: 0, marginBottom: 16 },
-  headline: { ...typography.headline, color: BRAND.ink, margin: "0 0 20px 0" },
-  card: { ...tactile.card, padding: "20px" },
-  label: { fontSize: 12, fontWeight: 700, color: inkAlpha.faint, margin: "0 0 4px 0", letterSpacing: 0.3 },
-  value: { fontSize: 18, fontWeight: 800, color: BRAND.ink, margin: "0 0 14px 0" },
-  doneNote: { fontSize: 13, color: BRAND.lavenderDeep, fontWeight: 500, margin: "-8px 0 14px 0" },
-  smallButton: { padding: "12px 16px", ...tactile.primaryButton, fontSize: 14, fontWeight: 700, borderRadius: 14 },
-  cancelButton: { padding: "12px 16px", ...tactile.ghostButton, fontSize: 14, fontWeight: 600, border: `1px solid ${inkAlpha.hairline}`, borderRadius: 14 },
-  editBlock: { display: "flex", flexDirection: "column", gap: 10, marginTop: 4 },
-  rowGap: { display: "flex", gap: 8 },
-  input: { padding: "12px 14px", ...tactile.input, borderRadius: 14, fontSize: 15 },
-  error: { color: "#D14343", fontSize: 12, fontWeight: 500, marginTop: 10 },
-};
+function readIntervention(): InterventionLevel {
+  if (typeof window === "undefined") return "medium";
+  const raw = window.localStorage.getItem(INTERVENTION_KEY);
+  if (raw === "low" || raw === "medium" || raw === "high") return raw;
+  return "medium";
+}
+
+type SheetKind = "intervention" | "delete_confirm" | nul
