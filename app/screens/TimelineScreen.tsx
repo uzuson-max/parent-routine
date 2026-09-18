@@ -1,7 +1,8 @@
 
+
 "use client";
 
-import { BRAND, inkAlpha, pageBackground } from "@/lib/theme";
+import { BRAND, inkAlpha, pageBackground, tactile, typography, shadow, border, radius, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import Mascot, { type MascotPose } from "@/components/Mascot";
 import { IconHome, IconRecord, IconMemory, IconMic, IconGear } from "@/components/icons";
 
@@ -141,7 +142,7 @@ export default function TimelineScreen({
       <div style={styles.midSpacer} />
 
       {/* MAIN CTA — 화면에서 가장 큰 행동, 유일한 주 버튼. 참견에 답하는 것도 이 버튼 하나로 */}
-      <button style={styles.mainCta} onClick={handleCtaClick}>
+      <button className={TACTILE_PRESS_CLASS} style={styles.mainCta} onClick={handleCtaClick}>
         <span style={styles.ctaMicWrap}>
           <IconMic style={{ width: 22, height: 22, color: "#fff" }} />
         </span>
@@ -157,15 +158,15 @@ export default function TimelineScreen({
           <IconHome style={{ width: 20, height: 20 }} />
           <span style={styles.navText}>HOME</span>
         </div>
-        <button style={styles.navItem} onClick={onOpenCalendar}>
+        <button className={TACTILE_PRESS_CLASS} style={styles.navItem} onClick={onOpenCalendar}>
           <IconRecord style={{ width: 20, height: 20 }} />
           <span style={styles.navText}>기록</span>
         </button>
-        <button style={styles.navItem} onClick={onOpenInsights}>
+        <button className={TACTILE_PRESS_CLASS} style={styles.navItem} onClick={onOpenInsights}>
           <IconMemory style={{ width: 20, height: 20 }} />
           <span style={styles.navText}>MEMORY</span>
         </button>
-        <button style={styles.navItem} onClick={onOpenMyPage}>
+        <button className={TACTILE_PRESS_CLASS} style={styles.navItem} onClick={onOpenMyPage}>
           <IconGear style={{ width: 20, height: 20 }} />
           <span style={styles.navText}>MY</span>
         </button>
@@ -202,66 +203,50 @@ const styles: { [key: string]: React.CSSProperties } = {
     alignItems: "flex-start",
     gap: "6px",
   },
-  stamp: {
-    background: BRAND.yellow,
-    color: BRAND.ink,
-    border: "2px solid #111",
-    boxShadow: "3px 3px 0px #111",
-    padding: "4px 10px",
-    fontSize: 12,
-    fontWeight: 900,
-    letterSpacing: "0.5px",
-  },
+  stamp: { ...tactile.stamp, padding: "4px 10px", fontSize: 12, fontWeight: 700, letterSpacing: "0.3px" },
   speechBubble: {
-    background: BRAND.card,
-    border: "2.5px solid #111",
+    ...tactile.card,
     borderRadius: "18px 18px 18px 4px",
     padding: "14px 16px",
-    boxShadow: "3px 4px 0px rgba(30,26,38,0.12)",
     width: "100%",
     boxSizing: "border-box",
   },
   greeting: {
-    fontSize: "20px",
-    fontWeight: "900",
+    ...typography.headline,
     margin: 0,
-    letterSpacing: "-0.3px",
     lineHeight: 1.35,
   },
   mainCta: {
     width: "100%",
-    background: BRAND.lavender,
-    color: "#fff",
-    border: "3px solid #111",
-    boxShadow: "4px 4px 0px #111",
-    borderRadius: "18px",
+    ...tactile.primaryButton,
     padding: "20px 16px",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
     gap: "6px",
-    cursor: "pointer",
   },
   ctaMicWrap: {
     width: "36px",
     height: "36px",
     borderRadius: "50%",
-    background: "rgba(255,255,255,0.2)",
+    background: "rgba(255,255,255,0.18)",
+    border: "1px solid rgba(255,255,255,0.25)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
   },
   midSpacer: { height: "48px" },
-  ctaText: { fontSize: "18px", fontWeight: "900" },
-  ctaLabel: { fontSize: "10px", fontWeight: "900", letterSpacing: "1.5px", opacity: 0.85 },
+  ctaText: typography.ctaLabel,
+  ctaLabel: { fontSize: "10px", fontWeight: 700, letterSpacing: "1.2px", opacity: 0.85 },
   bottomNav: {
     position: "fixed",
     bottom: 0,
     left: 0,
     right: 0,
     background: BRAND.card,
-    borderTop: "2.5px solid #111",
+    borderTop: border.onCream,
+    boxShadow: "0 -6px 20px rgba(34,28,44,0.06)",
     display: "flex",
     // 홈 인디케이터가 있는 기기에서 네비 아이콘이 그 제스처 영역과 겹치지 않도록.
     paddingBottom: "env(safe-area-inset-bottom, 0px)",
@@ -280,5 +265,5 @@ const styles: { [key: string]: React.CSSProperties } = {
     cursor: "pointer",
   },
   navItemActive: { color: BRAND.lavenderDeep },
-  navText: { fontSize: "10px", fontWeight: "900", letterSpacing: "0.5px" },
+  navText: { fontSize: "10px", fontWeight: 700, letterSpacing: "0.3px" },
 };
