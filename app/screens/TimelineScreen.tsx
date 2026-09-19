@@ -1,6 +1,7 @@
 
 
 
+
 "use client";
 
 import { BRAND, inkAlpha, pageBackground, tactile, typography, shadow, border, radius, TACTILE_PRESS_CLASS } from "@/lib/theme";
@@ -36,87 +37,36 @@ function truncate(text: string, max: number): string {
   return clean.length > max ? clean.slice(0, max) + "…" : clean;
 }
 
-// "이전 참견" 미니 프리뷰용 — 이미 있는 entry.createdAt만 가지고 상대적인 날짜 라벨을 만든다.
-// 새 데이터/새 API 없이 기존 값만 재활용.
-function formatRelativeDate(iso: string): string {
-  const then = new Date(iso);
-  const now = new Date();
-  const startOfThen = new Date(then.getFullYear(), then.getMonth(), then.getDate()).getTime();
-  const startOfNow = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const days = Math.round((startOfNow - startOfThen) / 86400000);
-  if (days <= 0) return "오늘";
-  if (days === 1) return "어제";
-  return `${days}일 전`;
-}
-
-// entries가 어떤 순서로 내려오든(최신순/오래된순 상관없이) 안전하게 가장 최근 항목을 고른다.
-function pickLatestEntry(entries: RecordEntry[] | null): RecordEntry | null {
-  if (!entries || entries.length === 0) return null;
-  return entries.reduce((latest, e) =>
-    new Date(e.createdAt).getTime() > new Date(latest.createdAt).getTime() ? e : latest
-  );
-}
-
-// 아직 참견할 거리도, 지난 반응도 없을 때 쓰는 담백한 시작 문구.
-// 고정 문구를 매번 반복하지 않으려고 날짜 기준으로 하나씩 돌려쓴다(같은 날 안에서는 안 바뀜).
-const IDLE_LINES = ["왔어?", "오늘은 무슨 얘기 할 건데?", "어, 왔네.", "뭐 재밌는 거 없었어?"];
-
-function pickIdleLine(nickname?: string | null): string {
-  const line = IDLE_LINES[new Date().getDate() % IDLE_LINES.length];
-  return nickname ? `${nickname}, ${line}` : line;
-}
-
-type LineMode = "callback" | "recent" | "idle";
+// Home은 "참견이가 지금 나에게 할 말이 있는가"만 판단한다. 과거 기록을 훑어서 대신 보여주는
+// 3번째 모드(예전의 "recent")는 두지 않는다 — 최신 기록을 재활용해 마치 지금 말을 거는 것처럼
+// 보여주는 것도 결국 "기록 앱" UX라, 진짜 proactive callback이 없으면 그냥 조용한 empty state로 간다.
+const EMPTY_HEADLINE = "오늘은 아직\n참견할 게 없는데?";
+const EMPTY_SUBTEXT = "아침에 생각나는 거 있으면\n그냥 말해둬.";
 
 export default function TimelineScreen({
   onOpenRecording,
   onOpenCalendar,
   onOpenMyPage,
   onOpenInsights,
-  entries,
   proactiveLine,
   nickname,
 }: TimelineScreenProps) {
-  // 홈의 주인공은 "니가 남긴 기록 목록"이 아니라 "참견이가 지금 하고 싶은 한마디"다.
-  // 우선순위: 1) 진짜 proactive callback(아직 아무 데도 안 꺼낸 memory_insight)이 있으면 그게
-  // 곧 "참견이가 나를 찾아온 것". 2) 없으면 내가 방금 한 말에 참견이가 뭐라고 반응했는지
-  // (가장 최근 entry). 3) 그마저 없으면(정말 처음) 날짜별로 도는 담백한 시작 문구.
-  // entries와 proactiveLine 둘 다 아직 응답 전이면(로딩 중) 말풍선 자체를 비워둔다 —
-  // "불러오는 중" 같은 문구 대신, 캐릭터만 먼저 등장하고 문장은 한 박자 뒤에 따라오게 한다.
-  const ready = entries !== null && proactiveLine !== undefined;
-  const latestEntry = pickLatestEntry(entries);
+  // entries는 페이지 상위에서 여전히 불러오지만(기록/캘린더 탭 등 다른 곳에서 쓰임),
+  // Home의 메시지는 오직 proactiveLine(아직 아무 데도 안 꺼낸 진짜 개입)에만 반응한다.
+  // 로딩이 끝났는지는 proactiveLine이 undefined인지로 구분한다 — 로딩 중엔 마스코트만 먼저
+  // 등장시키고, 메시지·CTA는 결과가 확정된 뒤 한 번에 나타나게 해서 "빈 상태 → 실제 상태"로
+  // 화면이 깜빡이며 바뀌는 걸 막는다.
+  const ready = proactiveLine !== undefined;
+  const hasCallback = ready && !!(proactiveLine && proactiveLine.content);
 
-  let mode: LineMode = "idle";
-  let currentLine = "";
-  if (ready) {
-    if (proactiveLine && proactiveLine.content) {
-      mode = "callback";
-      currentLine = truncate(proactiveLine.content, 80);
-    } else if (latestEntry?.responseText && latestEntry.responseText.trim()) {
-      mode = "recent";
-      currentLine = truncate(latestEntry.responseText, 70);
-    } else {
-      mode = "idle";
-      currentLine = pickIdleLine(nickname);
-    }
-  }
+  const callbackLine = hasCallback ? truncate(proactiveLine!.content, 90) : "";
+  const headline = hasCallback ? callbackLine : nickname ? `${nickname},\n${EMPTY_HEADLINE}` : EMPTY_HEADLINE;
 
-  const pose: MascotPose = mode === "callback" ? "궁금" : "말을거는";
-  const ctaText = mode === "callback" ? "대답하기" : "아무 얘기나 해도 돼";
-
-  // callback 모드일 때만: 지금 화면 주인공(방금 도착한 참견)과 겹치지 않는 "직전 흔적" 하나를
-  // 아주 작게 보여준다. recent/idle 모드에서는 currentLine 자체가 이미 최신 기록이라 중복이라
-  // 표시하지 않는다. 새 fetch 없이 이미 내려온 entries만 재사용.
-  const recentPreview =
-    mode === "callback" && latestEntry?.responseText && latestEntry.responseText.trim()
-      ? {
-          text: truncate(latestEntry.responseText, 40),
-          dateLabel: formatRelativeDate(latestEntry.createdAt),
-        }
-      : null;
+  const pose: MascotPose = !ready ? "기본" : hasCallback ? "궁금" : "기본";
+  const ctaText = hasCallback ? "대답하기" : "오늘의 생각 말하기";
 
   const handleCtaClick = () => {
-    if (mode === "callback" && proactiveLine && proactiveLine.content) {
+    if (hasCallback && proactiveLine) {
       // 참견이가 던진 말에 답하러 가는 거라, 녹음 화면에 그 문장을 주제로 들고 간다.
       // 업로드는 기존 흐름(memory pipeline → responseEngine) 그대로.
       onOpenRecording(proactiveLine.content);
@@ -149,46 +99,47 @@ export default function TimelineScreen({
         <span style={styles.headerLabel}>참견이</span>
       </div>
 
-      {/* CORE — 마스코트·참견 메시지·답변 입력을 하나의 그룹으로 묶어 화면에 남는 공간(헤더 아래 ~
-          하단 네비 위) 안에서 세로로 중앙 정렬한다. 예전처럼 고정 높이 spacer div로 자리를 억지로
-          만드는 대신, 이 그룹을 담은 wrapper 자체가 flex: 1을 갖고 justifyContent: center로 정렬되기
-          때문에 어떤 화면 높이에서도 위/아래에 의미 없는 빈 공간이 남지 않는다. */}
+      {/* CORE — Home은 "기록을 보여주는 화면"이 아니라 "참견이가 지금 나에게 할 말이 있는 화면"이다.
+          그래서 여기엔 딱 두 상태만 있다: (1) 참견이가 꺼낼 말이 있음 → 그 말이 화면의 유일한
+          주인공. (2) 없음 → 차분한 empty state. 과거 기록을 다시 보여주는 3번째 모드는 없다.
+          이 그룹은 flex: 1 + justifyContent: center로 헤더 아래 ~ 하단 네비 위의 남는 공간
+          안에서 세로 중앙 정렬되고, 고정 높이 spacer는 쓰지 않는다. */}
       <div style={styles.coreGroup}>
-        <div style={styles.topSection}>
-          <div className="ganseobi-mascot-in">
-            <Mascot pose={pose} size={64} />
-          </div>
-          {ready && (
-            <div className="ganseobi-bubble-in" style={styles.speechBubbleWrap}>
-              {mode === "callback" && <span style={styles.stamp}>참견이 등장.</span>}
-              <div style={styles.speechBubble}>
-                <h1 style={styles.greeting}>{currentLine}</h1>
-              </div>
-            </div>
-          )}
+        <div className="ganseobi-mascot-in" style={styles.mascotWrap}>
+          <Mascot pose={pose} size={60} />
         </div>
 
-        {/* 답변 입력 — 예전의 거대한 CTA 카드를 "말 걸 수 있는 입력창"에 가까운 작은 pill로 줄였다.
-            메시지보다 시각적으로 강하면 안 되므로 한 줄, compact padding만 사용한다. */}
-        <button className={TACTILE_PRESS_CLASS} style={styles.mainCta} onClick={handleCtaClick}>
-          <span style={styles.ctaMicWrap}>
-            <IconMic style={{ width: 16, height: 16, color: "#fff" }} />
-          </span>
-          <span style={styles.ctaText}>{ctaText}</span>
-        </button>
-
-        {/* 이전 참견의 아주 작은 흔적 — SNS 피드가 아니라 한 줄짜리 잔상. callback 모드에서만,
-            이미 내려온 entries 데이터로만 표시한다(새 fetch/새 스키마 없음). */}
-        {recentPreview && (
-          <div style={styles.recentPreview}>
-            <span style={styles.recentPreviewLabel}>최근 참견</span>
-            <span style={styles.recentPreviewText}>“{recentPreview.text}”</span>
-            <span style={styles.recentPreviewDate}>{recentPreview.dateLabel}</span>
+        {ready && hasCallback && (
+          // 참견이가 먼저 말을 거는 순간 — 이 카드가 화면에서 가장 강한 요소여야 한다.
+          <div className="ganseobi-bubble-in" style={styles.callbackWrap}>
+            <span style={styles.stamp}>참견이 등장.</span>
+            <div style={styles.messageCard}>
+              <h1 style={styles.messageText}>{headline}</h1>
+            </div>
           </div>
+        )}
+
+        {ready && !hasCallback && (
+          // 참견할 거리가 없을 때 — 억지로 참견을 만들어내지 않고, 카드 없이 담백하게 보여준다.
+          <div className="ganseobi-bubble-in" style={styles.emptyWrap}>
+            <h1 style={styles.emptyHeadline}>{headline}</h1>
+            <p style={styles.emptySubtext}>{EMPTY_SUBTEXT}</p>
+          </div>
+        )}
+
+        {/* 대답하기 / 오늘의 생각 말하기 — Home에서 유일한 행동. ready 이전에는 아직 어느 문구를
+            보여줄지 확정되지 않았으므로(로딩 → callback/empty 사이 깜빡임 방지) 숨겨둔다. */}
+        {ready && (
+          <button className={TACTILE_PRESS_CLASS} style={styles.mainCta} onClick={handleCtaClick}>
+            <span style={styles.ctaMicWrap}>
+              <IconMic style={{ width: 18, height: 18, color: "#fff" }} />
+            </span>
+            <span style={styles.ctaText}>{ctaText}</span>
+          </button>
         )}
       </div>
 
-      {/* NAVIGATION — 최근 내가 남긴 말(기록)·이전 참견(MEMORY)으로 가는 아주 작은 보조 진입점.
+      {/* NAVIGATION — 기록(내가 남긴 이야기)·MEMORY(참견이가 축적한 기억)로 가는 보조 진입점.
           position:fixed라 문서 흐름 밖에 있으므로, 이 네비가 콘텐츠를 가리지 않도록
           컨테이너의 paddingBottom으로 공간을 미리 확보해둔다(아래 styles.container 참고). */}
       <div style={styles.bottomNav}>
@@ -220,6 +171,11 @@ const styles: { [key: string]: React.CSSProperties } = {
     boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
+    // 모바일 앱이 PC 브라우저에서 어색하게 옆으로 늘어나 보이지 않도록, 모바일 width를
+    // 기준으로 max-width를 잡고 넓은 화면에서는 가운데 정렬한다.
+    maxWidth: "480px",
+    marginLeft: "auto",
+    marginRight: "auto",
     // 16px 고정값만으로는 기기에 따라 env(safe-area-inset-top)이 기대만큼 안 잡히면서
     // 상태표시줄과 겹쳐 보이는 경우가 있어서, max()로 최소 여백을 항상 보장한다.
     paddingTop: "max(20px, calc(env(safe-area-inset-top, 0px) + 12px))",
@@ -250,33 +206,64 @@ const styles: { [key: string]: React.CSSProperties } = {
     justifyContent: "center",
     gap: "18px",
   },
-  topSection: { display: "flex", alignItems: "center", gap: "12px" },
-  speechBubbleWrap: {
-    flex: 1,
+  mascotWrap: { display: "flex", justifyContent: "center" },
+  // 참견이가 말을 걸 때 — 스탬프 + 메시지 카드가 화면의 시각적 주인공. 가운데 정렬로
+  // "카드 하나가 나에게 도착했다"는 느낌을 준다.
+  callbackWrap: {
     display: "flex",
     flexDirection: "column",
-    alignItems: "flex-start",
-    gap: "6px",
+    alignItems: "center",
+    gap: "10px",
+    textAlign: "center",
   },
   stamp: { ...tactile.stamp, padding: "4px 10px", fontSize: 12, fontWeight: 700, letterSpacing: "0.3px" },
-  speechBubble: {
+  messageCard: {
     ...tactile.card,
-    borderRadius: "18px 18px 18px 4px",
-    padding: "14px 16px",
+    borderRadius: radius.xl,
+    padding: "22px 20px",
     width: "100%",
     boxSizing: "border-box",
   },
-  greeting: {
+  messageText: {
     ...typography.headline,
+    fontSize: 20,
     margin: 0,
-    lineHeight: 1.35,
+    lineHeight: 1.45,
+    whiteSpace: "pre-line",
+    textAlign: "center",
   },
-  // 예전의 큰 세로형 CTA 카드 대신, "눌러서 말 걸기" 입력창에 가까운 한 줄짜리 pill.
-  // 참견이 메시지보다 시각적으로 강해지면 안 되므로 compact padding만 쓴다.
+  // 참견할 거리가 없을 때 — 카드 없이 담백한 텍스트만. 장식을 더해 눈에 띄게 만들지 않는다.
+  emptyWrap: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "8px",
+    textAlign: "center",
+    padding: "0 8px",
+  },
+  emptyHeadline: {
+    ...typography.headline,
+    fontSize: 19,
+    margin: 0,
+    lineHeight: 1.45,
+    whiteSpace: "pre-line",
+    color: inkAlpha.soft,
+    textAlign: "center",
+  },
+  emptySubtext: {
+    ...typography.sub,
+    margin: 0,
+    lineHeight: 1.5,
+    whiteSpace: "pre-line",
+    color: inkAlpha.faint,
+    textAlign: "center",
+  },
+  // 음성 입력은 핵심 행동이므로 시각적으로 충분히 강조하되, 메시지 카드보다 화면을 압도하지는
+  // 않는 크기로 — 한 줄 pill이지만 탭하기 충분히 크고 존재감 있게.
   mainCta: {
     width: "100%",
     ...tactile.primaryButton,
-    padding: "12px 16px",
+    padding: "16px 20px",
     display: "flex",
     flexDirection: "row",
     alignItems: "center",
@@ -284,8 +271,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     gap: "10px",
   },
   ctaMicWrap: {
-    width: "28px",
-    height: "28px",
+    width: "32px",
+    height: "32px",
     borderRadius: "50%",
     background: "rgba(255,255,255,0.18)",
     border: "1px solid rgba(255,255,255,0.25)",
@@ -294,23 +281,16 @@ const styles: { [key: string]: React.CSSProperties } = {
     justifyContent: "center",
     flexShrink: 0,
   },
-  ctaText: { ...typography.ctaLabel, fontSize: 15 },
-  recentPreview: {
-    display: "flex",
-    alignItems: "baseline",
-    gap: "6px",
-    padding: "0 4px",
-    color: inkAlpha.faint,
-    flexWrap: "wrap",
-  },
-  recentPreviewLabel: { fontSize: 11, fontWeight: 700, flexShrink: 0 },
-  recentPreviewText: { fontSize: 12, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  recentPreviewDate: { fontSize: 11, flexShrink: 0 },
+  ctaText: { ...typography.ctaLabel, fontSize: 16 },
   bottomNav: {
     position: "fixed",
     bottom: 0,
-    left: 0,
-    right: 0,
+    left: "50%",
+    transform: "translateX(-50%)",
+    width: "100%",
+    // container와 같은 max-width로 맞춰서, 넓은 화면에서 네비만 전체 폭으로 늘어나
+    // 콘텐츠 컬럼과 어긋나 보이지 않도록 한다.
+    maxWidth: "480px",
     background: BRAND.card,
     borderTop: border.onCream,
     boxShadow: "0 -6px 20px rgba(34,28,44,0.06)",
