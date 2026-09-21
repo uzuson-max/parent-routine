@@ -1,4 +1,5 @@
 
+
 import { supabase } from '@/lib/supabase';
 import { RelevantMemoryUnit } from '@/lib/memoryRetrieval';
 import { RelevantInsight } from '@/lib/insightEngine';
@@ -21,6 +22,33 @@ export interface MemoryRelevanceItem {
   relevance: 'YES' | 'NO';
 }
 
+// STEP 4 — Conversation Opportunity. Relevance가 "연결 여부"라면, Opportunity는 "개입할 타이밍의 가치"다.
+// Relevance=YES인 memory라고 해서 자동으로 Opportunity가 생기는 건 아니다 (예: 단어는 겹치지만 오늘
+// 얘기의 핵심이 아닌 경우). source='current_turn'은 memory 없이도(또는 관련 memory가 전부 NO여도)
+// 오늘 발화 자체에서 생기는 대화 기회(주로 reactable_point/unspoken_part)를 표현하기 위한 값이다.
+export type ConversationOpportunitySource = 'memory' | 'current_turn' | 'none';
+
+export type ConversationOpportunityType =
+  | 'unspoken_part'
+  | 'contradiction'
+  | 'unexpected_link'
+  | 'past_present_link'
+  | 'reactable_point'
+  | 'self_correction'
+  | 'third_party_view'
+  | 'none';
+
+export type ConversationOpportunityStrength = 'NONE' | 'WEAK' | 'STRONG';
+
+export interface ConversationOpportunity {
+  source: ConversationOpportunitySource;
+  type: ConversationOpportunityType;
+  strength: ConversationOpportunityStrength;
+  // source='memory'일 때만 채워진다. source가 'current_turn'|'none'이면 반드시 null
+  // (코드 레벨에서 강제 — 아래 파싱/검증 로직 참고).
+  memory_unit_id: number | null;
+}
+
 export interface ResponseResult {
   response_strategy: Strategy;
   interference_purpose: InterferencePurpose;
@@ -33,6 +61,9 @@ export interface ResponseResult {
   // STEP 3 — 이번 턴에서 검토된 memory 후보들 각각에 대한 Relevance 판단 결과.
   // 후보가 하나도 없었으면 빈 배열. 이 필드는 순수 로깅/디버깅용이며 memory_unit_id_used 검증에도 쓰인다.
   memory_relevance: MemoryRelevanceItem[];
+  // STEP 4 — 이번 턴에 실제로 존재했던 대화 기회(있다면 memory 근거, 없다면 오늘 발화 자체 근거,
+  // 그마저도 없으면 source: 'none'). 순수 로깅/디버깅용이며 memory_unit_id_used 검증에도 쓰인다.
+  conversation_opportunity: ConversationOpportunity;
   channel: 'text' | 'voice' | 'call';
   response: string;
   relationship_level: number;
@@ -345,6 +376,40 @@ Relevance = "현재 발화(및 위 [최근 대화 흐름])와 이 memory가 의�
 
 memory_unit_id_used는 반드시 여기서 relevance=YES로 판단한 memory_unit_id 중에서만 고를 수 있다. relevance=NO로 판단한 memory는 이번 응답의 어떤 형태로도(직접 언급이든 암시든) 사용하지 마라.
 
+[Conversation Opportunity 판단 — Relevance 판단 바로 다음, response를 쓰기 전에 판단해라]
+Relevance는 "연결 여부"이고, Opportunity는 "개입할 타이밍의 가치"다 — 절대 같은 것으로 취급하지 마라.
+Opportunity = "Relevance=YES인 memory를(또는 memory 없이 오늘 발화 자체를) 지금 이 순간 꺼내면, 사용자가 더 이야기하거나 새로운 정보를 덧붙일 가능성이 있는가?"
+
+예시:
+- 현재="오늘 제주도 사진을 봤어." / memory="제주도에서 한 달 살아보고 싶다." → Relevance YES, Opportunity 가능성 높음 (past_present_link/STRONG 가능).
+- 현재="제주도 음식점 검색하다가 배고파졌어." / memory="제주도에서 한 달 살아보고 싶다." → Relevance YES일 수 있지만, 오늘 얘기는 "배고픔"이지 "이주 욕구"가 아니다 — 이럴 땐 Opportunity가 반드시 STRONG인 건 아니다(NONE/WEAK 가능). "관련 있음"과 "지금 꺼낼 가치 있음"은 다른 질문이다.
+- 현재="회사 다니는 게 요즘 너무 답답하다. 그냥 한동안 다른 데 가서 살아보고 싶기도 하고." / memory="제주도에서 한 달 살아보고 싶다." → Relevance YES, Opportunity 강함 (past_present_link/STRONG).
+- 현재="오늘 점심 뭐 먹지?" / memory="제주도에서 한 달 살아보고 싶다." → Relevance NO이므로 애초에 Opportunity 판단 대상이 아니다 (source="none" 취급).
+- 현재="오늘 회사에서 진짜 어이없는 일이 있었어." / 관련 memory 없음 → memory 근거는 없지만, 오늘 발화 자체에 "무슨 일인지" 되물을 여지(reactable_point/unspoken_part)가 있으면 source="current_turn"으로 판단 가능.
+
+Opportunity 유형 (아래 8개 중 하나만 고르고, 새 유형을 임의로 만들지 마라):
+- unspoken_part: 사용자가 중요한 부분을 말했지만 아직 설명 안 된 빈틈이 있다. 예: "오늘 그 사람 때문에 진짜 짜증났어" (뭐 때문인지 말 안 함).
+- contradiction: 현재 발화와 과거 memory 사이에 흥미로운 차이/변화/모순이 있다. 예: 과거="회사 그만두고 싶다" / 현재="그래도 이 회사에서 오래 일해보고 싶어".
+- unexpected_link: 표면적으로 다른 이야기지만 과거 memory와 연결하면 예상 못한 연결이 생긴다.
+- past_present_link: 과거에 말한 생각/감정/의도와 현재 상황이 직접 연결된다.
+- reactable_point: 사용자의 현재 말 자체에 참견이가 반응하면 사용자가 자연스럽게 이어서 말할 여지가 있다 (memory 없이도 가능).
+- self_correction: 사용자가 스스로 앞서 한 말을 수정하거나 다르게 정의한다.
+- third_party_view: 사용자 자신이 아닌 다른 사람/상황의 관점에서 질문하거나 반응할 여지가 있다.
+- none: 지금은 특별한 대화 기회가 없다.
+
+Opportunity는 memory에만 종속되지 않는다:
+- source="memory": [memory_units에서 찾아온 과거 기억] 중 위에서 relevance=YES로 판단한 것 하나를 근거로 하는 기회. 반드시 memory_unit_id에 그 memory_unit_id를 적어라.
+- source="current_turn": memory 없이(또는 관련 memory가 전부 relevance=NO여도) 오늘 발화 자체에서 생긴 기회(주로 reactable_point/unspoken_part). memory_unit_id는 반드시 null.
+- source="none": memory도 current turn도 지금은 특별한 기회가 없다. type은 "none", strength는 "NONE", memory_unit_id는 null.
+memory 후보가 하나도 없거나 전부 relevance=NO여도, 오늘 발화 자체에 reactable_point 같은 기회가 있으면 source="current_turn"으로 판단해라 — "memory가 없으니 Opportunity도 없다"고 자동으로 넘기지 마라.
+
+strength(NONE/WEAK/STRONG)는 importance, reference_count(자주 언급됐는지), memory가 얼마나 오래됐는지, retrieval 점수 같은 metadata로 정하지 마라 — "중요도가 높으니/자주 나왔으니 지금 꺼낸다" 같은 판단은 금지다. 오직 지금 이 순간 그 memory(혹은 오늘 발화 자체)가 실제로 얼마나 자연스럽게 이어지는지로만 판단해라. 반복해서 나온 memory라도 오늘 발화와 진짜 잘 연결되면 STRONG일 수 있고(예: 사용자가 다섯 번째로 같은 얘기를 자연스럽게 다시 자연스레 꺼낸 경우), 반대로 처음 보는 memory라도 오늘 발화와 약하게만 걸치면 WEAK/NONE이다.
+
+가장 중요한 사용 조건 — 아래 두 조건을 모두 만족하는 memory만 memory_unit_id_used가 될 수 있다:
+1. 위 [Memory Relevance 판단]에서 relevance=YES
+2. 이번 [Conversation Opportunity 판단]에서 source="memory"이고 strength="STRONG"
+Opportunity가 NONE이거나 WEAK인 memory는 Relevance가 YES여도 이번 응답에서 사용하지 마라 — "관련은 있지만 지금 꺼낼 타이밍은 아니다"로 보고 그냥 넘어가라. memory를 전혀 쓰지 않아도, 오늘 발화 자체의 reactable_point 등으로 얼마든지 좋은 응답을 만들 수 있다 (그 경우 memory_unit_id_used는 null이어도 된다).
+
 [참견이가 그동안 발견한, 이 사람에 대한 "관찰"들]
 아래는 위 [memory_units에서 찾아온 과거 기억]들이 서로 연결되는 걸 보고, 시스템이 미리 한 번 더
 판단해서 "이 사람은 이런 편이다" 수준으로 묶어둔 관찰이다. 이건 낱개 기억보다 한 단계 더 무거운
@@ -624,8 +689,9 @@ CASE C와 E는 같은 원칙을 보여준다 — 표면적으로 단어가 겹�
 STEP 8. memory_used / memory_reference / memory_unit_id_used / insight_id_used / channel
 - memory_used: 과거 기억(반복 패턴, 미이행 약속, 모순, [사용자가 이전에 이야기한 것들]/[실제로 확정된, 아직 안 끝난 약속들] 블록, [memory_units에서 찾아온 과거 기억] 블록, 또는 [참견이가 그동안 발견한 관찰] 블록)을 이번 응답에 실제로 언급했으면 true.
 - memory_reference: 언급했다면 어떤 기억/관찰을 썼는지 한 문장 (없으면 null).
-- memory_unit_id_used: [memory_units에서 찾아온 과거 기억] 목록에 "후보로 올라와 있었다"는 사실만으로 채우지 마라. 그 기억의 내용을 실제로 이번 response 문장에 녹여서 썼을 때만 그 memory_unit_id 숫자를 적어라 (목록에 실제로 있는 번호만, 지어내지 마라). 후보로는 넘어왔지만 답변에서 실제로 쓰지 않았다면 memory_unit_id_used는 반드시 null이고, 이 경우 memory_used도 false여야 한다 — 후보 존재 여부와 실제 사용 여부는 다른 질문이다. 또한 위 [Memory Relevance 판단]에서 그 memory_unit_id를 YES로 판단하지 않았다면 memory_unit_id_used에 절대 적지 마라 (relevance=NO인 memory는 사용 후보 자체가 아니다).
+- memory_unit_id_used: [memory_units에서 찾아온 과거 기억] 목록에 "후보로 올라와 있었다"는 사실만으로 채우지 마라. 그 기억의 내용을 실제로 이번 response 문장에 녹여서 썼을 때만 그 memory_unit_id 숫자를 적어라 (목록에 실제로 있는 번호만, 지어내지 마라). 후보로는 넘어왔지만 답변에서 실제로 쓰지 않았다면 memory_unit_id_used는 반드시 null이고, 이 경우 memory_used도 false여야 한다 — 후보 존재 여부와 실제 사용 여부는 다른 질문이다. 또한 위 [Memory Relevance 판단]에서 그 memory_unit_id를 YES로 판단하지 않았다면 memory_unit_id_used에 절대 적지 마라 (relevance=NO인 memory는 사용 후보 자체가 아니다). 마찬가지로 위 [Conversation Opportunity 판단]에서 그 memory의 source가 "memory"이고 strength가 "STRONG"이 아니라면 memory_unit_id_used에 절대 적지 마라 (Opportunity가 WEAK/NONE인 memory는 Relevance가 YES여도 사용 후보가 아니다).
 - memory_relevance: 위 [Memory Relevance 판단]에서 실제로 검토한 후보 각각에 대해 {"memory_unit_id": 숫자, "relevance": "YES"|"NO"} 형태로 전부 나열해라. 후보가 하나도 없었다면 빈 배열 []로 남겨라. 목록에 없는 memory_unit_id를 만들어내지 마라.
+- conversation_opportunity: 위 [Conversation Opportunity 판단]에서 실제로 판단한 결과를 {"source": "memory"|"current_turn"|"none", "type": "...", "strength": "NONE"|"WEAK"|"STRONG", "memory_unit_id": 숫자 or null} 형태로 적어라. memory 근거가 없으면 source는 "current_turn"(오늘 발화 자체의 기회가 있을 때) 또는 "none"(그마저도 없을 때)이고, 이 경우 memory_unit_id는 반드시 null이다.
 - insight_id_used: [참견이가 그동안 발견한 관찰] 목록 중 하나를 실제로 이번 응답에 썼을 때만 그 insight_id 숫자를 적어라 (목록에 실제로 있는 번호만, 지어내지 마라). 안 썼다면 null. memory_unit_id_used를 채운 응답이라면 insight_id_used는 반드시 null이어야 한다 (한 응답에 raw 기억과 관찰을 동시에 쓰지 않는다).
 - channel: intervention_needed가 true이고 전화가 가능(YES)하면 "call", 그 외엔 "text".
   전화가 불가능(NO)하면 아무리 intervention이 필요해도 절대 call로 하지 마라 — text로 대체 반응해라.
@@ -643,6 +709,7 @@ STEP 8. memory_used / memory_reference / memory_unit_id_used / insight_id_used /
   "memory_unit_id_used": 123 or null,
   "insight_id_used": 123 or null,
   "memory_relevance": [{"memory_unit_id": 123, "relevance": "YES"}, {"memory_unit_id": 456, "relevance": "NO"}],
+  "conversation_opportunity": {"source": "memory|current_turn|none", "type": "unspoken_part|contradiction|unexpected_link|past_present_link|reactable_point|self_correction|third_party_view|none", "strength": "NONE|WEAK|STRONG", "memory_unit_id": 123 or null},
   "channel": "text|call",
   "response": "..."
 }
@@ -735,11 +802,89 @@ STEP 8. memory_used / memory_reference / memory_unit_id_used / insight_id_used /
     const relevantYesIds = new Set(
       memoryRelevance.filter((r) => r.relevance === 'YES').map((r) => r.memory_unit_id)
     );
+
+    // STEP 4 — conversation_opportunity 파싱/검증. LLM이 잘못된 조합(예: Relevance=NO인 memory를
+    // Opportunity STRONG이라고 우기거나, source=current_turn인데 memory_unit_id를 채우는 것 등)을
+    // 보낼 수 있으니, 명세서 11절의 7개 불변조건을 전부 코드 레벨에서 강제한다. 형식이 깨져 있어도
+    // 절대 던지지 않고 안전한 기본값(source: 'none')으로 정규화한다 — 전체 응답 생성에는 영향을 주지 않는다.
+    const rawOpportunity =
+      parsed.conversation_opportunity && typeof parsed.conversation_opportunity === 'object'
+        ? parsed.conversation_opportunity
+        : {};
+
+    let opportunitySource: ConversationOpportunitySource =
+      rawOpportunity.source === 'memory' ||
+      rawOpportunity.source === 'current_turn' ||
+      rawOpportunity.source === 'none'
+        ? rawOpportunity.source
+        : 'none';
+
+    const VALID_OPPORTUNITY_TYPES = new Set([
+      'unspoken_part',
+      'contradiction',
+      'unexpected_link',
+      'past_present_link',
+      'reactable_point',
+      'self_correction',
+      'third_party_view',
+      'none',
+    ]);
+    let opportunityType: ConversationOpportunityType =
+      typeof rawOpportunity.type === 'string' && VALID_OPPORTUNITY_TYPES.has(rawOpportunity.type)
+        ? (rawOpportunity.type as ConversationOpportunityType)
+        : 'none';
+
+    let opportunityStrength: ConversationOpportunityStrength =
+      rawOpportunity.strength === 'NONE' ||
+      rawOpportunity.strength === 'WEAK' ||
+      rawOpportunity.strength === 'STRONG'
+        ? rawOpportunity.strength
+        : 'NONE';
+
+    let opportunityMemoryUnitId: number | null =
+      typeof rawOpportunity.memory_unit_id === 'number' ? rawOpportunity.memory_unit_id : null;
+
+    // 조건 5: type='none'이면 strength는 반드시 'NONE' (LLM이 모순되게 보내도 여기서 바로잡는다).
+    if (opportunityType === 'none') {
+      opportunityStrength = 'NONE';
+    }
+
+    // 조건 1 + 조건 2: source='memory'인데 그 memory_unit_id가 실제 후보 목록에 없거나
+    // Relevance=YES가 아니라면, memory 근거 자체가 무효하다 — 통째로 'none'으로 되돌린다.
+    if (
+      opportunitySource === 'memory' &&
+      (opportunityMemoryUnitId === null || !relevantYesIds.has(opportunityMemoryUnitId))
+    ) {
+      opportunitySource = 'none';
+      opportunityType = 'none';
+      opportunityStrength = 'NONE';
+      opportunityMemoryUnitId = null;
+    }
+
+    // 조건 4: source='current_turn'이면 memory_unit_id는 반드시 null.
+    // source='none'일 때도 memory_unit_id는 의미가 없으니 null로 정리한다.
+    if (opportunitySource !== 'memory') {
+      opportunityMemoryUnitId = null;
+    }
+
+    const conversationOpportunity: ConversationOpportunity = {
+      source: opportunitySource,
+      type: opportunityType,
+      strength: opportunityStrength,
+      memory_unit_id: opportunityMemoryUnitId,
+    };
+
+    // memory_unit_id_used는 (a) 실제 후보 목록에 있고, (b) relevance=YES이고, (c) 이번 턴의
+    // conversation_opportunity가 바로 그 memory를 근거로(source='memory') strength='STRONG'으로
+    // 판단했을 때만 허용한다 (조건 3/6/7을 한 번에 만족시키는 최종 게이트 — 프롬프트 지시만 믿지 않는다).
     const rawMemoryUnitIdUsed = parsed.memory_unit_id_used;
     const memoryUnitIdUsed =
       typeof rawMemoryUnitIdUsed === 'number' &&
       validMemoryUnitIds.has(rawMemoryUnitIdUsed) &&
-      relevantYesIds.has(rawMemoryUnitIdUsed)
+      relevantYesIds.has(rawMemoryUnitIdUsed) &&
+      conversationOpportunity.source === 'memory' &&
+      conversationOpportunity.strength === 'STRONG' &&
+      conversationOpportunity.memory_unit_id === rawMemoryUnitIdUsed
         ? rawMemoryUnitIdUsed
         : null;
 
@@ -766,6 +911,7 @@ STEP 8. memory_used / memory_reference / memory_unit_id_used / insight_id_used /
       memory_unit_id_used: memoryUnitIdUsed,
       insight_id_used: insightIdUsed,
       memory_relevance: memoryRelevance,
+      conversation_opportunity: conversationOpportunity,
       channel,
       response: parsed.response ?? '음, 그렇구나.',
       relationship_level: relationshipLevel,
@@ -782,6 +928,7 @@ STEP 8. memory_used / memory_reference / memory_unit_id_used / insight_id_used /
       memory_unit_id_used: null,
       insight_id_used: null,
       memory_relevance: [],
+      conversation_opportunity: { source: 'none', type: 'none', strength: 'NONE', memory_unit_id: null },
       channel: 'text',
       response: '오늘 얘기 잘 들었어.',
       relationship_level: relationshipLevel,
