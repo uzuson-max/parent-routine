@@ -48,6 +48,36 @@ export interface ConversationOpportunity {
   memory_unit_id: number | null;
 }
 
+// STEP 6 — Rule-Based Response Validation. Generation 결과(ResponseResult)가 참견이의 최소 응답
+// 품질 조건을 만족하는지 코드 레벨에서 검사하기 위한 타입들이다. Validation은 100% rule-based이며,
+// 이 판정을 위해 별도의 LLM validator 호출을 절대 추가하지 않는다.
+export type ValidationFailureReason =
+  | 'EMPTY_RESPONSE'
+  | 'RESPONSE_TOO_LONG'
+  | 'TOO_MANY_QUESTIONS'
+  | 'QUESTION_STRATEGY_WITHOUT_QUESTION'
+  | 'GENERIC_QUESTION'
+  | 'CLOSING_RESPONSE'
+  | 'GENERIC_ENCOURAGEMENT'
+  | 'REPEATED_QUESTION'
+  | 'REPEATED_MEMORY'
+  | 'MEMORY_RELEVANCE_MISMATCH'
+  | 'OPPORTUNITY_MEMORY_MISMATCH'
+  | 'INVALID_MEMORY_REFERENCE'
+  | 'CURRENT_TURN_MEMORY_MISMATCH'
+  | 'STRATEGY_OUTPUT_MISMATCH';
+
+export interface ValidationResult {
+  passed: boolean;
+  reasons: ValidationFailureReason[];
+}
+
+// REPEATED_QUESTION/REPEATED_MEMORY 판정에 쓰는 "가장 최근 턴" 정보. 없으면(첫 발화 등) null.
+export interface ValidationContext {
+  validMemoryUnitIds: Set<number>;
+  previousResponse: { response: string; memoryUnitIdUsed: number | null } | null;
+}
+
 export interface ResponseResult {
   response_strategy: Strategy;
   interference_purpose: InterferencePurpose;
@@ -69,6 +99,14 @@ export interface ResponseResult {
   channel: 'text' | 'voice' | 'call';
   response: string;
   relationship_level: number;
+  // STEP 6 — rule-based validation 결과. validation_passed=true면 규칙을 전부 통과한 응답이고,
+  // false면(반드시 regeneration을 1회 시도한 뒤에도 실패해 deterministic fallback으로 대체된
+  // 경우에만 false다) validation_failure_reason에 실패 사유가 남는다.
+  validation_passed: boolean;
+  validation_failure_reason: string | null;
+  // 0이면 1차 generation이 그대로 통과, 1이면 regeneration 1회 후 통과했거나(또는 fallback으로
+  // 대체됐거나) 한 경우다. 정확히 0 또는 1만 가능하며 절대 2 이상이 되지 않는다.
+  regeneration_count: number;
 }
 
 export const PERSONALITY_PROMPT = `너는 "참견이"라는 존재야.
@@ -811,174 +849,97 @@ STEP 8. memory_used / memory_reference / memory_unit_id_used / insight_id_used /
 - 사용자: "라면 먹었어~" → "라면 하나만 먹었어? 무슨 라면 먹었어?" (구체적인 생활 디테일이 나왔는데도 습관적으로 한 줄로 뚝 끊는 것 — 이 상황에선 너무 짧음)
 - "라면을 먹었구나! 오늘 하루도 고생했네. 따뜻한 라면으로 잘 쉬었길 바라." (감성적 위로/마무리로 흐르는 것, 참견이 아니라 상담사 톤)`;
 
+  // STEP 6 — validation에 필요한 후보 id 집합과, REPEATED_QUESTION/REPEATED_MEMORY 판정에 쓸
+  // "가장 최근 턴" 정보를 미리 준비해둔다. chronologicalTurns는 위에서 이미 오래된 순으로 정렬돼 있다.
+  const validMemoryUnitIds = new Set(relevantMemoryUnits.map((m) => m.id));
+  const validInsightIds = new Set(relevantInsights.map((i) => i.id));
+  const previousTurnForValidation: ValidationContext['previousResponse'] =
+    chronologicalTurns.length > 0
+      ? {
+          response: chronologicalTurns[chronologicalTurns.length - 1].response,
+          memoryUnitIdUsed: chronologicalTurns[chronologicalTurns.length - 1].memoryUnitIdUsed,
+        }
+      : null;
+  const validationContext: ValidationContext = {
+    validMemoryUnitIds,
+    previousResponse: previousTurnForValidation,
+  };
+
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{ role: 'system', content: systemPrompt }],
-        response_format: { type: 'json_object' },
-        temperature: 0.9,
-      }),
-    });
-
-    if (!res.ok) throw new Error('response engine 호출 실패: ' + (await res.text()));
-    const json = await res.json();
-    const parsed = JSON.parse(json.choices[0].message.content);
-
-    const channel: 'text' | 'call' = parsed.channel === 'call' && callAllowed ? 'call' : 'text';
-
-    // memory_unit_id_used는 LLM이 지어낼 수 있으니, 실제로 이번 프롬프트에 넘긴 후보 목록에 있는
-    // id일 때만 신뢰한다 (analysis.ts의 commitment_context_updates 검증과 같은 패턴).
-    const validMemoryUnitIds = new Set(relevantMemoryUnits.map((m) => m.id));
-
-    // STEP 3 — memory_relevance 파싱/검증. LLM이 지어낸 id나 잘못된 값이 섞여 들어올 수 있으니
-    // 목록에 실제로 있던 id만, 값은 'YES'|'NO'만 신뢰한다. 이 배열 자체는 순수 로깅/디버깅 정보이며,
-    // 실패해도(형식이 이상해도) 절대 던지지 않고 빈 배열로 안전하게 처리한다 — 전체 응답 생성에는
-    // 영향을 주지 않는다.
-    const rawMemoryRelevance = Array.isArray(parsed.memory_relevance) ? parsed.memory_relevance : [];
-    const memoryRelevance: MemoryRelevanceItem[] = rawMemoryRelevance
-      .filter(
-        (item: any) =>
-          item &&
-          typeof item.memory_unit_id === 'number' &&
-          validMemoryUnitIds.has(item.memory_unit_id) &&
-          (item.relevance === 'YES' || item.relevance === 'NO')
-      )
-      .map((item: any) => ({ memory_unit_id: item.memory_unit_id, relevance: item.relevance }));
-
-    // memory_unit_id_used가 실제로 relevance=YES로 판단된 후보 중 하나인지 코드 레벨에서도 강제한다
-    // (프롬프트 지시만 믿지 않는 방어적 이중 장치 — 위 insight_id_used 배타 처리와 같은 패턴).
-    const relevantYesIds = new Set(
-      memoryRelevance.filter((r) => r.relevance === 'YES').map((r) => r.memory_unit_id)
+    // 1차 generation — 기존 STEP 1~5와 완전히 동일한 GPT 호출 1회.
+    const firstParsed = await callGenerationGPT(systemPrompt);
+    const firstResult = buildGeneratedResult(
+      firstParsed,
+      callAllowed,
+      relevantMemoryUnits,
+      relevantInsights,
+      relationshipLevel,
+      validMemoryUnitIds,
+      validInsightIds
     );
+    const firstValidation = validateResponse(firstResult, validationContext);
 
-    // STEP 4 — conversation_opportunity 파싱/검증. LLM이 잘못된 조합(예: Relevance=NO인 memory를
-    // Opportunity STRONG이라고 우기거나, source=current_turn인데 memory_unit_id를 채우는 것 등)을
-    // 보낼 수 있으니, 명세서 11절의 7개 불변조건을 전부 코드 레벨에서 강제한다. 형식이 깨져 있어도
-    // 절대 던지지 않고 안전한 기본값(source: 'none')으로 정규화한다 — 전체 응답 생성에는 영향을 주지 않는다.
-    const rawOpportunity =
-      parsed.conversation_opportunity && typeof parsed.conversation_opportunity === 'object'
-        ? parsed.conversation_opportunity
-        : {};
-
-    let opportunitySource: ConversationOpportunitySource =
-      rawOpportunity.source === 'memory' ||
-      rawOpportunity.source === 'current_turn' ||
-      rawOpportunity.source === 'none'
-        ? rawOpportunity.source
-        : 'none';
-
-    const VALID_OPPORTUNITY_TYPES = new Set([
-      'unspoken_part',
-      'contradiction',
-      'unexpected_link',
-      'past_present_link',
-      'reactable_point',
-      'self_correction',
-      'third_party_view',
-      'none',
-    ]);
-    let opportunityType: ConversationOpportunityType =
-      typeof rawOpportunity.type === 'string' && VALID_OPPORTUNITY_TYPES.has(rawOpportunity.type)
-        ? (rawOpportunity.type as ConversationOpportunityType)
-        : 'none';
-
-    let opportunityStrength: ConversationOpportunityStrength =
-      rawOpportunity.strength === 'NONE' ||
-      rawOpportunity.strength === 'WEAK' ||
-      rawOpportunity.strength === 'STRONG'
-        ? rawOpportunity.strength
-        : 'NONE';
-
-    let opportunityMemoryUnitId: number | null =
-      typeof rawOpportunity.memory_unit_id === 'number' ? rawOpportunity.memory_unit_id : null;
-
-    // 조건 5: type='none'이면 strength는 반드시 'NONE' (LLM이 모순되게 보내도 여기서 바로잡는다).
-    if (opportunityType === 'none') {
-      opportunityStrength = 'NONE';
+    if (firstValidation.passed) {
+      return {
+        ...firstResult,
+        validation_passed: true,
+        validation_failure_reason: null,
+        regeneration_count: 0,
+      };
     }
 
-    // 조건 1 + 조건 2: source='memory'인데 그 memory_unit_id가 실제 후보 목록에 없거나
-    // Relevance=YES가 아니라면, memory 근거 자체가 무효하다 — 통째로 'none'으로 되돌린다.
-    if (
-      opportunitySource === 'memory' &&
-      (opportunityMemoryUnitId === null || !relevantYesIds.has(opportunityMemoryUnitId))
-    ) {
-      opportunitySource = 'none';
-      opportunityType = 'none';
-      opportunityStrength = 'NONE';
-      opportunityMemoryUnitId = null;
+    // STEP 6 — validation 실패 시 정확히 1회만 regeneration을 시도한다. 별도의 validator GPT 호출을
+    // 만들지 않고, 기존 generateResponse() GPT 호출(callGenerationGPT)을 실패 사유가 추가된 프롬프트로
+    // 다시 호출하는 방식으로 구현한다. 정상 흐름의 GPT 호출 3회는 그대로 유지되고, 이 1회만 추가되므로
+    // 최대 GPT 호출 수는 4회이며 5회 이상 호출되는 경로는 없다.
+    const regenerationPrompt = buildRegenerationPrompt(systemPrompt, firstValidation.reasons, firstResult.response);
+    const secondParsed = await callGenerationGPT(regenerationPrompt);
+    const secondResult = buildGeneratedResult(
+      secondParsed,
+      callAllowed,
+      relevantMemoryUnits,
+      relevantInsights,
+      relationshipLevel,
+      validMemoryUnitIds,
+      validInsightIds
+    );
+    const secondValidation = validateResponse(secondResult, validationContext);
+
+    if (secondValidation.passed) {
+      return {
+        ...secondResult,
+        validation_passed: true,
+        // 최종적으로는 통과했지만, "왜 regeneration이 필요했는지"를 로그에서 알 수 있도록 1차
+        // 실패 사유를 남겨둔다 (validation_passed=true인데 이 필드가 채워져 있으면 "regeneration을
+        // 거쳐 통과했다"는 뜻으로 읽으면 된다).
+        validation_failure_reason: firstValidation.reasons.join(', '),
+        regeneration_count: 1,
+      };
     }
 
-    // 조건 4: source='current_turn'이면 memory_unit_id는 반드시 null.
-    // source='none'일 때도 memory_unit_id는 의미가 없으니 null로 정리한다.
-    if (opportunitySource !== 'memory') {
-      opportunityMemoryUnitId = null;
-    }
-
-    const conversationOpportunity: ConversationOpportunity = {
-      source: opportunitySource,
-      type: opportunityType,
-      strength: opportunityStrength,
-      memory_unit_id: opportunityMemoryUnitId,
-    };
-
-    // memory_unit_id_used는 (a) 실제 후보 목록에 있고, (b) relevance=YES이고, (c) 이번 턴의
-    // conversation_opportunity가 바로 그 memory를 근거로(source='memory') strength='STRONG'으로
-    // 판단했을 때만 허용한다 (조건 3/6/7을 한 번에 만족시키는 최종 게이트 — 프롬프트 지시만 믿지 않는다).
-    const rawMemoryUnitIdUsed = parsed.memory_unit_id_used;
-    const memoryUnitIdUsed =
-      typeof rawMemoryUnitIdUsed === 'number' &&
-      validMemoryUnitIds.has(rawMemoryUnitIdUsed) &&
-      relevantYesIds.has(rawMemoryUnitIdUsed) &&
-      conversationOpportunity.source === 'memory' &&
-      conversationOpportunity.strength === 'STRONG' &&
-      conversationOpportunity.memory_unit_id === rawMemoryUnitIdUsed
-        ? rawMemoryUnitIdUsed
-        : null;
-
-    // insight_id_used도 memory_unit_id_used와 완전히 같은 이유로 검증한다 — LLM이 지어낼 수 있으니
-    // 실제로 이번 프롬프트에 넘긴 relevantInsights 후보 목록에 있는 id일 때만 신뢰한다.
-    const validInsightIds = new Set(relevantInsights.map((i) => i.id));
-    const rawInsightIdUsed = parsed.insight_id_used;
-    const candidateInsightIdUsed =
-      typeof rawInsightIdUsed === 'number' && validInsightIds.has(rawInsightIdUsed)
-        ? rawInsightIdUsed
-        : null;
-    // 방어적 이중 장치: 프롬프트에서 "한 응답에 raw 기억과 관찰을 동시에 쓰지 않는다"고 지시했지만,
-    // LLM이 실수로 둘 다 채워 보낼 가능성에 대비해 코드 레벨에서도 상호 배타를 강제한다.
-    // memory_unit_id_used가 채워졌다면(=raw 기억을 이미 썼다면) insight_id_used는 무조건 null로 덮어쓴다.
-    const insightIdUsed = memoryUnitIdUsed !== null ? null : candidateInsightIdUsed;
-
-    // STEP 5 — question_present 파싱. LLM이 필드를 빠뜨리거나 boolean이 아닌 값을 보내는 경우에
-    // 대비해, response 문자열 자체에 물음표가 있는지를 안전한 fallback으로 쓴다 (완벽한 판정은
-    // 아니지만 필드가 없을 때 무조건 false로 처리하는 것보다 실제 응답 내용에 더 가깝다).
-    const responseText: string = parsed.response ?? '음, 그렇구나.';
-    const questionPresent: boolean =
-      typeof parsed.question_present === 'boolean'
-        ? parsed.question_present
-        : /[?？]/.test(responseText);
-
+    // STEP 6 — regeneration까지 실패하면 deterministic fallback을 반환한다. 이 경로에는 추가 GPT
+    // 호출이 전혀 없다 — buildDeterministicFallback()은 순수 함수로, 현재 발화의 몇 가지 뚜렷한
+    // 키워드에 대응하는 고정 질문 패턴 중 하나를 코드로 "고르기"만 한다. memory/insight는 사용하지
+    // 않는다 (memory_unit_id_used는 반드시 null).
+    const fallbackResponseText = buildDeterministicFallback(transcript);
     return {
-      response_strategy: parsed.response_strategy ?? 'CASUAL',
-      interference_purpose: parsed.interference_purpose ?? 'listen',
-      tone: parsed.tone ?? 'neutral',
-      humor_opportunity: parsed.humor_opportunity ?? 'low',
-      memory_used: parsed.memory_used ?? false,
-      memory_reference: parsed.memory_reference ?? null,
-      memory_unit_id_used: memoryUnitIdUsed,
-      insight_id_used: insightIdUsed,
-      memory_relevance: memoryRelevance,
-      conversation_opportunity: conversationOpportunity,
-      question_present: questionPresent,
-      channel,
-      response: responseText,
+      response_strategy: 'QUESTION',
+      interference_purpose: 'listen',
+      tone: 'neutral',
+      humor_opportunity: 'low',
+      memory_used: false,
+      memory_reference: null,
+      memory_unit_id_used: null,
+      insight_id_used: null,
+      memory_relevance: secondResult.memory_relevance,
+      conversation_opportunity: secondResult.conversation_opportunity,
+      question_present: /[?？]/.test(fallbackResponseText),
+      channel: 'text',
+      response: fallbackResponseText,
       relationship_level: relationshipLevel,
+      validation_passed: false,
+      validation_failure_reason: secondValidation.reasons.join(', '),
+      regeneration_count: 1,
     };
   } catch (err) {
     console.error('[responseEngine] 생성 실패:', err);
@@ -997,6 +958,466 @@ STEP 8. memory_used / memory_reference / memory_unit_id_used / insight_id_used /
       channel: 'text',
       response: '오늘 얘기 잘 들었어.',
       relationship_level: relationshipLevel,
+      // 네트워크/파싱 자체가 실패한 경우(=rule validation까지 가보지도 못한 경우)이므로
+      // validation_failure_reason은 null로 둔다 — 이건 "규칙 위반"이 아니라 "생성 실패"다.
+      validation_passed: false,
+      validation_failure_reason: null,
+      regeneration_count: 0,
     };
   }
+}
+
+// ==================================================
+// STEP 6 — Rule-Based Response Validation / Regeneration / Fallback 헬퍼
+// ==================================================
+
+// 기존에 generateResponse() 안에 인라인으로 있던 fetch 호출을 그대로 함수로 옮긴 것뿐이다 —
+// 요청 payload/모델/temperature 등 어떤 것도 바꾸지 않았다. regeneration 시에도 이 함수를
+// 그대로 재사용한다 (별도의 validator GPT 호출이 아니라 같은 generation 호출의 재시도).
+async function callGenerationGPT(systemPrompt: string): Promise<any> {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'system', content: systemPrompt }],
+      response_format: { type: 'json_object' },
+      temperature: 0.9,
+    }),
+  });
+
+  if (!res.ok) throw new Error('response engine 호출 실패: ' + (await res.text()));
+  const json = await res.json();
+  return JSON.parse(json.choices[0].message.content);
+}
+
+// GPT가 반환한 원시 JSON(parsed)을 STEP 3~5에서 이미 만든 방어 로직 그대로 통과시켜, validation
+// 이전 단계의 ResponseResult(=STEP 6의 3개 validation 필드만 제외)를 만든다. STEP 6 이전 로직과
+// 판정 기준을 하나도 바꾸지 않았다 — 인라인으로 있던 코드를 재사용 가능한 함수로 옮겼을 뿐이다
+// (1차 generation과 regeneration 양쪽에서 동일하게 호출한다).
+function buildGeneratedResult(
+  parsed: any,
+  callAllowed: boolean,
+  relevantMemoryUnits: RelevantMemoryUnit[],
+  relevantInsights: RelevantInsight[],
+  relationshipLevel: number,
+  validMemoryUnitIds: Set<number>,
+  validInsightIds: Set<number>
+): Omit<ResponseResult, 'validation_passed' | 'validation_failure_reason' | 'regeneration_count'> {
+  const channel: 'text' | 'call' = parsed.channel === 'call' && callAllowed ? 'call' : 'text';
+
+  const rawMemoryRelevance = Array.isArray(parsed.memory_relevance) ? parsed.memory_relevance : [];
+  const memoryRelevance: MemoryRelevanceItem[] = rawMemoryRelevance
+    .filter(
+      (item: any) =>
+        item &&
+        typeof item.memory_unit_id === 'number' &&
+        validMemoryUnitIds.has(item.memory_unit_id) &&
+        (item.relevance === 'YES' || item.relevance === 'NO')
+    )
+    .map((item: any) => ({ memory_unit_id: item.memory_unit_id, relevance: item.relevance }));
+
+  const relevantYesIds = new Set(
+    memoryRelevance.filter((r) => r.relevance === 'YES').map((r) => r.memory_unit_id)
+  );
+
+  const rawOpportunity =
+    parsed.conversation_opportunity && typeof parsed.conversation_opportunity === 'object'
+      ? parsed.conversation_opportunity
+      : {};
+
+  let opportunitySource: ConversationOpportunitySource =
+    rawOpportunity.source === 'memory' ||
+    rawOpportunity.source === 'current_turn' ||
+    rawOpportunity.source === 'none'
+      ? rawOpportunity.source
+      : 'none';
+
+  const VALID_OPPORTUNITY_TYPES = new Set([
+    'unspoken_part',
+    'contradiction',
+    'unexpected_link',
+    'past_present_link',
+    'reactable_point',
+    'self_correction',
+    'third_party_view',
+    'none',
+  ]);
+  let opportunityType: ConversationOpportunityType =
+    typeof rawOpportunity.type === 'string' && VALID_OPPORTUNITY_TYPES.has(rawOpportunity.type)
+      ? (rawOpportunity.type as ConversationOpportunityType)
+      : 'none';
+
+  let opportunityStrength: ConversationOpportunityStrength =
+    rawOpportunity.strength === 'NONE' ||
+    rawOpportunity.strength === 'WEAK' ||
+    rawOpportunity.strength === 'STRONG'
+      ? rawOpportunity.strength
+      : 'NONE';
+
+  let opportunityMemoryUnitId: number | null =
+    typeof rawOpportunity.memory_unit_id === 'number' ? rawOpportunity.memory_unit_id : null;
+
+  if (opportunityType === 'none') {
+    opportunityStrength = 'NONE';
+  }
+
+  if (
+    opportunitySource === 'memory' &&
+    (opportunityMemoryUnitId === null || !relevantYesIds.has(opportunityMemoryUnitId))
+  ) {
+    opportunitySource = 'none';
+    opportunityType = 'none';
+    opportunityStrength = 'NONE';
+    opportunityMemoryUnitId = null;
+  }
+
+  if (opportunitySource !== 'memory') {
+    opportunityMemoryUnitId = null;
+  }
+
+  const conversationOpportunity: ConversationOpportunity = {
+    source: opportunitySource,
+    type: opportunityType,
+    strength: opportunityStrength,
+    memory_unit_id: opportunityMemoryUnitId,
+  };
+
+  const rawMemoryUnitIdUsed = parsed.memory_unit_id_used;
+  const memoryUnitIdUsed =
+    typeof rawMemoryUnitIdUsed === 'number' &&
+    validMemoryUnitIds.has(rawMemoryUnitIdUsed) &&
+    relevantYesIds.has(rawMemoryUnitIdUsed) &&
+    conversationOpportunity.source === 'memory' &&
+    conversationOpportunity.strength === 'STRONG' &&
+    conversationOpportunity.memory_unit_id === rawMemoryUnitIdUsed
+      ? rawMemoryUnitIdUsed
+      : null;
+
+  const rawInsightIdUsed = parsed.insight_id_used;
+  const candidateInsightIdUsed =
+    typeof rawInsightIdUsed === 'number' && validInsightIds.has(rawInsightIdUsed) ? rawInsightIdUsed : null;
+  const insightIdUsed = memoryUnitIdUsed !== null ? null : candidateInsightIdUsed;
+
+  const responseText: string = parsed.response ?? '음, 그렇구나.';
+  const questionPresent: boolean =
+    typeof parsed.question_present === 'boolean' ? parsed.question_present : /[?？]/.test(responseText);
+
+  return {
+    response_strategy: parsed.response_strategy ?? 'CASUAL',
+    interference_purpose: parsed.interference_purpose ?? 'listen',
+    tone: parsed.tone ?? 'neutral',
+    humor_opportunity: parsed.humor_opportunity ?? 'low',
+    memory_used: parsed.memory_used ?? false,
+    memory_reference: parsed.memory_reference ?? null,
+    memory_unit_id_used: memoryUnitIdUsed,
+    insight_id_used: insightIdUsed,
+    memory_relevance: memoryRelevance,
+    conversation_opportunity: conversationOpportunity,
+    question_present: questionPresent,
+    channel,
+    response: responseText,
+    relationship_level: relationshipLevel,
+  };
+}
+
+// STEP 6 — regeneration 프롬프트. 기존 systemPrompt를 그대로 재사용하고, 그 뒤에 "무엇이 왜
+// 실패했는지 + 무엇을 유지하고 무엇만 바꿔야 하는지"를 명시하는 블록만 덧붙인다. 새로운 GPT
+// 호출을 추가하는 게 아니라, 같은 callGenerationGPT()를 이 프롬프트로 다시 호출하는 것이다.
+function buildRegenerationPrompt(
+  originalPrompt: string,
+  reasons: ValidationFailureReason[],
+  previousResponse: string
+): string {
+  return `${originalPrompt}
+
+[RESPONSE VALIDATION FAILED]
+
+Your previous response failed rule-based validation.
+
+Failure reasons:
+${reasons.join(', ')}
+
+Previous response:
+${previousResponse}
+
+Generate a replacement response.
+
+IMPORTANT:
+- Do not repeat the previous response.
+- Fix every listed validation failure.
+- Preserve the current conversation context.
+- Preserve the current Conversation Opportunity.
+- Preserve Memory Relevance decisions.
+- Preserve the memory usage constraints.
+- Do not invent a new memory.
+- Do not force a memory reference if the Opportunity does not permit it.
+- If strategy is QUESTION, create exactly one concrete question/blank.
+- Do not use generic questions such as "더 이야기해줄래?", "어떻게 생각해?", or "왜?".
+- Do not close the conversation with generic encouragement.
+- Keep the response short and conversational.
+- Generate only the replacement response in the normal response JSON format.`;
+}
+
+// STEP 6 — deterministic fallback. GPT를 다시 호출하지 않는다. 현재 발화에 등장하는 몇 가지
+// 뚜렷한 키워드에 대응하는, 미리 정해둔 고정 질문 패턴 중 하나를 코드가 직접 고를 뿐이다.
+// "생성"이 아니라 "선택"이므로 이름 그대로 완전히 결정적(deterministic)이다.
+function buildDeterministicFallback(transcript: string): string {
+  if (transcript.includes('답답')) return '오늘 뭐가 제일 답답했어?';
+  if (transcript.includes('바쁘')) return '오늘 제일 먼저 끝내야 하는 건 뭐야?';
+  if (transcript.includes('제주도')) return '제주도에서 제일 해보고 싶은 게 뭐야?';
+  return '지금은 뭐가 제일 걸려?';
+}
+
+// ---- Validation 내부 유틸 ----
+
+// 완벽한 NLP 문장 분리를 구현하지 않는다 — STEP 6은 "명백한 실패"만 잡는 것이 목적이므로,
+// 한국어 문장 종결부호(. ! ? ？ ~) 뒤를 기준으로 한 단순 분리로 충분하다.
+function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?？~])\s*/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+function normalizeForMatch(s: string): string {
+  return s.trim().replace(/[?？.!~\s]+$/g, '');
+}
+
+function normalizeForRepeatCheck(s: string): string {
+  return s.replace(/[\s.,!?？~]/g, '');
+}
+
+const GENERIC_QUESTION_PATTERNS = [
+  '더 이야기해줄래',
+  '말해줄래',
+  '어떻게 생각해',
+  '그래서 어떻게 생각해',
+  '왜',
+  '왜 그런 거야',
+  '무슨 일이야',
+  '어때',
+  '괜찮아',
+  '어떻게 하고 싶어',
+  '앞으로 어떻게 할 거야',
+  '무슨 생각이 들어',
+  '더 자세히 말해줘',
+];
+
+// "질문 문장 앞에 현재 상황을 구체적으로 설명하지 않고, generic question만 단독으로 존재하면
+// FAIL한다"(스펙 8절) — 즉 응답이 정확히 한 문장이고, 그 문장 자체가 generic 패턴과 완전히
+// 일치할 때만 실패시킨다. 앞에 구체적인 문장이 붙어 있으면(=STEP 5의 "빈칸" 구조를 이미 지킨
+// 경우) 실패시키지 않는다.
+function isGenericQuestion(response: string): boolean {
+  const sentences = splitSentences(response);
+  if (sentences.length !== 1) return false;
+  const normalized = normalizeForMatch(sentences[0]);
+  return GENERIC_QUESTION_PATTERNS.some((p) => normalizeForMatch(p) === normalized);
+}
+
+const CLOSING_PATTERNS = [
+  '힘내',
+  '화이팅',
+  '응원할게',
+  '잘 될 거야',
+  '잘할 수 있을 거야',
+  '좋은 하루 보내',
+  '잘 자',
+  '좋겠다',
+  '대단하다',
+  '멋지다',
+  '괜찮아',
+  '충분히 잘하고 있어',
+  '잘하고 있어',
+];
+
+// 응답에 물음표(빈칸)가 하나라도 있으면 애초에 "닫힌" 응답이 아니다. 물음표가 없고, 마지막
+// 문장이 closing 패턴과 정확히 일치할 때만 FAIL한다(스펙 9절 — "단어 하나가 포함되었다고
+// 실패시키지 않는다").
+function isClosingResponse(response: string): boolean {
+  if (/[?？]/.test(response)) return false;
+  const sentences = splitSentences(response);
+  if (sentences.length === 0) return false;
+  const last = normalizeForMatch(sentences[sentences.length - 1]);
+  return CLOSING_PATTERNS.some((p) => normalizeForMatch(p) === last);
+}
+
+const GENERIC_ENCOURAGEMENT_PATTERNS = [
+  '그럴 수 있어',
+  '괜찮아',
+  '힘내',
+  '잘할 수 있을 거야',
+  '충분히 잘하고 있어',
+  '응원할게',
+];
+
+// 응답을 이루는 문장 전부가 generic encouragement 패턴뿐이고, 현재 상황에 대한 구체적인 언급이
+// 하나도 없을 때만 FAIL한다. "구체적인 현재 상황 + 반응/관찰 + (필요하면) 빈칸" 구조가 있으면
+// 통과한다(스펙 10절).
+function isGenericEncouragement(response: string): boolean {
+  const sentences = splitSentences(response);
+  if (sentences.length === 0) return false;
+  return sentences.every((s) => {
+    const normalized = normalizeForMatch(s);
+    return GENERIC_ENCOURAGEMENT_PATTERNS.some((p) => normalizeForMatch(p) === normalized);
+  });
+}
+
+// MEMORY_REFERENCE 전략인데 memory_unit_id_used가 없는데도 "전에/예전에/저번에 ~했잖아" 식으로
+// 과거 사실을 확정적으로 언급하는, 명백한 경우만 잡는다. 자연어를 완벽하게 판정하려 하지 않는다
+// (스펙 17절 — "명백한 경우만 검사한다").
+function mentionsPastMemoryLikePhrase(response: string): boolean {
+  return /(전에|예전에|저번에).{0,30}(했잖아|말했잖아|그랬잖아)/.test(response);
+}
+
+function isRepeatedQuestion(previous: string, current: string): boolean {
+  if (!previous || !current) return false;
+  return normalizeForRepeatCheck(previous) === normalizeForRepeatCheck(current);
+}
+
+// 같은 memory_unit_id를 연속으로 다시 쓰면서, 문장까지 사실상 동일한(한쪽이 다른 쪽을 거의
+// 그대로 포함하는) 명백한 반복만 잡는다. 완전히 다른 각도로 다시 꺼낸 경우(예: 새로운 현재
+// 상황과 새롭게 연결한 경우)는 이 함수가 true를 반환하지 않는다 — 그건 STEP 5가 이미 권장하는
+// "다른 각도" 접근이지 반복이 아니기 때문이다(스펙 16절).
+function hasNearIdenticalWording(a: string, b: string): boolean {
+  const na = normalizeForRepeatCheck(a);
+  const nb = normalizeForRepeatCheck(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const shorter = na.length <= nb.length ? na : nb;
+  const longer = na.length <= nb.length ? nb : na;
+  return shorter.length >= 6 && longer.includes(shorter);
+}
+
+// STEP 6 — rule-based validation 본체. 새 GPT 호출을 전혀 하지 않는다. 이미 만들어진
+// ResponseResult(validation 3개 필드 제외)와 이번 턴의 context(후보 memory id 집합, 직전 턴
+// 정보)만으로 판정한다. 한 응답에서 여러 규칙이 동시에 위반될 수 있으므로 실패 사유는 배열로
+// 전부 모은다(스펙 3절 — "가능하면 모든 failure reason을 수집한다").
+export function validateResponse(
+  result: Pick
+    ResponseResult,
+    | 'response'
+    | 'response_strategy'
+    | 'question_present'
+    | 'memory_unit_id_used'
+    | 'memory_relevance'
+    | 'conversation_opportunity'
+  >,
+  context: ValidationContext
+): ValidationResult {
+  const reasons: ValidationFailureReason[] = [];
+  const response = typeof result.response === 'string' ? result.response : '';
+
+  // RULE 1 — EMPTY_RESPONSE
+  if (response.trim().length === 0) {
+    reasons.push('EMPTY_RESPONSE');
+  }
+
+  const sentences = splitSentences(response);
+  const questionMarkCount = (response.match(/[?？]/g) ?? []).length;
+  const hasQuestionMark = questionMarkCount > 0;
+
+  // RULE 2 — RESPONSE_TOO_LONG
+  if (sentences.length >= 6 || response.length > 500) {
+    reasons.push('RESPONSE_TOO_LONG');
+  }
+
+  // RULE 3 — TOO_MANY_QUESTIONS
+  if (questionMarkCount >= 2) {
+    reasons.push('TOO_MANY_QUESTIONS');
+  }
+
+  // RULE 4 — QUESTION_STRATEGY_WITHOUT_QUESTION
+  if (result.response_strategy === 'QUESTION' && result.question_present !== true && !hasQuestionMark) {
+    reasons.push('QUESTION_STRATEGY_WITHOUT_QUESTION');
+  }
+
+  // RULE 5 — GENERIC_QUESTION
+  if (isGenericQuestion(response)) {
+    reasons.push('GENERIC_QUESTION');
+  }
+
+  // RULE 6 — CLOSING_RESPONSE
+  if (isClosingResponse(response)) {
+    reasons.push('CLOSING_RESPONSE');
+  }
+
+  // RULE 7 — GENERIC_ENCOURAGEMENT
+  if (isGenericEncouragement(response)) {
+    reasons.push('GENERIC_ENCOURAGEMENT');
+  }
+
+  // RULE 8 — MEMORY_RELEVANCE_MISMATCH (스펙 11절의 5개 조건 전부)
+  if (result.memory_unit_id_used !== null) {
+    const id = result.memory_unit_id_used;
+    const relevanceYes = result.memory_relevance.some((r) => r.memory_unit_id === id && r.relevance === 'YES');
+    const validId = context.validMemoryUnitIds.has(id);
+    const oppMatches =
+      result.conversation_opportunity.source === 'memory' &&
+      result.conversation_opportunity.strength === 'STRONG' &&
+      result.conversation_opportunity.memory_unit_id === id;
+    if (!validId || !relevanceYes || !oppMatches) {
+      reasons.push('MEMORY_RELEVANCE_MISMATCH');
+    }
+  }
+
+  // RULE 9 — OPPORTUNITY_MEMORY_MISMATCH (스펙 12절 Case A~D)
+  if (result.memory_unit_id_used !== null) {
+    const opp = result.conversation_opportunity;
+    if (
+      opp.type === 'none' || // Case A
+      opp.strength === 'WEAK' || // Case B
+      opp.strength === 'NONE' ||
+      opp.source === 'current_turn' || // Case C
+      opp.source === 'none' // Case D
+    ) {
+      reasons.push('OPPORTUNITY_MEMORY_MISMATCH');
+    }
+  }
+
+  // RULE 10 — CURRENT_TURN_MEMORY_MISMATCH (스펙 13절)
+  if (result.memory_unit_id_used !== null && result.conversation_opportunity.source === 'current_turn') {
+    reasons.push('CURRENT_TURN_MEMORY_MISMATCH');
+  }
+
+  // RULE 11 — INVALID_MEMORY_REFERENCE (스펙 14절 — string으로 온 id를 number로 자동 변환해서
+  // 통과시키지 않는다. typeof 체크 자체가 그 방어다.)
+  if (result.memory_unit_id_used !== null) {
+    if (
+      typeof result.memory_unit_id_used !== 'number' ||
+      !context.validMemoryUnitIds.has(result.memory_unit_id_used)
+    ) {
+      reasons.push('INVALID_MEMORY_REFERENCE');
+    }
+  }
+
+  // RULE 12 — REPEATED_QUESTION (스펙 15절)
+  if (context.previousResponse && isRepeatedQuestion(context.previousResponse.response, response)) {
+    reasons.push('REPEATED_QUESTION');
+  }
+
+  // RULE 13 — REPEATED_MEMORY (스펙 16절 — 같은 memory_unit_id + 명백히 동일한 문장일 때만)
+  if (
+    context.previousResponse &&
+    result.memory_unit_id_used !== null &&
+    context.previousResponse.memoryUnitIdUsed === result.memory_unit_id_used &&
+    hasNearIdenticalWording(context.previousResponse.response, response)
+  ) {
+    reasons.push('REPEATED_MEMORY');
+  }
+
+  // RULE 14 — STRATEGY_OUTPUT_MISMATCH (스펙 17절 — MEMORY_REFERENCE의 명백한 불일치만 검사한다.
+  // QUESTION 불일치는 이미 RULE 4가 QUESTION_STRATEGY_WITHOUT_QUESTION으로 잡는다.)
+  if (
+    result.response_strategy === 'MEMORY_REFERENCE' &&
+    result.memory_unit_id_used === null &&
+    mentionsPastMemoryLikePhrase(response)
+  ) {
+    reasons.push('STRATEGY_OUTPUT_MISMATCH');
+  }
+
+  return { passed: reasons.length === 0, reasons };
 }
