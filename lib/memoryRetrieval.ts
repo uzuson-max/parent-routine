@@ -130,7 +130,7 @@ function scoreCandidate(
 const MEMORY_UNIT_COLUMNS =
   'id, memory_type, subject_entity_id, content, emotion, temporal_context, importance, retention, status, created_at, last_referenced_at, reference_count, source_entry_id, entities(name)';
 
-<export async function filterConfirmedCommitments
+export async function filterConfirmedCommitments<
   T extends { memory_type: string; source_entry_id?: string | null }
 >(userId: string, units: T[]): Promise<T[]> {
   const commitmentUnits = units.filter((u) => u.memory_type === 'commitment');
