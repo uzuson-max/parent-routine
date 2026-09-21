@@ -104,47 +104,74 @@ async function fetchNickname(userId: string): Promise<string | null> {
   return data?.nickname ?? null;
 }
 
-interface PreviousTurn {
+interface RecentTurn {
   transcript: string;
   response: string;
   minutesAgo: number;
+  // STEP 2(Memory Retrieval) 이후 단계에서 "최근에 어떤 memory/insight를 썼는지" 참고용으로 쓸 수 있도록
+  // voice_entries.response(jsonb)에 이미 저장돼 있는 값을 그대로 꺼내둔다. 이번 STEP 1에서는 이 값을
+  // 프롬프트에 직접 쓰지 않는다(반복 방지 로직 자체는 memory_units.reference_count/last_referenced_at
+  // 기반으로 STEP 2/6에서 별도 구현) — 여기서는 구조만 만들어 둔다.
+  strategy: string | null;
+  memoryUnitIdUsed: number | null;
+  insightIdUsed: number | null;
 }
 
+// 발화당 프롬프트에 얹을 최근 대화 턴 수. 무제한으로 늘리지 않는다 — 너무 많이 넣으면 프롬프트가
+// 길어지고 LLM이 오히려 뭘 우선해야 할지 흐려진다. 초기값 4는 heuristic이며, 실제 로그를 보고
+// 튜닝 대상이다.
+const RECENT_TURN_LIMIT = 4;
+
 // Phase 3 — "사용자의 후속 답변도 새로운 입력이다"가 실제로 작동하려면, 지금 이 발화가 참견이가
-// 바로 직전에 물어본 것에 대한 답일 수도 있다는 걸 프롬프트가 알아야 한다. 지금까지는 각 voice_entries
-// 호출이 서로 완전히 독립적이라(memory_units/insight retrieval은 "예전 기억"만 다루고 "바로 직전 턴"은
-// 아무 데도 없었다), "라면 먹었어~" → "무슨 라면?" → "크림라면"처럼 짧게 이어지는 실제 대화에서
-// 두 번째 발화("크림라면")만 뚝 떼어놓고 보면 참견이가 방금 무슨 질문을 했는지 알 방법이 없었다.
-// 새 테이블 없이 voice_entries 자체(transcript/call_message/created_at)만 조회하는 가장 작은 변경이다.
-// 실패해도 절대 던지지 않고 null을 반환한다 (직전 대화 없이 기존 방식대로 계속 진행).
-async function fetchPreviousTurn(userId: string, excludeEntryId: string): Promise<PreviousTurn | null> {
+// 최근에 물어본 것에 대한 답일 수도 있다는 걸 프롬프트가 알아야 한다. 기존에는 직전 1턴만 봐서,
+// "라면 먹었어~" → "무슨 라면?" → "크림라면" 같은 짧은 흐름 자체는 이어갈 수 있어도, 그보다
+// 조금만 더 오래된 흐름(예: 같은 화제를 몇 턴 전에도 물어본 것)은 아예 안 보였다.
+// 이제 최근 N턴(RECENT_TURN_LIMIT)을 한 번에 가져온다. 새 테이블 없이 voice_entries 자체
+// (transcript/call_message/response/created_at)만 조회하는 변경이다.
+// 실패해도 절대 던지지 않고 빈 배열을 반환한다 (최근 대화 없이 기존 방식대로 계속 진행).
+async function fetchRecentTurns(
+  userId: string,
+  excludeEntryId: string,
+  limit: number = RECENT_TURN_LIMIT
+): Promise<RecentTurn[]> {
   try {
     const { data, error } = await supabase
       .from('voice_entries')
-      .select('transcript, call_message, created_at')
+      .select('transcript, call_message, response, created_at')
       .eq('user_id', userId)
       .neq('id', excludeEntryId)
       .not('transcript', 'is', null)
       .not('call_message', 'is', null)
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(limit);
 
     if (error) {
-      console.error('[responseEngine] fetchPreviousTurn 조회 실패 (직전 대화 없이 계속):', error.message);
-      return null;
+      console.error('[responseEngine] fetchRecentTurns 조회 실패 (최근 대화 없이 계속):', error.message);
+      return [];
     }
-    if (!data || !data.transcript || !data.call_message) return null;
-    if (data.transcript === '(음성 변환 실패)') return null;
+    if (!data || data.length === 0) return [];
 
-    const minutesAgo = Math.max(0, Math.round((Date.now() - new Date(data.created_at).getTime()) / 60000));
-    return { transcript: data.transcript, response: data.call_message, minutesAgo };
+    return data
+      .filter((row: any) => row.transcript && row.call_message && row.transcript !== '(음성 변환 실패)')
+      .map((row: any) => {
+        const minutesAgo = Math.max(0, Math.round((Date.now() - new Date(row.created_at).getTime()) / 60000));
+        // response는 generateResponse()가 반환한 ResponseResult 전체를 그대로 저장해둔 jsonb다.
+        // 과거 행이거나 필드가 비어 있을 수도 있으니 전부 optional로 다룬다.
+        const parsedResponse = (row.response ?? null) as Partial<ResponseResult> | null;
+        return {
+          transcript: row.transcript as string,
+          response: row.call_message as string,
+          minutesAgo,
+          strategy: parsedResponse?.response_strategy ?? null,
+          memoryUnitIdUsed: parsedResponse?.memory_unit_id_used ?? null,
+          insightIdUsed: parsedResponse?.insight_id_used ?? null,
+        };
+      });
   } catch (err: any) {
-    console.error('[responseEngine] fetchPreviousTurn 실패 (무시):', err?.message);
-    return null;
+    console.error('[responseEngine] fetchRecentTurns 실패 (무시):', err?.message);
+    return [];
   }
 }
-
 // "3시간 전" 같은 정확한 숫자보다, 참견이가 자연스럽게 판단할 수 있을 정도의 대략적인 표현이면 충분하다.
 // 정확한 컷오프로 "직전 대화 반영 여부"를 코드에서 강제로 끊지 않고, 이 표현 + 아래 프롬프트 지침을 근거로
 // 최종 판단은 LLM에게 맡긴다 (memory_units/insight를 다룰 때와 같은 원칙).
