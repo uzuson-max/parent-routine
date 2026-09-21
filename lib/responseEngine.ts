@@ -200,11 +200,13 @@ export async function generateResponse(
   // "방금 참견이가 먼저 이렇게 말 걸었다"는 맥락으로 한 번 전달된다. 없으면(일반 발화) 기존과 동일하게 동작.
   initialTopic?: string
 ): Promise<ResponseResult> {
-  const [entryCount, callAllowed, nickname, previousTurn] = await Promise.all([
+  // lib/responseEngine.ts
+
+  const [entryCount, callAllowed, nickname, recentTurns] = await Promise.all([
     getEntryCount(userId),
     canCallNow(userId),
     fetchNickname(userId),
-    fetchPreviousTurn(userId, entryId),
+    fetchRecentTurns(userId, entryId),
   ]);
   const relationshipLevel = calcRelationshipLevel(entryCount);
  
