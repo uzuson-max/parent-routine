@@ -35,8 +35,9 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
   const requestMic = async () => {
     setMicBusy(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((t) => t.stop());
+     // getUserMedia는 lib/micStream.ts 한 곳에서만 부른다. 여기서 얻은 스트림을 끄지 않고 두면
+      // 바로 이어지는 첫 대화 녹음이 같은 스트림을 재사용해서, iOS에서 권한 팝업이 두 번 뜨지 않는다.
+      await acquireMicStream();
     } catch {
       // 거부해도 앱은 계속 진행 — 텍스트 입력으로도 대화할 수 있어서.
     } finally {
