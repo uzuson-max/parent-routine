@@ -1,13 +1,18 @@
 
+"use client";
 
 import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
 import { BRAND, inkAlpha, pageBackground, radius, shadow, border, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import { IconMic, IconMore } from "@/components/icons";
+import { acquireMicStream } from "@/lib/micStream";
 
 interface RecordingScreenProps {
   initialTopic?: string;
   onFinish: (input: Blob | string) => void;
+  // true면 화면이 뜨자마자 바로 녹음을 시작한다 (홈 마이크 / ＋ 더 이야기하기).
+  // 중간 안내 화면 없이 "누르면 바로 듣고 있음" 상태가 되게 하기 위함.
+  autoStart?: boolean;
 }
 
 // 녹음 중 상태를 텍스트 타이머 하나로만 보여주던 것 대신, 듣고 있다는 걸 시각적으로
@@ -32,26 +37,34 @@ function Waveform({ color }: { color: string }) {
   );
 }
 
-export default function RecordingScreen({ initialTopic, onFinish }: RecordingScreenProps) {
+export default function RecordingScreen({ initialTopic, onFinish, autoStart }: RecordingScreenProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [mode, setMode] = useState<"voice" | "text">("voice");
   const [textValue, setTextValue] = useState("");
+  const [micFailed, setMicFailed] = useState(false);
+  // 자동 시작을 시도하는 그 짧은 순간에만 true — 그동안 "눌러서 시작" 안내가 깜빡 보이지 않게.
+  const [autoStarting, setAutoStarting] = useState(Boolean(autoStart));
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // 녹음이 끝난 뒤(혹은 컴포넌트가 언마운트될 때) 마이크 스트림을 반드시 해제하기 위한 참조.
-  // 이전 스트림을 stop() 하지 않고 두면 트랙이 계속 살아있는 채로 다음 녹음이 새 getUserMedia를
-  // 또 호출하게 되어, 브라우저/OS에 따라 마이크 권한이 매번 다시 뜨는 것처럼 보이는 원인이 된다.
-  const streamRef = useRef<MediaStream | null>(null);
-  // start()가 완료되기 전에 heroBox를 연속 클릭하면 getUserMedia가 중복 호출될 수 있어 가드한다.
+  // start()가 완료되기 전에 연속 클릭하면 녹음이 중복 시작될 수 있어 가드한다.
   const startingRef = useRef(false);
+  const stoppingRef = useRef(false);
+  // 텍스트 모드로 바꾸면서 녹음을 버릴 때는 onFinish(업로드)로 넘기지 않는다.
+  const discardRef = useRef(false);
+  const autoStartedRef = useRef(false);
 
+  // 마이크 스트림은 lib/micStream.ts가 대화 루프 내내 들고 있다. 여기서는 녹음기(MediaRecorder)만
+  // 정리하고 트랙은 끄지 않는다 — 끄면 ＋ 더 이야기하기 때 iOS에서 권한 팝업이 다시 뜰 수 있다.
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
+      const rec = mediaRecorderRef.current;
+      if (rec && rec.state !== "inactive") {
+        discardRef.current = true;
+        try { rec.stop(); } catch {}
+      }
     };
   }, []);
 
@@ -59,36 +72,58 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
     if (startingRef.current || isRecording) return;
     startingRef.current = true;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
+      const stream = await acquireMicStream();
       const recorder = new MediaRecorder(stream);
       chunksRef.current = [];
-      recorder.ondataavailable = (e) => chunksRef.current.push(e.data);
+      discardRef.current = false;
+      stoppingRef.current = false;
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        if (timerRef.current) clearInterval(timerRef.current);
+        setIsRecording(false);
+        if (discardRef.current) return;
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        onFinish(blob);
+      };
       recorder.start();
       mediaRecorderRef.current = recorder;
+      setMicFailed(false);
       setIsRecording(true);
       setSeconds(0);
       timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
     } catch (e) {
-      alert("마이크 권한이 필요해!");
+      // 권한 거부/마이크 없음 — 알림창 대신 화면 안에서 조용히 알려주고, 글로 남기는 길은 열어둔다.
+      setMicFailed(true);
     } finally {
       startingRef.current = false;
     }
   };
 
+  useEffect(() => {
+    if (autoStart && !autoStartedRef.current) {
+      autoStartedRef.current = true;
+      start().finally(() => setAutoStarting(false));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart]);
+
   const stop = () => {
-    if (timerRef.current) clearInterval(timerRef.current);
     const recorder = mediaRecorderRef.current;
-    if (!recorder) return;
+    // inactive = 트랙이 먼저 끊겨(백그라운드 전환 등) 브라우저가 이미 onstop을 불러준 상태.
+    if (!recorder || stoppingRef.current || recorder.state === "inactive") return;
+    stoppingRef.current = true;
     recorder.stop();
-    recorder.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-      // 녹음이 끝났으니 마이크 트랙을 즉시 해제 — 다음 녹음 때 깨끗한 상태에서 다시 요청한다.
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-      setIsRecording(false);
-      onFinish(blob);
-    };
+  };
+
+  const switchToText = () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      discardRef.current = true;
+      try { recorder.stop(); } catch {}
+    }
+    setMode("text");
   };
 
   const submitText = () => {
@@ -149,20 +184,20 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
       <div style={styles.contentWrapper}>
         {isReplyingToGanseobi && <span style={styles.replyStamp}>참견이한테 대답하는 중</span>}
         <div style={styles.topBar}>
-          <div style={styles.topicBadge}>
-            {initialTopic ? `참견이: "${initialTopic}"` : "생각 털어놓기"}
-          </div>
-          {!isRecording && (
-            <button
-              className={TACTILE_PRESS_CLASS}
-              style={styles.modeToggleButton}
-              onClick={() => setMode("text")}
-              aria-label="텍스트 입력으로 전환"
-              title="타이핑으로 남길래"
-            >
-              <IconMore style={{ width: 18, height: 18, color: BRAND.ink }} />
-            </button>
+          {initialTopic ? (
+            <div style={styles.topicBadge}>{`참견이: "${initialTopic}"`}</div>
+          ) : (
+            <span style={styles.wordmark}>참견이</span>
           )}
+          <button
+            className={TACTILE_PRESS_CLASS}
+            style={styles.modeToggleButton}
+            onClick={switchToText}
+            aria-label="텍스트 입력으로 전환"
+            title="타이핑으로 남길래"
+          >
+            <IconMore style={{ width: 18, height: 18, color: BRAND.ink }} />
+          </button>
         </div>
 
         {isRecording && (
@@ -187,12 +222,21 @@ export default function RecordingScreen({ initialTopic, onFinish }: RecordingScr
 
         {isRecording ? (
           <>
-            <button className={TACTILE_PRESS_CLASS} style={styles.stopButton} onClick={stop}>
-              그만 말할래
-            </button>
             <p style={styles.mainCopy}>응, 듣고 있어</p>
             <p style={styles.subCopy}>정리 안 해도 됨. 중간에 생각 바뀌어도 됨</p>
+            <button className={TACTILE_PRESS_CLASS} style={styles.stopButton} onClick={stop}>
+              <span style={styles.stopSquare} />
+              다 말했어
+            </button>
           </>
+        ) : micFailed ? (
+          <>
+            <p style={styles.mainCopy}>마이크가 안 잡히네</p>
+            <p style={styles.subCopy}>마이크 동그라미를 다시 눌러보거나,{"\n"}오른쪽 위 버튼으로 써서 보내도 돼.</p>
+          </>
+        ) : autoStarting ? (
+          // 자동 시작 중(권한 확인 ~ 녹음 시작 사이 아주 짧은 순간) — 안내 문구로 화면이 깜빡이지 않게 비워둔다.
+          <p style={styles.subCopy}>&nbsp;</p>
         ) : (
           <>
             <p style={styles.mainCopy}>{isReplyingToGanseobi ? "말해서 대답해줘" : "생각나는 대로 해도 돼"}</p>
@@ -227,7 +271,8 @@ const heroBoxBase: CSSProperties = {
 };
 
 const styles: { [key: string]: React.CSSProperties } = {
-  container: { minHeight: "100vh", ...pageBackground, color: BRAND.ink, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "24px" },
+  // 실제 기기 화면 한 장(100dvh) 기준 + 상/하단 안전영역을 직접 비운다(body가 안전영역 padding을 안 줌).
+  container: { ...pageBackground, minHeight: "100dvh", color: BRAND.ink, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", padding: "24px", paddingTop: "max(24px, calc(env(safe-area-inset-top, 0px) + 16px))", paddingBottom: "max(24px, calc(env(safe-area-inset-bottom, 0px) + 16px))", boxSizing: "border-box" },
   contentWrapper: { width: "100%", maxWidth: "380px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: "20px" },
   topBar: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" },
   topicBadge: { ...tactile.badge, padding: "8px 14px", fontSize: "13px", fontWeight: 700 },
@@ -254,8 +299,11 @@ const styles: { [key: string]: React.CSSProperties } = {
   timerText: { fontSize: "13px", fontWeight: 700, color: "rgba(255,255,255,0.92)", letterSpacing: "1px", position: "relative" },
   textarea: { width: "100%", minHeight: "180px", padding: "16px", ...tactile.input, fontSize: "16px", fontWeight: 500, resize: "vertical", fontFamily: "inherit" },
   recordingButton: { width: "100%", padding: "16px", ...tactile.primaryButton, ...typography.ctaLabel },
-  stopButton: { width: "100%", padding: "14px", ...tactile.secondaryButton, fontSize: "15px", fontWeight: 700 },
+  // 녹음 중 유일한 행동 — primary로 크게.
+  stopButton: { width: "100%", padding: "16px", ...tactile.primaryButton, ...typography.ctaLabel, display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", marginTop: "4px" },
+  stopSquare: { width: "12px", height: "12px", borderRadius: "3px", background: "#fff", flexShrink: 0 },
+  wordmark: { ...typography.eyebrow, color: inkAlpha.faint },
   disabledButton: { opacity: 0.45, cursor: "not-allowed" },
   mainCopy: { color: BRAND.ink, fontSize: "18px", fontWeight: 700, margin: 0 },
-  subCopy: { color: inkAlpha.muted, fontSize: "13px", margin: 0 },
+  subCopy: { color: inkAlpha.muted, fontSize: "13px", margin: 0, whiteSpace: "pre-line", lineHeight: 1.5 },
 };
