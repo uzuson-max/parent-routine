@@ -35,7 +35,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko">
-      <body>
+       <body style={{ margin: 0 }}>
         <PwaRegister />
         {children}
       </body>
