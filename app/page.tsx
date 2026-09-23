@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -19,6 +20,7 @@ import ThinkingScreen from "./screens/ThinkingScreen"; // 👈 1. 상단 import�
 import FirstTalkScreen from "./screens/FirstTalkScreen";
 import DiscoveryScreen from "./screens/DiscoveryScreen";
 import { BRAND, pageBackground } from "@/lib/theme";
+import { acquireMicStream, releaseMicStream } from "@/lib/micStream";
 
 const ONBOARDING_KEY = "ganseobi_onboarding_completed";
 // 첫 실행 사용자가 "첫 녹음 → 첫 기록"까지 마쳤는지 표시. 한 번 true가 되면 그 세션에서만
@@ -63,6 +65,8 @@ export default function Home() {
   // 온보딩을 막 끝낸 사용자의 "첫 녹음 → 첫 기록" 여정 동안만 true.
   // 이 값이 true인 동안에는 전화번호/닉네임 같은 부가 입력을 요구하지 않고 바로 홈까지 보낸다.
   const [isFirstRun, setIsFirstRun] = useState(false);
+  // true면 RecordingScreen이 뜨자마자 바로 녹음을 시작한다(홈 마이크 / ＋ 더 이야기하기).
+  const [autoStartRecording, setAutoStartRecording] = useState(false);
 
   const fetchEntries = async () => {
     try {
@@ -180,17 +184,19 @@ export default function Home() {
       }
     } catch (e: any) {
       console.error("[Home] upload flow failed:", e.message);
+      releaseMicStream();
       setError(e.message);
       setStep("landing");
     }
   };
 
   return (
-    <div style={{ minHeight: "100vh", ...pageBackground }}>
+    // 크림 배경이 기기 화면 끝(홈 인디케이터 아래)까지 채워지도록 wrapper는 100dvh 전체를 덮는다.
+    <div style={{ ...pageBackground, minHeight: "100dvh" }}>
       {error && (
         <div style={errorBannerStyle}>
           문제가 생겼어: {error}
-          <button style={{ marginLeft: 12, background: BRAND.border, color: BRAND.yellow, border: "none", padding: "4px 8px", cursor: "pointer", fontWeight: "bold" }} onClick={() => { setError(null); setStep("landing"); }}>
+          <button style={{ marginLeft: 12, background: BRAND.border, color: BRAND.yellow, border: "none", padding: "4px 8px", cursor: "pointer", fontWeight: "bold" }} onClick={() => { releaseMicStream(); setError(null); setStep("landing"); }}>
             처음으로
           </button>
         </div>
@@ -217,7 +223,7 @@ export default function Home() {
         <FirstTalkScreen
           onStart={() => {
             setSelectedTopic("");
-            setStep("recording");
+            startRecordingNow();
           }}
         />
       )}
@@ -234,7 +240,7 @@ export default function Home() {
             // 방금 남긴 반응이 새 한마디로 자연스럽게 이어지도록 비워둔다.
             if (topic) setProactiveLine(null);
             setSelectedTopic(topic || "");
-            setStep("recording");
+            startRecordingNow();
           }}
         />
       )}
@@ -266,6 +272,7 @@ export default function Home() {
             {step === "recording" && (
         <RecordingScreen
           initialTopic={selectedTopic}
+          autoStart={autoStartRecording}
           onFinish={(input: Blob | string) => {
             setAudioBlob(input);
             const savedPhone = typeof window !== "undefined" ? localStorage.getItem("ganseobi_phone") : null;
@@ -333,7 +340,8 @@ export default function Home() {
         <MessageScreen
           title={uploadData?.response?.response || "오늘은 그냥 들어둘게."}
           transcriptPreview={uploadData?.transcript}
-          onRestart={() => resetAll()}
+          onTalkMore={talkMore}
+          onHome={goHome}
           firstRun={isFirstRun}
         />
       )}
@@ -352,7 +360,7 @@ export default function Home() {
       )}
 
       {step === "confirmed" && (
-        <MessageScreen title="기억해뒀어." subtitle="필요할 때 다시 꺼낼게." onRestart={() => resetAll()} firstRun={isFirstRun} />
+        <MessageScreen title="기억해뒀어." subtitle="필요할 때 다시 꺼낼게." onTalkMore={talkMore} onHome={goHome} firstRun={isFirstRun} />
       )}
 
       {step === "calling" && entryId && (
@@ -362,7 +370,7 @@ export default function Home() {
             setResult(finishedEntry);
             setStep("result");
           }}
-          onHome={() => resetAll()}
+          onHome={goHome}
         />
       )}
 
@@ -370,7 +378,8 @@ export default function Home() {
         <MessageScreen
           title="전화 연결이 잘 안 됐어."
           subtitle="그래도 오늘 한 얘기는 기억해뒀어."
-          onRestart={() => resetAll()}
+          onTalkMore={talkMore}
+          onHome={goHome}
           firstRun={isFirstRun}
         />
       )}
@@ -378,8 +387,9 @@ export default function Home() {
       {step === "result" && (
         <ResultScreen
           result={result}
-          onRestart={() => resetAll()}
+          onTalkMore={talkMore}
           onHome={() => {
+            releaseMicStream();
             setAudioBlob(null);
             setSelectedTopic("");
             setEntryId(null);
@@ -392,6 +402,34 @@ export default function Home() {
       )}
     </div>
   );
+
+  // 마이크 버튼(홈 / 첫 대화)을 누른 순간 곧바로 녹음 상태로 들어간다.
+  // acquireMicStream()을 await 없이 클릭 핸들러 안에서 먼저 불러서, 사용자 제스처 안에서
+  // 마이크 요청이 시작되게 한다(iOS Safari 대비). RecordingScreen은 같은 요청/스트림을 이어받는다.
+  function startRecordingNow() {
+    acquireMicStream().catch(() => {}); // 실패는 RecordingScreen이 화면 안에서 처리
+    setAutoStartRecording(true);
+    setStep("recording");
+  }
+
+  // 응답 화면의 "＋ 더 이야기하기" — 홈이나 안내 화면을 거치지 않고 바로 다음 녹음으로.
+  // 마이크 스트림은 루프 동안 살아있으므로 권한 팝업이 다시 뜨지 않는다.
+  // (닉네임 질문 등 대화 종료 시점의 부가 흐름은 홈으로 갈 때 기존 resetAll에서 그대로 처리)
+  function talkMore() {
+    setAudioBlob(null);
+    setSelectedTopic("");
+    setEntryId(null);
+    setUploadData(null);
+    setResult(null);
+    markFirstEntryDoneIfNeeded();
+    startRecordingNow();
+  }
+
+  // 응답 화면의 "홈으로" — 대화를 끝내는 순간이라 여기서 마이크를 놓아준다.
+  function goHome() {
+    releaseMicStream();
+    resetAll();
+  }
 
   // 필수 체크리스트(마이크+전화인증) 화면을 마친 뒤 어디로 갈지 결정한다.
   // 온보딩을 막 끝낸 진짜 첫 실행이면 원래 계획대로 첫 대화(FirstTalkScreen)로 이어가고,
