@@ -4,11 +4,11 @@ import { BRAND, inkAlpha, pageBackground, tactile, typography, TACTILE_PRESS_CLA
 import { IconMemory } from "@/components/icons";
 export default function ResultScreen({
   result,
-  onRestart,
+  onTalkMore,
   onHome,
 }: {
   result: any;
-  onRestart: () => void;
+  onTalkMore: () => void;
   onHome: () => void;
 }) {
   if (!result) return null;
@@ -22,7 +22,7 @@ export default function ResultScreen({
       <Card label="참견이가 한 말" value={responseText} highlight />
       <p style={styles.savedNote}>오늘 기록해뒀어.</p>
       <div style={styles.actions}>
-        <button className={TACTILE_PRESS_CLASS} style={styles.restartButton} onClick={onRestart}>또 말할래</button>
+        <button className={TACTILE_PRESS_CLASS} style={styles.talkMoreButton} onClick={onTalkMore}>＋ 더 이야기하기</button>
         <button className={TACTILE_PRESS_CLASS} style={styles.homeButton} onClick={onHome}>홈으로</button>
       </div>
     </div>
@@ -40,7 +40,7 @@ function Card({ label, value, highlight, icon }: { label: string; value: string;
   );
 }
 const styles: { [key: string]: React.CSSProperties } = {
-  container: { minHeight: "100vh", ...pageBackground, color: BRAND.ink, padding: "28px 20px", display: "flex", flexDirection: "column", gap: 12, boxSizing: "border-box" },
+  container: { ...pageBackground, minHeight: "100dvh", color: BRAND.ink, padding: "28px 20px 0", paddingTop: "max(28px, calc(env(safe-area-inset-top, 0px) + 16px))", display: "flex", flexDirection: "column", gap: 12, boxSizing: "border-box" },
   eyebrow: { color: inkAlpha.faint, fontSize: 11, fontWeight: 700, letterSpacing: "1.2px", marginBottom: 4 },
   card: { ...tactile.card, padding: 16 },
   cardHighlight: tactile.cardAccent,
@@ -48,7 +48,9 @@ const styles: { [key: string]: React.CSSProperties } = {
   cardLabelHighlight: { color: BRAND.lavenderDeep, opacity: 1 },
   cardValue: { color: BRAND.ink, fontSize: 15, lineHeight: 1.5, margin: 0, fontWeight: 500 },
   savedNote: { color: inkAlpha.faint, fontSize: 12, marginTop: 4, marginBottom: 0, fontWeight: 500 },
-  actions: { display: "flex", gap: 10, marginTop: 8 },
-  restartButton: { flex: 1, padding: 14, ...tactile.ghostButton, fontWeight: 600, border: `1px solid ${inkAlpha.hairline}` },
-  homeButton: { flex: 1, padding: 14, ...tactile.primaryButton, ...typography.ctaLabel, fontSize: 15 },
+  // 응답 화면과 같은 위계: ＋ 더 이야기하기(primary) → 홈으로(secondary). 카드가 길어져도
+  // 스크롤 중 항상 하단에 붙어 있게 sticky로 둔다.
+  actions: { position: "sticky", bottom: 0, marginTop: "auto", paddingTop: 12, paddingBottom: "max(8px, env(safe-area-inset-bottom, 0px))", display: "flex", flexDirection: "column", alignItems: "center", gap: 4, background: "linear-gradient(180deg, rgba(251,245,232,0) 0%, #FBF5E8 28%)" },
+  talkMoreButton: { width: "100%", padding: 16, ...tactile.primaryButton, ...typography.ctaLabel },
+  homeButton: { ...tactile.ghostButton, padding: "12px 20px", fontSize: 14, fontWeight: 600, minHeight: 44 },
 };
