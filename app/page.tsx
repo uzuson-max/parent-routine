@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useEffect } from "react";
@@ -88,42 +87,51 @@ export default function Home() {
   const fetchProactiveLine = async () => {
     try {
       const { data: { session } } = await supabaseClient.auth.getSession();
-      if (!session) return;
+      if (!session) {
+        setProactiveLine(null);
+        return;
+      }
       const res = await fetch("/api/user/proactive-line", {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       const body = await res.json();
-      if (body.success) setProactiveLine(body.data);
+      // 실패해도 null로 확정해서 홈이 "확인 중" 상태에 영원히 머물지 않게 한다.
+      setProactiveLine(body.success ? body.data : null);
     } catch (e) {
       console.error("[Home] fetch proactive line failed:", e);
+      setProactiveLine(null);
     }
   };
 
   useEffect(() => {
     const ensureSession = async () => {
+      // 온보딩 여부는 로컬 값이라 네트워크를 기다릴 필요가 없다 — 첫 사용자는 홈이 잠깐 비쳤다가
+      // 넘어가지 않도록 세션 확인보다 먼저 온보딩으로 보낸다.
+      const onboardingDone = typeof window !== "undefined" && localStorage.getItem(ONBOARDING_KEY);
+      if (!onboardingDone) setStep("onboarding");
+
       const { data: { session } } = await supabaseClient.auth.getSession();
       if (!session) {
         const { error } = await supabaseClient.auth.signInAnonymously();
         if (error) console.error("[auth] 익명 로그인 실패:", error.message);
       }
 
+      // 홈 데이터는 세션만 있으면 바로 요청한다. 아래 getUser()(전화번호 확인용 네트워크 호출)가
+      // 끝날 때까지 기다리게 두면 그만큼 홈의 참견 메시지가 늦게 뜬다.
+      fetchEntries();
+      fetchProactiveLine();
+
       // 온보딩 완료 여부(로컬 저장) + 지금 계정에 인증된 전화번호가 있는지(서버)를 같이 봐서
       // 어디로 보낼지 정한다. 온보딩을 아예 처음 하는 사람은 인트로부터, 온보딩은 끝냈지만
       // (저장공간이 리셋되는 등으로) 지금 계정에 인증된 번호가 없는 사람은 인트로는 건너뛰고
       // 바로 필수 체크리스트(마이크+전화인증)로 보낸다 — 바로 이 경우가 "홈 화면 아이콘으로
       // 들어가면 저장공간이 초기화되며 새 익명 계정이 생기는" 상황이라, 여기서 반드시 잡아야 한다.
-      const onboardingDone = typeof window !== "undefined" && localStorage.getItem(ONBOARDING_KEY);
-      if (!onboardingDone) {
-        setStep("onboarding");
-      } else {
+      if (onboardingDone) {
         const { data: { user } } = await supabaseClient.auth.getUser();
         if (!user?.phone) {
           setStep("setup_checklist");
         }
       }
-
-      fetchEntries();
-      fetchProactiveLine();
     };
     ensureSession();
   }, []);
@@ -269,7 +277,7 @@ export default function Home() {
         />
       )}
 
-            {step === "recording" && (
+      {step === "recording" && (
         <RecordingScreen
           initialTopic={selectedTopic}
           autoStart={autoStartRecording}
