@@ -1,7 +1,4 @@
 
-
-
-
 "use client";
 
 import { BRAND, inkAlpha, pageBackground, tactile, typography, shadow, border, radius, TACTILE_PRESS_CLASS } from "@/lib/theme";
@@ -53,9 +50,8 @@ export default function TimelineScreen({
 }: TimelineScreenProps) {
   // entries는 페이지 상위에서 여전히 불러오지만(기록/캘린더 탭 등 다른 곳에서 쓰임),
   // Home의 메시지는 오직 proactiveLine(아직 아무 데도 안 꺼낸 진짜 개입)에만 반응한다.
-  // 로딩이 끝났는지는 proactiveLine이 undefined인지로 구분한다 — 로딩 중엔 마스코트만 먼저
-  // 등장시키고, 메시지·CTA는 결과가 확정된 뒤 한 번에 나타나게 해서 "빈 상태 → 실제 상태"로
-  // 화면이 깜빡이며 바뀌는 걸 막는다.
+  // proactiveLine이 undefined = 아직 확인 중. 확인 중에도 홈 전체(마스코트·마이크 CTA·네비)는
+  // 바로 보여주고, 메시지 자리만 옅은 skeleton으로 비워둔다 — 캐릭터만 서 있는 대기 화면 없음.
   const ready = proactiveLine !== undefined;
   const hasCallback = ready && !!(proactiveLine && proactiveLine.content);
 
@@ -119,6 +115,16 @@ export default function TimelineScreen({
           </div>
         )}
 
+        {!ready && (
+          // 참견거리 확인 중 — 캐릭터만 덩그러니 세워두지 않고, 메시지 자리만 아주 옅게 비워둔다.
+          // 홈의 나머지(마이크 CTA·하단 네비)는 이미 다 보이고 바로 누를 수 있다.
+          <div style={styles.emptyWrap} aria-hidden>
+            <span style={{ ...styles.skeletonLine, width: "62%" }} />
+            <span style={{ ...styles.skeletonLine, width: "44%" }} />
+            <span style={{ ...styles.skeletonLine, width: "52%", height: 12, marginTop: 6 }} />
+          </div>
+        )}
+
         {ready && !hasCallback && (
           // 참견할 거리가 없을 때 — 억지로 참견을 만들어내지 않고, 카드 없이 담백하게 보여준다.
           <div className="ganseobi-bubble-in" style={styles.emptyWrap}>
@@ -127,16 +133,14 @@ export default function TimelineScreen({
           </div>
         )}
 
-        {/* 대답하기 / 오늘의 생각 말하기 — Home에서 유일한 행동. ready 이전에는 아직 어느 문구를
-            보여줄지 확정되지 않았으므로(로딩 → callback/empty 사이 깜빡임 방지) 숨겨둔다. */}
-        {ready && (
-          <button className={TACTILE_PRESS_CLASS} style={styles.mainCta} onClick={handleCtaClick}>
-            <span style={styles.ctaMicWrap}>
-              <IconMic style={{ width: 18, height: 18, color: "#fff" }} />
-            </span>
-            <span style={styles.ctaText}>{ctaText}</span>
-          </button>
-        )}
+        {/* 대답하기 / 오늘의 생각 말하기 — Home에서 유일한 행동. 참견거리 확인을 기다리지 않고
+            처음부터 보여준다(확인 전엔 "오늘의 생각 말하기", 참견이 도착하면 "대답하기"로 바뀜). */}
+        <button className={TACTILE_PRESS_CLASS} style={styles.mainCta} onClick={handleCtaClick}>
+          <span style={styles.ctaMicWrap}>
+            <IconMic style={{ width: 18, height: 18, color: "#fff" }} />
+          </span>
+          <span style={styles.ctaText}>{ctaText}</span>
+        </button>
       </div>
 
       {/* NAVIGATION — 기록(내가 남긴 이야기)·MEMORY(참견이가 축적한 기억)로 가는 보조 진입점.
@@ -249,6 +253,13 @@ const styles: { [key: string]: React.CSSProperties } = {
     whiteSpace: "pre-line",
     color: inkAlpha.soft,
     textAlign: "center",
+  },
+  // 메시지가 들어올 자리 — 옅은 막대 몇 개(애니메이션 없음). empty state 텍스트와 비슷한 높이.
+  skeletonLine: {
+    display: "block",
+    height: 18,
+    borderRadius: 9,
+    background: inkAlpha.hairline,
   },
   emptySubtext: {
     ...typography.sub,
