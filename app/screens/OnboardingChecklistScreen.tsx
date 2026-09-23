@@ -1,5 +1,4 @@
 
-
 //
 // 마이크 권한 + 전화번호 인증을 한 화면에서 체크리스트 형태로 끝내는 화면.
 // 원래는 마이크 권한(MicPermissionScreen)과 전화번호 인증(PhoneVerifyScreen)이 서로 다른
@@ -17,6 +16,7 @@ import { useState } from "react";
 import { BRAND, inkAlpha, pageBackground, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import { requestPhoneLink, confirmPhoneCode, syncVerifiedPhoneToBackend, type PhoneLinkVerifyType } from "@/lib/phoneAuthClient";
 import Mascot from "@/components/Mascot";
+import { acquireMicStream } from "@/lib/micStream";
 
 type PhoneStage = "idle" | "code";
 
@@ -35,7 +35,7 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
   const requestMic = async () => {
     setMicBusy(true);
     try {
-     // getUserMedia는 lib/micStream.ts 한 곳에서만 부른다. 여기서 얻은 스트림을 끄지 않고 두면
+      // getUserMedia는 lib/micStream.ts 한 곳에서만 부른다. 여기서 얻은 스트림을 끄지 않고 두면
       // 바로 이어지는 첫 대화 녹음이 같은 스트림을 재사용해서, iOS에서 권한 팝업이 두 번 뜨지 않는다.
       await acquireMicStream();
     } catch {
