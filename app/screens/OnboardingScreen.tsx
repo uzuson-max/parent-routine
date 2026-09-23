@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { BRAND, inkAlpha, pageBackground, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import Mascot from "@/components/Mascot";
+import { acquireMicStream } from "@/lib/micStream";
 
 interface OnboardingScreenProps {
   onComplete: () => void;
