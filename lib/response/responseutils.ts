@@ -35,7 +35,7 @@ export function buildGeneratedResult(
   relationshipLevel: number,
   validMemoryUnitIds: Set<number>,
   validInsightIds: Set<number>
-): Omit
+): Omit<
   ResponseResult,
   'validation_passed' | 'validation_failure_reason' | 'regeneration_count' | 'closes_conversation' | 'repeated_memory_detected' | 'fallback_used'
 > {
