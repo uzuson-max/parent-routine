@@ -16,7 +16,18 @@ export type InterferencePurpose =
 // 만을 나타내는 값이다. YES는 "사용 가능한 후보"라는 뜻일 뿐, "이번 응답에 반드시 언급해야 한다"는
 // 뜻이 아니다(그 판단은 Opportunity — STEP 4 — 의 몫이며 이번 단계에서는 구현하지 않는다).
 export interface MemoryRelevanceItem {
-  memory_unit_id: number;
+
+  memory_unit_id: number | null;
+  // Opportunity STEP 1 (2026-09) — "무엇을 붙잡았는가"를 관찰 가능하게 만드는 필드들.
+  // source/type/strength는 "어떤 종류의 기회인가"라는 분류일 뿐이고, 실제로 사용자 발화의 어느
+  // 부분을 붙잡았는지는 아래 3개 필드에 남는다. 전부 같은 generation GPT 호출에서 생성된다.
+  // source='none'이면 셋 다 null (코드 레벨에서 강제 — responseUtils.buildGeneratedResult 참고).
+  // 이 필드들이 추가되기 전에 저장된 voice_entries.response에는 이 키들이 아예 없다 — 읽는 쪽은
+  // 항상 없을 수 있다고 가정해야 한다.
+  anchor_quote: string | null; // 이번 발화 원문에서 그대로 복사한 붙잡은 구간
+  anchor_fact: string | null; // 그 구간이 말하는 사실 한 문장 (원문의 사실관계 보존)
+  question_target: string | null; // 그 anchor에서 참견이가 궁금한 것 한 가지 (짧은 명사구)
+}
   relevance: 'YES' | 'NO';
 }
 
