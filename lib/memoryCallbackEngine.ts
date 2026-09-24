@@ -2,6 +2,7 @@
 import { supabase } from '@/lib/supabase';
 import { checkPushGate } from '@/lib/intervention/pushGate';
 import { deliverPush } from '@/lib/intervention/dispatch';
+import { smsLengthRule } from '@/lib/intervention/smsFit';
 import { PERSONALITY_PROMPT } from '@/lib/responseEngine';
 import { filterConfirmedCommitments, markMemoriesReferenced } from '@/lib/memoryRetrieval';
 
@@ -141,7 +142,8 @@ async function synthesizeMemoryCallback(memory: MemoryCallbackCandidateRow): Pro
   바라보게 하는 것"일 때만 그렇다.
 - 위 기억에 없는 사실을 지어내지 마라(날짜, 결과, 다른 사람의 반응 등 새로운 디테일 추가 금지).
 - 날짜/횟수 등 데이터베이스 냄새나는 표현 금지.
-- 1~2문장, SMS라 짧게 써라. 이모지는 필요할 때만 0~1개.
+
+${smsLengthRule(false)}
 
 반드시 아래 JSON으로만 답해:
 { "found": true or false, "message": "..." or null }`;
