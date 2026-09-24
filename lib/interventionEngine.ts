@@ -4,6 +4,7 @@ import { PERSONALITY_PROMPT } from '@/lib/responseEngine';
 import { InterventionType } from '@/lib/intervention/interventionTypes';
 import { checkPushGate } from '@/lib/intervention/pushGate';
 import { deliverPush } from '@/lib/intervention/dispatch';
+import { smsLengthRule } from '@/lib/intervention/smsFit';
 import { kstHuman, kstIsoWithWeekday, relativeFromNow } from '@/lib/intervention/kstTime';
 import {
   CommitmentKind,
@@ -131,9 +132,10 @@ const COMMON_RULES = `[공통 규칙]
 - 이건 문자메시지 본문이다. "참견이 등장." 같은 머리말은 시스템이 따로 붙이니 절대 쓰지 마라.
 - 사용자가 지금 무엇을 하고 있는지 추측하지 마라. "지금쯤 ~하고 있겠지", "벌써 일어났어?" 같은 문장 금지.
 - 아래 [사실]에 없는 시간/장소/상황/결과를 지어내지 마라.
-- 1~2문장. 반말. 명령형("해", "잊지 마") 금지, 상담사/알림 말투 금지. 이모지는 0~1개.
-- 질문은 최대 하나.`;
+- 반말. 명령형("해", "잊지 마") 금지, 상담사/알림 말투 금지.
+- 질문은 최대 하나.
 
+${smsLengthRule(true)}`;
 async function buildReminderMessage(row: DueRow, eventAt: Date | null, now: Date): Promise<string> {
   const fallback = eventAt
     ? `${relativeFromNow(eventAt, now).replace('약 ', '')}에 그거 있잖아. "${row.commitment}"`
