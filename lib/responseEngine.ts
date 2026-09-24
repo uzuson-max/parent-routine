@@ -6,18 +6,18 @@ import type {
   ValidationContext,
   ResponseResult,
   RecentTurn,
-} from '@/lib/response/responseTypes';
+} from '@/lib/response/responsetypes';
 import {
   validateResponse,
   isClosingResponse,
   computeRepeatedMemoryDetected,
-} from '@/lib/response/responseValidator';
-import { buildGeneratedResult } from '@/lib/response/responseUtils';
+} from '@/lib/response/responsevalidator';
+import { buildGeneratedResult } from '@/lib/response/responseutils';
 import {
   PERSONALITY_PROMPT,
   buildRegenerationPrompt,
   buildSystemPrompt,
-} from '@/lib/response/responsePrompt';
+} from '@/lib/response/responseprompt';
 
 // 기존에 이 파일에서 export하던 PERSONALITY_PROMPT — 외부 5개 파일이 '@/lib/responseEngine'에서 import하므로 그대로 다시 export한다.
 export { PERSONALITY_PROMPT };
