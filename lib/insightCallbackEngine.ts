@@ -1,5 +1,7 @@
+
 import { supabase } from '@/lib/supabase';
-import { sendSolapiSms } from '@/lib/solapi';
+import { checkPushGate } from '@/lib/intervention/pushGate';
+import { deliverPush } from '@/lib/intervention/dispatch';
 import { markInsightsSurfaced } from '@/lib/insightEngine';
 
 // ============================================================================
@@ -34,7 +36,8 @@ interface InsightCandidateRow {
 export interface InsightCallbackResult {
   insightId: number;
   userId: string;
-  action: 'sent' | 'skipped_no_phone' | 'send_failed' | 'dry_run';
+  action: 'sent' | 'skipped_push_gate' | 'skipped_no_phone' | 'send_failed' | 'dry_run';
+  reason?: string;
   message?: string;
   error?: string;
 }
@@ -99,6 +102,18 @@ export async function sendDueInsightCallbacks(dryRun: boolean = false): Promise<
 
     for (const c of toSend) {
       try {
+        // insight(여러 기억을 묶은 관찰)를 먼저 들이미는 것도 RETURN_MEMORY의 선제 push다 — global push gate 적용.
+        const gate = await checkPushGate(c.user_id, {
+          type: 'RETURN_MEMORY',
+          channel: 'sms',
+          now: new Date(),
+          topicKey: `insight:${c.id}`,
+        });
+        if (!gate.allowed) {
+          results.push({ insightId: c.id, userId: c.user_id, action: 'skipped_push_gate', reason: gate.reason });
+          continue;
+        }
+
         if (dryRun) {
           console.log(`[insightCallbackEngine][dry-run] insight#${c.id} (user=${c.user_id}) → "${c.content}"`);
           results.push({ insightId: c.id, userId: c.user_id, action: 'dry_run', message: c.content });
@@ -112,7 +127,15 @@ export async function sendDueInsightCallbacks(dryRun: boolean = false): Promise<
           continue; // last_surfaced_at을 건드리지 않아 다음 배치에서 번호가 생기면 다시 시도된다.
         }
 
-        await sendSolapiSms(phone, c.content);
+        await deliverPush({
+          userId: c.user_id,
+          phone,
+          type: 'RETURN_MEMORY',
+          channel: 'sms',
+          body: c.content,
+          reason: `insight_callback: insight#${c.id}`,
+          topicKey: `insight:${c.id}`,
+        });
         // 발송 성공 시에만 surfaced 처리 — 실패하면 다음 배치에서 재시도되도록 그대로 둔다.
         await markInsightsSurfaced([c.id]);
         results.push({ insightId: c.id, userId: c.user_id, action: 'sent', message: c.content });
