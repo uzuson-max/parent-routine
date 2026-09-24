@@ -1,6 +1,12 @@
 
-
 import { supabase } from '@/lib/supabase';
+import { kstIsoWithWeekday } from '@/lib/intervention/kstTime';
+import {
+  CommitmentKind,
+  isExplicitReminderRequest,
+  sanitizeDueAt,
+  scheduleCommitment,
+} from '@/lib/intervention/commitmentSchedule';
 
 interface AnalysisResult {
   type: 'excuse' | 'contradiction' | 'repetition' | 'none';
@@ -9,6 +15,10 @@ interface AnalysisResult {
   commitment: string | null;
   commitment_type: 'explicit' | 'inferred' | null;
   commitment_confidence: 'high' | 'medium' | 'low' | null;
+  // commitment이 있을 때만: 사용자가 "다시 알려줘"라고 명시적으로 요청했으면 'reminder', 아니면 'commitment'.
+  commitment_kind: CommitmentKind | null;
+  // commitment/reminder가 가리키는 시각(ISO 8601, +09:00). 발화에 시점이 없으면 null.
+  commitment_due_at: string | null;
   excuse: string | null;
   emotion: string | null;
   intervention_needed: boolean;
@@ -156,6 +166,8 @@ async function callGPT(
 
   const systemPrompt = `${personaInstruction}
 
+현재 시각(한국): ${kstIsoWithWeekday(new Date())}
+
 너는 사용자가 그냥 아무 말이나 편하게 한 음성 녹음을 듣고 있다.
 사용자는 목표나 약속을 "제출"한 게 아니라 그냥 이야기했을 뿐이다. 그 안에서 스스로 목표/약속/핑계/감정/패턴을 찾아내라.
 
@@ -187,6 +199,9 @@ ${memoryCandidatesBlock}
   commitment 후보가 되려면 명확한 행동 의지 표현이 있어야 한다: "오늘 ~할 거야", "이번 주말에 ~할 거야", "내일 ~해볼 거야" 처럼 "하겠다/할 것이다"가 뚜렷해야 한다.
 - commitment_type: commitment가 null이면 이것도 null. commitment가 있을 때만: 사용자가 시점/행동을 명확하게 선언했으면 "explicit" (예: "이번 주에 반드시 운동 세 번 할 거야", "오늘 퇴근하고 운동 갈 거야"). explicit만큼 뚜렷하진 않지만 그래도 실제 행동 의지가 발화에 충분히 드러나는 경우에만 "inferred"를 아주 보수적으로 써라 — 위에서 말한 생각/필요성/회고 표현은 inferred의 대상이 아니다. inferred를 쓸지 null을 쓸지 애매하면 null을 우선해라.
 - commitment_confidence: explicit이면 "high", inferred면 "medium" 또는 "low" (얼마나 막연한지에 따라). commitment가 null이면 null.
+- 예외 — 명시적 리마인더 요청: 사용자가 "다시 알려줘", "까먹지 않게 말해줘", "리마인드 해줘"처럼 특정 일정을 나중에 알려달라고 직접 요청했다면, 위 commitment 기준과 상관없이 그 일정을 commitment에 담고(예: "토요일 아침 9시에 출발"), commitment_type="explicit", commitment_confidence="high"로 한다.
+- commitment_kind: commitment가 null이면 null. 위처럼 사용자가 "알려달라"고 명시적으로 요청했으면 "reminder". 그런 요청 없이 스스로 하겠다고 말한 약속이면 "commitment". 약속을 했다고 해서 알려달라는 뜻으로 추측하지 마라.
+- commitment_due_at: commitment가 가리키는 시각을 위 "현재 시각" 기준으로 계산한 ISO 8601 문자열(반드시 +09:00 포함, 예: "2026-09-26T09:00:00+09:00"). "토요일 아침 9시" → 다가오는 토요일 09:00. "내일 아침" 처럼 시간이 모호하면 아침=08:00, 점심=12:00, 오후=15:00, 저녁=19:00, 밤=22:00, "오늘"만 있으면 그날 21:00, "주말"만 있으면 다가오는 토요일 12:00. 발화에 시점이 전혀 없으면 null. 현재 시각보다 과거로 계산하지 마라.
 - intervention_needed: 이건 "화면에 짧게 반응하는 것"과는 완전히 다른, 훨씬 엄격한 기준이다. true가 되면 실제로 전화가 걸릴 수 있다는 뜻이다. 아래 경우에만 true로 판단해라 (기본은 false):
   - 같은 핑계나 같은 목표를 여러 번 반복하는 게 위 기록에서 확인됨
   - 같은 약속을 여러 번 미루고 있는 게 확인됨
@@ -222,6 +237,8 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
   "commitment": "..." or null,
   "commitment_type": "explicit|inferred" or null,
   "commitment_confidence": "high|medium|low" or null,
+  "commitment_kind": "reminder|commitment" or null,
+  "commitment_due_at": "..." or null,
   "excuse": "..." or null,
   "emotion": "...",
   "intervention_needed": true or false,
@@ -270,6 +287,14 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
       commitment: parsed.commitment ?? null,
       commitment_type: parsed.commitment_type ?? null,
       commitment_confidence: parsed.commitment_confidence ?? null,
+      commitment_kind: parsed.commitment
+        ? parsed.commitment_kind === 'reminder' || isExplicitReminderRequest(transcript)
+          ? 'reminder'
+          : 'commitment'
+        : null,
+      commitment_due_at: parsed.commitment
+        ? sanitizeDueAt(parsed.commitment_due_at, new Date())?.toISOString() ?? null
+        : null,
       excuse: parsed.excuse ?? null,
       emotion: parsed.emotion ?? null,
       intervention_needed: parsed.intervention_needed ?? false,
@@ -307,6 +332,8 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
       commitment: null,
       commitment_type: null,
       commitment_confidence: null,
+      commitment_kind: null,
+      commitment_due_at: null,
       excuse: null,
       emotion: null,
       intervention_needed: false,
@@ -465,10 +492,16 @@ export async function confirmCommitment(
   commitment: string,
   commitmentType: 'explicit' | 'inferred' | null,
   commitmentConfidence: 'high' | 'medium' | 'low' | null,
-  targetCount: number | null = null
+  targetCount: number | null = null,
+  kind: CommitmentKind = 'commitment',
+  dueAt: Date | null = null
 ) {
-  // 개입 엔진(lib/interventionEngine.ts)이 이 commitment를 찾으려면 next_intervention_at이 채워져 있어야 한다.
-  const firstInterventionAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+  // 예전에는 모든 약속에 "지금 + 2시간"을 next_intervention_at으로 넣었다. 그래서 목요일 저녁에 말한
+  // "토요일 9시 출발"이 목요일 밤에 "지금쯤 일어나서 준비하고 있을 시간인데..." 문자로 나갔다.
+  // 이제 kind/기한 기준으로 스케줄한다 (lib/intervention/commitmentSchedule.ts):
+  //   reminder   → 약속 시각 1시간 전 (시각을 모르면 스케줄하지 않음)
+  //   commitment → 기한 + 3시간 뒤에 결과 확인 (기한 전 개입 없음)
+  const schedule = scheduleCommitment(kind, dueAt, new Date());
 
   const { error } = await supabase.from('commitment_memory').insert({
     voice_entry_id: entryId,
@@ -479,7 +512,9 @@ export async function confirmCommitment(
     target_count: targetCount,
     progress_count: 0,
     intervention_stage: 0,
-    next_intervention_at: firstInterventionAt,
+    kind,
+    target_date: schedule.targetDate?.toISOString() ?? null,
+    next_intervention_at: schedule.nextInterventionAt?.toISOString() ?? null,
   });
   if (error) {
     console.error('[analysis] confirmCommitment insert failed:', error.message);
@@ -500,7 +535,7 @@ export async function analyzeAndSchedule(entryId: string, transcript: string, us
 
   const commitmentUntil = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-   return { analysis, commitmentUntil, memoryCandidates, unfulfilledMemories };
+  return { analysis, commitmentUntil, memoryCandidates, unfulfilledMemories };
 }
 
 export async function expireOldCommitments() {
