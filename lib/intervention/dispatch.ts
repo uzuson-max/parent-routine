@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { sendSolapiSms } from '@/lib/solapi';
+import { fitInterventionSms } from '@/lib/intervention/smsFit';
 import { Channel, InterventionType, channelRule } from '@/lib/intervention/interventionTypes';
 
 // ============================================================================
@@ -29,7 +30,16 @@ export async function deliverPush(d: PushDelivery): Promise<{ text: string; subj
     throw new Error(`[dispatch] ${d.type} + ${d.channel}는 push로 보낼 수 없음 (rule=${rule})`);
   }
 
-  const composed = await sendSolapiSms(d.phone, d.body, { header: d.header });
+ // 자동 개입 메시지는 SMS(90바이트) 전용. 넘으면 축약/재작성하고, 끝내 못 맞추면 보내지 않는다.
+  // sendSolapiSms도 기본 SMS 전용이라 90바이트 초과면 Solapi 호출 전에 한 번 더 막힌다(이중 방어).
+  const fitted = await fitInterventionSms(d.body, d.header);
+  if (!fitted) {
+    throw new Error(`[dispatch] ${d.type} 메시지를 90바이트 이하로 줄이지 못해 발송하지 않음`);
+  }
+  const composed = await sendSolapiSms(d.phone, fitted.body, {
+    header: fitted.header,
+    logTag: 'Intervention SMS',
+  });
 
   const { error } = await supabase.from('intervention_log').insert({
     user_id: d.userId,
