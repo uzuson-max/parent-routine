@@ -10,7 +10,7 @@ import type {
   ConversationOpportunityType,
   MemoryRelevanceItem,
   ResponseResult,
-} from '@/lib/response/responseTypes';
+} from '@/lib/response/responsetypes';
 
 // GPT가 반환한 원시 JSON(parsed)을 STEP 3~5에서 이미 만든 방어 로직 그대로 통과시켜, validation
 // 이전 단계의 ResponseResult(=STEP 6의 3개 validation 필드만 제외)를 만든다. STEP 6 이전 로직과
