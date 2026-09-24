@@ -269,3 +269,150 @@ export function validateResponse(
 
   return { passed: reasons.length === 0, reasons };
 }
+
+// ==================================================
+// STEP 5-1 (초안) — Answerability: "사용자가 무엇에 답해야 하는지 모르는 질문" 탐지
+// ==================================================
+// ⚠️ 아직 validateResponse()에서 호출하지 않는다. scripts/eval-answerability.ts의 평가 세트로
+// 오탐(false positive)이 0인지 확인하면서 다듬은 뒤에, 별도 단계에서 연결 여부를 결정한다.
+//
+// 설계 원칙 — "명백한 경우만" 잡는 보수적인 detector:
+// - 문장 길이, 지시어 존재, "어때" 포함, 물음표 유무만으로는 절대 실패시키지 않는다.
+// - 질문 문장이 (연결어·지시어를 걷어내면) "평가형 서술어"나 "꼬리 주제어"만 남는 경우,
+//   또는 "궁금하다" 앞에 궁금한 대상이 없는 경우만 본다.
+// - 그마저도 같은 문장의 앞 절이나 바로 앞 문장이 대상을 제공하면 통과시킨다
+//   (예: "예전에 아메리카노 매일 마신다고 했잖아. 요즘도 그래?"). 앞 내용이 "~것 같던데" 같은
+//   추측이면 대상을 제공한 것으로 보지 않는다 (가리키는 것이 사용자의 말이 아니라 모델의 추측이므로).
+
+export type UnanswerablePattern =
+  | 'PRONOUN_EVALUATIVE' // "그거 어때?", "그건 어떤 것 같아?", "그거 아직도 그래?"
+  | 'BARE_TOPIC_TAIL' // "그래서 요즘은?", "그건?"
+  | 'EMPTY_CURIOSITY'; // "그게 궁금한데?", "좀 궁금하네.", "회사 얘기 들으니까 좀 궁금한데?"
+
+export interface UnanswerableDetection {
+  pattern: UnanswerablePattern;
+  sentence: string;
+}
+
+const ANSWERABILITY_LEADING_CONNECTORS = ['그래서', '근데', '그럼', '그러면', '아무튼', '암튼', '그리고', '그래도'];
+const ANSWERABILITY_DEMONSTRATIVES = [
+  '그런 건', '그런 거', '그런 게', '그런건', '그런거', '그런게',
+  '그거', '그건', '그게', '그것', '이거', '이건', '이게', '저거', '저건',
+];
+const ANSWERABILITY_EVALUATIVE_PREDICATES = [
+  '어때', '어떤 것 같아', '어떤 거 같아', '어떻게 생각해', '어떤 느낌이야',
+  '아직도 그래', '요즘도 그래', '여전히 그래', '지금도 그래',
+];
+const ANSWERABILITY_BARE_TOPICS = ['그건', '그거는', '그게', '이건', '요즘은', '지금은', '그다음은', '그 다음은', '너는', '넌', '그런 건'];
+const ANSWERABILITY_FILLERS = ['좀', '조금', '되게', '진짜', '그냥', '뭔가', '괜히', '살짝', '약간'];
+// 앞 내용이 이렇게 끝나면 "대상을 제공했다"고 보지 않는다 — 사용자의 말이 아니라 사용자에 대한 모델의
+// 추측/관찰("~것 같던데", "~보니까")이기 때문. "~것 같은데"(모델이 주제에 대한 자기 의견을 말한 뒤 묻는 경우,
+// 예: "영향이 클 것 같은데, 어떻게 생각해?")는 질문 대상이 문장에 드러나 있으므로 여기에 넣지 않는다
+// (실제 운영 응답에서 오탐으로 확인됨).
+const ANSWERABILITY_SPECULATIVE_ENDING = /(것 같던데|거 같던데|던데|보니까|보니)$/;
+// "궁금하다" 앞이 이렇게 끝나면 그건 궁금한 "대상"이 아니라 "계기"다 (예: "회사 얘기 들으니까 좀 궁금한데").
+const ANSWERABILITY_REASON_ENDING = /(니까|는데|던데|보니|어서|아서|해서|길래)$/;
+const ANSWERABILITY_CURIOUS_TAIL = /^(.*?)\s*궁금(한데|하네|해|하다|했어|해져|하긴 해|하긴 하네)?$/;
+
+function normalizeAnswerabilityClause(s: string): string {
+  return s
+    .replace(/[ㅋㅎㅠㅜ]+/g, ' ')
+    .replace(/[?？.!~…]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function stripLeadingConnectors(s: string): string {
+  let out = s;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const c of ANSWERABILITY_LEADING_CONNECTORS) {
+      if (out === c) return '';
+      if (out.startsWith(c + ' ')) {
+        out = out.slice(c.length + 1).trim();
+        changed = true;
+      }
+    }
+  }
+  return out;
+}
+
+function stripLeadingDemonstrative(s: string): { rest: string; hadDemonstrative: boolean } {
+  for (const d of ANSWERABILITY_DEMONSTRATIVES) {
+    if (s === d) return { rest: '', hadDemonstrative: true };
+    if (s.startsWith(d + ' ')) return { rest: s.slice(d.length + 1).trim(), hadDemonstrative: true };
+  }
+  return { rest: s, hadDemonstrative: false };
+}
+
+function stripTrailingFillers(s: string): string {
+  let out = s;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const f of ANSWERABILITY_FILLERS) {
+      if (out === f) return '';
+      if (out.endsWith(' ' + f)) {
+        out = out.slice(0, out.length - f.length - 1).trim();
+        changed = true;
+      }
+    }
+  }
+  return out;
+}
+
+// 앞 내용(같은 문장의 앞 절 → 없으면 바로 앞 문장)이 질문의 대상을 제공하는가.
+function hasGroundedAntecedent(beforeInSentence: string, previousSentence: string | null): boolean {
+  const antecedent = normalizeAnswerabilityClause(beforeInSentence) || normalizeAnswerabilityClause(previousSentence ?? '');
+  if (!antecedent) return false;
+  return !ANSWERABILITY_SPECULATIVE_ENDING.test(antecedent);
+}
+
+export function detectUnanswerableQuestion(response: string): UnanswerableDetection | null {
+  if (typeof response !== 'string') return null;
+  const sentences = splitSentences(response);
+
+  for (let i = 0; i < sentences.length; i++) {
+    const sentence = sentences[i];
+    const isQuestion = /[?？]/.test(sentence);
+    const clauses = sentence.split(/[,，]/);
+    const lastClauseRaw = clauses[clauses.length - 1];
+    const beforeInSentence = clauses.slice(0, -1).join(',');
+    const previousSentence = i > 0 ? sentences[i - 1] : null;
+    const clause = stripLeadingConnectors(normalizeAnswerabilityClause(lastClauseRaw));
+
+    // 패턴 3 — "궁금하다"로 끝나는데 궁금한 대상이 없다 (물음표 유무와 무관).
+    const curious = clause.match(ANSWERABILITY_CURIOUS_TAIL);
+    if (curious) {
+      const head = stripTrailingFillers(curious[1].trim());
+      const { rest, hadDemonstrative } = stripLeadingDemonstrative(head);
+      if (head && ANSWERABILITY_REASON_ENDING.test(head)) {
+        return { pattern: 'EMPTY_CURIOSITY', sentence };
+      }
+      if ((head === '' || (hadDemonstrative && rest === '')) && !hasGroundedAntecedent(beforeInSentence, previousSentence)) {
+        return { pattern: 'EMPTY_CURIOSITY', sentence };
+      }
+      continue;
+    }
+
+    // 패턴 1·2는 물음표가 있는 질문 문장만 본다 (질문이 없는 반응형 응답은 판정 대상이 아니다).
+    if (!isQuestion) continue;
+
+    // 패턴 1 — (지시어) + 평가형 서술어만 남는 질문.
+    const { rest } = stripLeadingDemonstrative(clause);
+    if (ANSWERABILITY_EVALUATIVE_PREDICATES.includes(rest) && !hasGroundedAntecedent(beforeInSentence, previousSentence)) {
+      return { pattern: 'PRONOUN_EVALUATIVE', sentence };
+    }
+
+    // 패턴 2 — 주제어(은/는)만 남고 무엇을 묻는지 생략된 꼬리 질문.
+    if (ANSWERABILITY_BARE_TOPICS.includes(clause) && !hasGroundedAntecedent(beforeInSentence, previousSentence)) {
+      return { pattern: 'BARE_TOPIC_TAIL', sentence };
+    }
+  }
+  return null;
+}
+
+export function isQuestionNotAnswerable(response: string): boolean {
+  return detectUnanswerableQuestion(response) !== null;
+}
