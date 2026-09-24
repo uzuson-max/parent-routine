@@ -313,7 +313,16 @@ export async function generateResponse(
       memory_unit_id_used: null,
       insight_id_used: null,
       memory_relevance: [],
-      conversation_opportunity: { source: 'none', type: 'none', strength: 'NONE', memory_unit_id: null },
+        conversation_opportunity: {
+        source: 'none',
+        type: 'none',
+        strength: 'NONE',
+        memory_unit_id: null,
+        anchor_quote: null,
+        anchor_fact: null,
+        question_target: null,
+      },
+      
       question_present: false,
       channel: 'text',
       response: '오늘 얘기 잘 들었어.',
