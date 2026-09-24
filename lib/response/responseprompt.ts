@@ -3,7 +3,7 @@
 // 의존 방향: responseTypes ← responsePrompt ← responseEngine (이 파일은 responseEngine을 import하지 않는다).
 import type { RelevantMemoryUnit } from '@/lib/memoryRetrieval';
 import type { RelevantInsight } from '@/lib/insightEngine';
-import type { RecentTurn, ValidationFailureReason } from '@/lib/response/responseTypes';
+import type { RecentTurn, ValidationFailureReason } from '@/lib/response/responsetypes';
 
 export const PERSONALITY_PROMPT = `너는 "참견이"라는 존재야.
 
