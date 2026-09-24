@@ -16,6 +16,17 @@ import type {
 // 이전 단계의 ResponseResult(=STEP 6의 3개 validation 필드만 제외)를 만든다. STEP 6 이전 로직과
 // 판정 기준을 하나도 바꾸지 않았다 — 인라인으로 있던 코드를 재사용 가능한 함수로 옮겼을 뿐이다
 // (1차 generation과 regeneration 양쪽에서 동일하게 호출한다).
+ㄷㅉㅉㅉㅉㅉㅉㅉㅉㅉㅉㅉㅉㅈㅉㅉㅉ
+// Opportunity STEP 1 — anchor 텍스트 필드 정리. 문자열이 아니거나 비어 있으면 null, 모델이 앞뒤에
+// 따옴표를 붙여 보낸 경우만 벗겨낸다. 내용 자체는 수정하지 않는다(원문 그대로 기록되는 게 목적).
+// 비정상적으로 긴 값은 로그/저장용으로 200자에서 자른다.
+const ANCHOR_TEXT_MAX_LENGTH = 200;
+function sanitizeAnchorText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().replace(/^["'“”‘’「」]+|["'“”‘’「」]+$/g, '').trim();
+  if (trimmed.length === 0) return null;
+  return trimmed.length > ANCHOR_TEXT_MAX_LENGTH ? trimmed.slice(0, ANCHOR_TEXT_MAX_LENGTH) : trimmed;
+}
 export function buildGeneratedResult(
   parsed: any,
   callAllowed: boolean,
