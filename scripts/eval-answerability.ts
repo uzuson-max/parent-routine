@@ -8,8 +8,8 @@
 // 를 나란히 출력한다. validateResponse()는 수정하지 않았고, detector는 아직 연결되지 않았다.
 
 import { ANSWERABILITY_CASES, type AnswerabilityCase } from './eval/answerabilityCases';
-import { detectUnanswerableQuestion } from '../lib/response/responseValidator';
-import { validateResponse } from '../lib/response/responseValidator';
+import { detectUnanswerableQuestion } from '../lib/response/responsevalidator';
+import { validateResponse } from '../lib/response/responsevalidator';
 
 function runExistingValidator(c: AnswerabilityCase) {
   const hasQ = /[?？]/.test(c.response);
