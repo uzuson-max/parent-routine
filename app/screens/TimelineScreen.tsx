@@ -3,7 +3,7 @@
 
 import { BRAND, inkAlpha, pageBackground, tactile, typography, shadow, border, radius, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import Mascot, { type MascotPose } from "@/components/Mascot";
-import { IconHome, IconRecord, IconMemory, IconMic, IconGear } from "@/components/icons";
+import { IconHome, IconRecord, IconMemory, IconMic, IconGear, IconLetter } from "@/components/icons";
 
 export interface RecordEntry {
   id: string;
@@ -24,6 +24,10 @@ interface TimelineScreenProps {
   onOpenCalendar: () => void;
   onOpenMyPage: () => void;
   onOpenInsights: () => void;
+   // 참견이의 편지 진입점. 넘기지 않으면 아이콘 자체를 그리지 않는다(기존 사용처 호환).
+  onOpenLetters?: () => void;
+  // 실제 DB의 안 읽은 편지 개수. 0이거나 없으면 badge를 그리지 않는다.
+  unreadLetterCount?: number;
   entries: RecordEntry[] | null;
   proactiveLine?: ProactiveLine | null;
   nickname?: string | null;
@@ -45,6 +49,8 @@ export default function TimelineScreen({
   onOpenCalendar,
   onOpenMyPage,
   onOpenInsights,
+  onOpenLetters,
+  unreadLetterCount = 0,
   proactiveLine,
   nickname,
 }: TimelineScreenProps) {
@@ -91,10 +97,27 @@ export default function TimelineScreen({
       `}</style>
 
       {/* HEADER — 아주 작고 차분한 앱 셸 상단. Home에서 주인공이 되면 안 되므로 wordmark 하나만. */}
+           {/* HEADER — 아주 작고 차분한 앱 셸 상단. Home에서 주인공이 되면 안 되므로 wordmark +
+          오른쪽 끝의 작은 편지 아이콘만. 아이콘은 wordmark와 같은 옅은 톤으로 두고, 터치 영역만 44px로 넓힌다. */}
       <div style={styles.header}>
         <span style={styles.headerLabel}>참견이</span>
+        {onOpenLetters && (
+          <button
+            className={TACTILE_PRESS_CLASS}
+            style={styles.letterButton}
+            onClick={onOpenLetters}
+            aria-label={unreadLetterCount > 0 ? `참견이의 편지, 안 읽은 편지 ${unreadLetterCount}통` : "참견이의 편지"}
+          >
+            <IconLetter style={{ width: 22, height: 22 }} />
+            {unreadLetterCount > 0 && (
+              <span style={styles.letterBadge} aria-hidden>
+                {unreadLetterCount > 9 ? "9+" : unreadLetterCount}
+              </span>
+            )}
+          </button>
+        )}
       </div>
-
+      
       {/* CORE — Home은 "기록을 보여주는 화면"이 아니라 "참견이가 지금 나에게 할 말이 있는 화면"이다.
           그래서 여기엔 딱 두 상태만 있다: (1) 참견이가 꺼낼 말이 있음 → 그 말이 화면의 유일한
           주인공. (2) 없음 → 차분한 empty state. 과거 기록을 다시 보여주는 3번째 모드는 없다.
@@ -189,11 +212,46 @@ const styles: { [key: string]: React.CSSProperties } = {
     // 컨테이너 자체의 padding으로만 처리해서, 실제 네비 높이보다 화면을 더 길게 만들지 않는다.
     paddingBottom: "calc(78px + env(safe-area-inset-bottom, 0px))",
   },
+// app/screens/TimelineScreen.tsx — ⑤ styles의 기존 `header: {...},` 전체를 이걸로 교체
   header: {
     flexShrink: 0,
     display: "flex",
     alignItems: "center",
+    justifyContent: "space-between",
     height: "28px",
+  },
+  // 보이는 아이콘은 22px지만 터치 영역은 44x44. 음수 margin으로 헤더 높이(28px)와 오른쪽 여백은 그대로 둔다.
+  letterButton: {
+    position: "relative",
+    width: 44,
+    height: 44,
+    margin: "-8px -11px -8px 0",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "transparent",
+    border: "none",
+    padding: 0,
+    color: inkAlpha.muted,
+    cursor: "pointer",
+  },
+  // 빨간 알림 뱃지 대신 브랜드 라벤더의 작은 숫자.
+  letterBadge: {
+    position: "absolute",
+    top: 7,
+    right: 5,
+    minWidth: 15,
+    height: 15,
+    padding: "0 4px",
+    boxSizing: "border-box",
+    borderRadius: 999,
+    background: BRAND.lavender,
+    color: "#fff",
+    fontSize: 9.5,
+    fontWeight: 700,
+    lineHeight: "15px",
+    textAlign: "center",
+    boxShadow: `0 0 0 2px ${BRAND.bg}`,
   },
   headerLabel: {
     ...typography.eyebrow,
