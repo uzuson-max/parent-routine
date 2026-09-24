@@ -6,7 +6,7 @@ import type {
   ValidationContext,
   ValidationFailureReason,
   ValidationResult,
-} from '@/lib/response/responseTypes';
+} from '@/lib/response/responsetypes';
 
 // ---- Validation 내부 유틸 ----
 
