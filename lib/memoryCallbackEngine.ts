@@ -1,7 +1,7 @@
 
-
 import { supabase } from '@/lib/supabase';
-import { sendSolapiSms } from '@/lib/solapi';
+import { checkPushGate } from '@/lib/intervention/pushGate';
+import { deliverPush } from '@/lib/intervention/dispatch';
 import { PERSONALITY_PROMPT } from '@/lib/responseEngine';
 import { filterConfirmedCommitments, markMemoriesReferenced } from '@/lib/memoryRetrieval';
 
@@ -38,12 +38,14 @@ interface MemoryCallbackCandidateRow {
   status: string;
   source_entry_id: string | null;
   created_at: string;
+  subject_entity_id: string | null;
 }
 
 export interface MemoryCallbackResult {
   memoryUnitId: number;
   userId: string;
-  action: 'sent' | 'skipped_not_interesting' | 'skipped_no_phone' | 'send_failed' | 'dry_run';
+  action: 'sent' | 'skipped_not_interesting' | 'skipped_push_gate' | 'skipped_no_phone' | 'send_failed' | 'dry_run';
+  reason?: string;
   message?: string;
   error?: string;
 }
@@ -56,7 +58,7 @@ async function fetchCallbackCandidates(): Promise<MemoryCallbackCandidateRow[]> 
   const { data, error } = await supabase
     .from('memory_units')
     .select(
-      'id, user_id, content, memory_type, temporal_context, importance, retention, status, source_entry_id, created_at'
+      'id, user_id, content, memory_type, temporal_context, importance, retention, status, source_entry_id, created_at, subject_entity_id'
     )
     .neq('memory_type', 'commitment') // commitment은 interventionEngine.ts 전용 — 이 경로에서는 다루지 않는다.
     .eq('status', 'open') // 발화 안에서 스스로 이미 해결됐다고 밝힌(resolved) 기억은 "그래서 어떻게 됐어?"를 물을 이유가 없다.
@@ -206,6 +208,20 @@ export async function sendDueMemoryCallbacks(dryRun: boolean = false): Promise<M
 
     for (const c of toProcess) {
       try {
+        // RETURN_MEMORY의 선제 push — GPT를 부르기 전에 global push gate부터 확인한다.
+        // 같은 대상(entity)에 대한 여러 기억은 하나의 topic으로 묶여, 한 번 찾아가면 한동안 다시 안 간다.
+        const gate = await checkPushGate(c.user_id, {
+          type: 'RETURN_MEMORY',
+          channel: 'sms',
+          now: new Date(),
+          memoryId: c.id,
+          topicKey: c.subject_entity_id ? `entity:${c.subject_entity_id}` : `memory:${c.id}`,
+        });
+        if (!gate.allowed) {
+          results.push({ memoryUnitId: c.id, userId: c.user_id, action: 'skipped_push_gate', reason: gate.reason });
+          continue;
+        }
+
         const synthesis = await synthesizeMemoryCallback(c);
         if (!synthesis) {
           results.push({ memoryUnitId: c.id, userId: c.user_id, action: 'skipped_not_interesting' });
@@ -227,7 +243,17 @@ export async function sendDueMemoryCallbacks(dryRun: boolean = false): Promise<M
           continue; // last_referenced_at을 건드리지 않아 다음 배치에서 번호가 생기면 다시 후보가 된다.
         }
 
-        await sendSolapiSms(phone, synthesis.message);
+        await deliverPush({
+          userId: c.user_id,
+          phone,
+          type: 'RETURN_MEMORY',
+          channel: 'sms',
+          body: synthesis.message,
+          reason: `memory_callback: memory_unit#${c.id}`,
+          memoryId: c.id,
+          topicKey: c.subject_entity_id ? `entity:${c.subject_entity_id}` : `memory:${c.id}`,
+          triggerEntryId: c.source_entry_id,
+        });
         // 발송 성공 시에만 참조 처리 — 실패하면 다음 배치에서 재시도되도록 그대로 둔다.
         // 새 컬럼 없이 memory_units 기존 컬럼(last_referenced_at/reference_count)만 갱신한다.
         await markMemoriesReferenced([c.id]);
