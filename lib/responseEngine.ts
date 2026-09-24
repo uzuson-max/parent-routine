@@ -36,7 +36,7 @@ export type {
   ValidationResult,
   ValidationContext,
   ResponseResult,
-} from '@/lib/response/responseTypes';
+} from '@/lib/response/responsetypes';
 
 function calcRelationshipLevel(entryCount: number): number {
   if (entryCount <= 2) return 1;
