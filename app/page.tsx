@@ -18,6 +18,7 @@ import OnboardingScreen from "./screens/OnboardingScreen";
 import ThinkingScreen from "./screens/ThinkingScreen"; // 👈 1. 상단 import에 추가 완료!
 import FirstTalkScreen from "./screens/FirstTalkScreen";
 import DiscoveryScreen from "./screens/DiscoveryScreen";
+import LettersScreen from "./screens/LettersScreen";
 import { BRAND, pageBackground } from "@/lib/theme";
 import { acquireMicStream, releaseMicStream } from "@/lib/micStream";
 
@@ -38,6 +39,7 @@ type Step =
   | "mypage"
   | "calendar"
   | "insights"
+  | "letters"
   | "uploading"
   | "no_action"
   | "awaiting_confirmation"
@@ -64,6 +66,8 @@ export default function Home() {
   // 온보딩을 막 끝낸 사용자의 "첫 녹음 → 첫 기록" 여정 동안만 true.
   // 이 값이 true인 동안에는 전화번호/닉네임 같은 부가 입력을 요구하지 않고 바로 홈까지 보낸다.
   const [isFirstRun, setIsFirstRun] = useState(false);
+  // 참견이의 편지 중 안 읽은 개수(실제 DB 값). 0이면 Home badge를 그리지 않는다.
+  const [unreadLetterCount, setUnreadLetterCount] = useState(0);
   // true면 RecordingScreen이 뜨자마자 바로 녹음을 시작한다(홈 마이크 / ＋ 더 이야기하기).
   const [autoStartRecording, setAutoStartRecording] = useState(false);
 
@@ -103,6 +107,22 @@ export default function Home() {
     }
   };
 
+  // 안 읽은 편지 개수 — head count 쿼리 한 번. 홈 첫 진입 때 다른 홈 데이터와 병렬로 부르고,
+  // 기다리지 않는다. 이후에는 편지함 화면이 목록을 불러올 때/편지를 읽을 때 실제 값으로 맞춰준다.
+  const fetchUnreadLetterCount = async () => {
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) return;
+      const res = await fetch("/api/user/letters/unread-count", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      });
+      const body = await res.json();
+      if (body.success && typeof body.data?.count === "number") setUnreadLetterCount(body.data.count);
+    } catch (e) {
+      console.error("[Home] fetch unread letter count failed:", e);
+    }
+  };
+
   useEffect(() => {
     const ensureSession = async () => {
       // 온보딩 여부는 로컬 값이라 네트워크를 기다릴 필요가 없다 — 첫 사용자는 홈이 잠깐 비쳤다가
@@ -120,6 +140,7 @@ export default function Home() {
       // 끝날 때까지 기다리게 두면 그만큼 홈의 참견 메시지가 늦게 뜬다.
       fetchEntries();
       fetchProactiveLine();
+      fetchUnreadLetterCount();
 
       // 온보딩 완료 여부(로컬 저장) + 지금 계정에 인증된 전화번호가 있는지(서버)를 같이 봐서
       // 어디로 보낼지 정한다. 온보딩을 아예 처음 하는 사람은 인트로부터, 온보딩은 끝냈지만
@@ -243,6 +264,8 @@ export default function Home() {
           onOpenCalendar={() => setStep("calendar")}
           onOpenMyPage={() => setStep("mypage")}
           onOpenInsights={() => setStep("insights")}
+          onOpenLetters={() => setStep("letters")}
+          unreadLetterCount={unreadLetterCount}
           onOpenRecording={(topic) => {
             // 참견이가 던진 말에 답하러 가는 거면(topic 있음), 다음에 홈에 돌아왔을 때는
             // 방금 남긴 반응이 새 한마디로 자연스럽게 이어지도록 비워둔다.
@@ -266,6 +289,10 @@ export default function Home() {
 
       {step === "insights" && (
         <DiscoveryScreen onBack={() => setStep("landing")} />
+      )}
+
+      {step === "letters" && (
+        <LettersScreen onBack={() => setStep("landing")} onUnreadCountChange={setUnreadLetterCount} />
       )}
 
       {step === "raw_landing" && (
