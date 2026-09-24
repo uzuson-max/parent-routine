@@ -56,6 +56,16 @@ export function IconBell(props: IconProps) {
   );
 }
 
+// 참견이의 편지 — 알림(Bell)과 구분되는 작은 봉투. Home 우측 상단 진입점에 쓴다.
+export function IconLetter(props: IconProps) {
+  return (
+    <svg viewBox="0 0 48 48" fill="none" {...props}>
+      <rect x="8" y="12" width="32" height="24" rx="4" stroke="currentColor" strokeWidth="3.2" strokeLinejoin="round" />
+      <path d="M10 15 L24 26 L38 15" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function IconPhone(props: IconProps) {
   return (
     <svg viewBox="0 0 48 48" fill="none" {...props}>
