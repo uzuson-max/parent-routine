@@ -23,8 +23,8 @@ function runExistingValidator(c: AnswerabilityCase) {
       memory_unit_id_used: linked ? 1 : null,
       memory_relevance: linked ? [{ memory_unit_id: 1, relevance: 'YES' }] : [],
       conversation_opportunity: linked
-        ? { source: 'memory', type: 'past_present_link', strength: 'STRONG', memory_unit_id: 1 }
-        : { source: 'current_turn', type: 'reactable_point', strength: 'STRONG', memory_unit_id: null },
+        ? { source: 'memory', type: 'past_present_link', strength: 'STRONG', memory_unit_id: 1, anchor_quote: null, anchor_fact: null, question_target: null }
+        : { source: 'current_turn', type: 'reactable_point', strength: 'STRONG', memory_unit_id: null, anchor_quote: null, anchor_fact: null, question_target: null },
     },
     { validMemoryUnitIds: new Set(linked ? [1] : []), previousResponse: null }
   );
