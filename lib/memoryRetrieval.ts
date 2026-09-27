@@ -1,6 +1,6 @@
-
 import { supabase } from '@/lib/supabase';
 import { generateMemoryEmbedding } from '@/lib/memoryEmbedding';
+import type { Stance } from '@/lib/response/understanding';
 
 // STEP 2 — semantic retrieval 관련 baseline 상수. 전부 초기 추정치이며 "최적값"이 아니다 —
 // STEP 8에서 실제 로그 데이터가 쌓인 뒤 튜닝 대상이다.
@@ -8,6 +8,11 @@ const SEMANTIC_SIMILARITY_WEIGHT = 4;
 const RECENT_USAGE_PENALTY_WEIGHT = 0.6;
 const RECENT_USAGE_PENALTY_WINDOW_HOURS = 24;
 const SEMANTIC_CANDIDATE_LIMIT = 15;
+// 1차 수정 — "이번 발화와 연결된 신호가 하나도 없는 기억"(importance/retention/최근성 가산점만으로 올라온 것)은
+// 응답 엔진에 넘기지 않는다. semantic은 이 값 이상일 때만 "신호"로 친다.
+// 0.35는 운영 DB의 기억-기억 유사도 분포(중앙값≈0.30, 상위 25%≈0.37, 같은 주제≈0.45~0.56)를 보고 잡은 초기값이다.
+// 발화-기억 유사도 분포는 아직 측정하지 않았으므로 로그를 보고 튜닝 대상이다. 점수 계산 자체는 바꾸지 않는다.
+const SEMANTIC_SIGNAL_MIN = 0.35;
 
 export interface RelevantMemoryUnit {
   id: number;
@@ -22,13 +27,16 @@ export interface RelevantMemoryUnit {
   last_referenced_at: string | null;
   relevanceScore: number;
   relevanceReason: string;
+  // 1차 수정 — 그 기억을 말할 때의 입장/원문. stance는 memory_units.stance 컬럼이 추가된 뒤에만 채워진다.
+  stance?: Stance | null;
+  raw_quote?: string | null;
 }
- 
+
 const TRAILING_PARTICLES = [
   '에서', '으로', '한테', '이랑', '부터', '까지', '에게', '와', '과', '이랑',
   '이', '가', '은', '는', '을', '를', '에', '도', '만', '의', '로', '랑', '께',
 ];
- 
+
 function stripParticle(token: string): string {
   for (const p of TRAILING_PARTICLES) {
     if (token.length - p.length >= 2 && token.endsWith(p)) {
@@ -37,36 +45,39 @@ function stripParticle(token: string): string {
   }
   return token;
 }
- 
+
 export function tokenize(text: string | null | undefined): string[] {
   if (!text) return [];
   const raw = text.match(/[가-힣a-zA-Z0-9]{2,}/g) ?? [];
   const stems = raw.map(stripParticle).filter((t) => t.length >= 2);
   return [...raw, ...stems];
 }
- 
+
 function scoreCandidate(
   m: any,
   transcript: string,
   transcriptTokens: Set<string>,
   matchedEntityIds: Set<string>,
   semanticSimilarity: number = 0
-): { score: number; reason: string } {
+): { score: number; reason: string; hasSignal: boolean } {
   let score = 0;
   const reasons: string[] = [];
- 
+  let hasSignal = false;
+
   if (m.subject_entity_id && matchedEntityIds.has(m.subject_entity_id)) {
     score += 5;
     reasons.push('entity_match');
+    hasSignal = true;
   }
- 
+
   const contentTokens = tokenize(m.content);
   const exactOverlap = new Set(contentTokens.filter((t) => transcriptTokens.has(t)));
   if (exactOverlap.size > 0) {
     score += exactOverlap.size;
+    hasSignal = true;
     reasons.push(`keyword_overlap:${Array.from(exactOverlap).join(',')}`);
   }
- 
+
   const partialOverlap = new Set<string>();
   const transcriptTokenArr = Array.from(transcriptTokens);
   for (const ct of contentTokens) {
@@ -79,16 +90,17 @@ function scoreCandidate(
   }
   if (partialOverlap.size > 0) {
     score += partialOverlap.size * 0.5;
+    hasSignal = true;
     reasons.push(`partial_overlap:${Array.from(partialOverlap).join(',')}`);
   }
- 
+
   score += typeof m.importance === 'number' ? m.importance : 0.5;
- 
+
   if (m.retention === 'permanent') {
     score += 0.5;
     reasons.push('permanent');
   }
- 
+
   // STEP 2 — Freeze v1 수정사항 #3: reference_count가 높다고 점수를 올리던 기존 로직(버그의 원인)을
   // 제거하고, "최근에" 재사용됐을 때만 감쇠형 페널티를 준다. 후보 자체는 절대 제거하지 않는다.
   const referenceCount = m.reference_count ?? 0;
@@ -107,6 +119,7 @@ function scoreCandidate(
   if (semanticSimilarity > 0) {
     const semanticBonus = semanticSimilarity * SEMANTIC_SIMILARITY_WEIGHT;
     score += semanticBonus;
+    if (semanticSimilarity >= SEMANTIC_SIGNAL_MIN) hasSignal = true;
     reasons.push(`semantic:${semanticSimilarity.toFixed(2)}(+${semanticBonus.toFixed(2)})`);
   }
 
@@ -114,7 +127,7 @@ function scoreCandidate(
     score += 0.3;
     reasons.push('open');
   }
- 
+
   if (m.created_at) {
     const daysSince = (Date.now() - new Date(m.created_at).getTime()) / (24 * 60 * 60 * 1000);
     const recencyBonus = Math.max(0, 1 - daysSince / 30) * 0.5;
@@ -123,14 +136,35 @@ function scoreCandidate(
       if (recencyBonus > 0.1) reasons.push(`recent:${Math.round(daysSince)}일전`);
     }
   }
- 
-  return { score, reason: reasons.length > 0 ? reasons.join('; ') : 'baseline(importance/retention만)' };
-}
- 
-const MEMORY_UNIT_COLUMNS =
-  'id, memory_type, subject_entity_id, content, emotion, temporal_context, importance, retention, status, created_at, last_referenced_at, reference_count, source_entry_id, entities(name)';
 
-export async function filterConfirmedCommitments<
+  return { score, reason: reasons.length > 0 ? reasons.join('; ') : 'baseline(importance/retention만)', hasSignal };
+}
+
+const MEMORY_UNIT_BASE_COLUMNS =
+  'id, memory_type, subject_entity_id, content, raw_quote, emotion, temporal_context, importance, retention, status, created_at, last_referenced_at, reference_count, source_entry_id, entities(name)';
+
+// memory_units.stance는 1차 수정의 migration(SQL 별도 제공)으로 추가되는 컬럼이다. migration 전에도 앱이 깨지지 않도록,
+// 컬럼이 없다는 에러를 한 번 보면 이 프로세스에서는 stance 없이 조회한다.
+let stanceColumnAvailable = true;
+function memoryUnitColumns(): string {
+  return stanceColumnAvailable ? `${MEMORY_UNIT_BASE_COLUMNS}, stance` : MEMORY_UNIT_BASE_COLUMNS;
+}
+export function isMissingStanceColumnError(err: any): boolean {
+  if (!err) return false;
+  const msg = String(err.message ?? '');
+  return /stance/.test(msg) && (err.code === '42703' || err.code === 'PGRST204' || /does not exist|could not find/i.test(msg));
+}
+async function selectUnits(build: (columns: string) => PromiseLike<{ data: any; error: any }>): Promise<{ data: any; error: any }> {
+  const first = await build(memoryUnitColumns());
+  if (stanceColumnAvailable && isMissingStanceColumnError(first.error)) {
+    stanceColumnAvailable = false;
+    console.log('[memoryRetrieval] memory_units.stance 컬럼 없음 — stance 없이 조회 (migration 적용 전)');
+    return build(memoryUnitColumns());
+  }
+  return first;
+}
+
+export async function filterConfirmedCommitments
   T extends { memory_type: string; source_entry_id?: string | null }
 >(userId: string, units: T[]): Promise<T[]> {
   const commitmentUnits = units.filter((u) => u.memory_type === 'commitment');
@@ -187,47 +221,51 @@ export async function retrieveRelevantMemories(
 ): Promise<RelevantMemoryUnit[]> {
   try {
     if (!transcript || !transcript.trim() || transcript === '(음성 변환 실패)') return [];
- 
+
     const { data: entities, error: entitiesError } = await supabase
       .from('entities')
       .select('id, name')
       .eq('user_id', userId)
       .limit(300);
- 
+
     if (entitiesError) {
       console.error('[memoryRetrieval] entities 조회 실패 (엔티티 매칭 없이 계속):', entitiesError.message);
     }
- 
+
     const matchedEntityIds = new Set<string>(
       (entities ?? [])
         .filter((e: any) => e.name && typeof e.name === 'string' && transcript.includes(e.name))
         .map((e: any) => e.id)
     );
- 
-    const { data: basePool, error: baseError } = await supabase
-      .from('memory_units')
-      .select(MEMORY_UNIT_COLUMNS)
-      .eq('user_id', userId)
-      .in('status', ['open', 'resolved'])
-      .order('importance', { ascending: false })
-      .limit(50);
- 
-    if (baseError) console.error('[memoryRetrieval] base pool 조회 실패:', baseError.message);
- 
-    let entityPool: any[] = [];
-    if (matchedEntityIds.size > 0) {
-      const { data, error } = await supabase
+
+    const { data: basePool, error: baseError } = await selectUnits((cols) =>
+      supabase
         .from('memory_units')
-        .select(MEMORY_UNIT_COLUMNS)
+        .select(cols)
         .eq('user_id', userId)
         .in('status', ['open', 'resolved'])
-        .in('subject_entity_id', Array.from(matchedEntityIds))
-        .order('created_at', { ascending: false })
-        .limit(20);
+        .order('importance', { ascending: false })
+        .limit(50)
+    );
+
+    if (baseError) console.error('[memoryRetrieval] base pool 조회 실패:', baseError.message);
+
+    let entityPool: any[] = [];
+    if (matchedEntityIds.size > 0) {
+      const { data, error } = await selectUnits((cols) =>
+        supabase
+          .from('memory_units')
+          .select(cols)
+          .eq('user_id', userId)
+          .in('status', ['open', 'resolved'])
+          .in('subject_entity_id', Array.from(matchedEntityIds))
+          .order('created_at', { ascending: false })
+          .limit(20)
+      );
       if (error) console.error('[memoryRetrieval] entity pool 조회 실패:', error.message);
       entityPool = data ?? [];
     }
- 
+
     // STEP 2 — semantic(embedding 기반) 후보 수집. keyword 기반 basePool/entityPool을 대체하지 않고
     // 항상 "추가로" 모은다. 아래 각 단계는 실패해도 개별적으로 흡수되어 keyword-only 결과로 계속 진행한다.
     let semanticPool: any[] = [];
@@ -244,12 +282,14 @@ export async function retrieveRelevantMemories(
           console.error('[memoryRetrieval] semantic RPC 실패 (keyword retrieval만으로 계속):', rpcError.message);
         } else if (matches && matches.length > 0) {
           const semanticIds = matches.map((r: any) => r.id);
-          const { data: rows, error: rowsError } = await supabase
-            .from('memory_units')
-            .select(MEMORY_UNIT_COLUMNS)
-            .eq('user_id', userId)
-            .in('status', ['open', 'resolved'])
-            .in('id', semanticIds);
+          const { data: rows, error: rowsError } = await selectUnits((cols) =>
+            supabase
+              .from('memory_units')
+              .select(cols)
+              .eq('user_id', userId)
+              .in('status', ['open', 'resolved'])
+              .in('id', semanticIds)
+          );
           if (rowsError) {
             console.error(
               '[memoryRetrieval] semantic candidate 상세 조회 실패 (keyword retrieval만으로 계속):',
@@ -276,14 +316,17 @@ export async function retrieveRelevantMemories(
 
     const transcriptTokens = new Set(tokenize(transcript));
 
-    const scored = eligibleUnits.map((m) => {
-      const semanticSimilarity = semanticSimilarityById.get(m.id) ?? 0;
-      const { score, reason } = scoreCandidate(m, transcript, transcriptTokens, matchedEntityIds, semanticSimilarity);
-      return { m, score, reason };
-    });
- 
+    const scored = eligibleUnits
+      .map((m) => {
+        const semanticSimilarity = semanticSimilarityById.get(m.id) ?? 0;
+        const { score, reason, hasSignal } = scoreCandidate(m, transcript, transcriptTokens, matchedEntityIds, semanticSimilarity);
+        return { m, score, reason, hasSignal };
+      })
+      // 1차 수정 — 이번 발화와 연결 신호가 전혀 없는 기억은 후보에서 뺀다 (예전엔 importance 상위라는 이유만으로 top 5에 섞였다).
+      .filter((x) => x.hasSignal);
+
     scored.sort((a, b) => b.score - a.score);
- 
+
     return scored.slice(0, limit).map(({ m, score, reason }) => ({
       id: m.id,
       memory_type: m.memory_type,
@@ -293,6 +336,8 @@ export async function retrieveRelevantMemories(
       temporal_context: m.temporal_context,
       importance: m.importance,
       status: m.status,
+      stance: m.stance ?? null,
+      raw_quote: m.raw_quote ?? null,
       created_at: m.created_at,
       last_referenced_at: m.last_referenced_at,
       relevanceScore: score,
@@ -303,7 +348,7 @@ export async function retrieveRelevantMemories(
     return [];
   }
 }
- 
+
 export async function markMemoriesReferenced(memoryUnitIds: number[]): Promise<void> {
   if (!memoryUnitIds || memoryUnitIds.length === 0) return;
   try {
@@ -313,12 +358,12 @@ export async function markMemoriesReferenced(memoryUnitIds: number[]): Promise<v
         .select('reference_count')
         .eq('id', id)
         .maybeSingle();
- 
+
       if (fetchError) {
         console.error('[memoryRetrieval] reference_count 조회 실패:', fetchError.message);
         continue;
       }
- 
+
       const { error } = await supabase
         .from('memory_units')
         .update({
@@ -326,7 +371,7 @@ export async function markMemoriesReferenced(memoryUnitIds: number[]): Promise<v
           reference_count: (row?.reference_count ?? 0) + 1,
         })
         .eq('id', id);
- 
+
       if (error) console.error('[memoryRetrieval] last_referenced_at 업데이트 실패:', error.message);
     }
   } catch (err: any) {
