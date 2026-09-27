@@ -1,6 +1,6 @@
-
 import { supabase } from '@/lib/supabase';
 import { resolveEntity } from '@/lib/entityResolver';
+import { isGroundedIn, Stance, STANCES } from '@/lib/response/understanding';
 
 export type MemoryType =
   | 'event' | 'person' | 'relationship' | 'pet' | 'place' | 'interest'
@@ -26,6 +26,10 @@ export interface MemoryCandidate {
   importance: number;
   retention: Retention;
   status: MemoryStatus;
+  // 1차 수정 — 이 기억에서 사용자가 대상에 대해 드러낸 입장, 그리고 근거가 된 원문 구간.
+  // raw_quote는 memory_units.raw_quote(기존 컬럼)에, stance는 memory_units.stance(migration으로 추가)에 저장된다.
+  stance: Stance | null;
+  raw_quote: string | null;
 }
 
 export interface ExtractionResult {
@@ -73,6 +77,12 @@ candidate를 만들지 않는 것: "ㅋㅋ", "졸려", "배고파", "오늘 날�
   판단해라. importance가 낮다고 candidate 자체를 빼지는 마라 — 판단만 정직하게 낮게 줘라.
 - retention: permanent(지속적 성향/관계) | temporary(몇 주~몇 달은 유효) | contextual(이 대화 안에서만)
 - status: open(아직 진행 중/미해결) | resolved(발화 안에서 이미 해결된 것으로 언급됨)
+- stance: 이 기억에서 사용자가 subject(대상)에 드러낸 입장. positive(끌림/좋아함) | negative(싫음/안 함/거절)
+  | neutral(그냥 언급) | uncertain(고민 중/망설임). 부정한 것을 관심사로 바꾸지 마라.
+  예) "제주도는 가기 싫고" → stance "negative", content "제주도는 가기 싫다고 했다" (❌ "제주도에 관심이 있다")
+  예) "일본도 괜찮은데 비행기값이 비싸" → stance "uncertain"
+- raw_quote: 이 기억의 근거가 된 발화 원문 구간을 글자 그대로 복사 (요약·교정 금지). 없으면 null
+- content는 입장을 반드시 그대로 담는다: "싫다", "안 하기로 했다", "비싸서 고민 중" 같은 의미를 빼거나 뒤집지 마라.
 
 절대 하지 마라: 사용자가 말하지 않은 성향이나 이유를 지어내는 것.
 
@@ -80,7 +90,8 @@ candidate를 만들지 않는 것: "ㅋㅋ", "졸려", "배고파", "오늘 날�
 { "candidates": [
   { "memory_type": "...", "subject": "..." | null, "content": "...",
     "emotional_relevance": "..." | null, "temporal_context": "..." | null,
-    "importance": 0.0, "retention": "permanent|temporary|contextual", "status": "open|resolved" }
+    "importance": 0.0, "retention": "permanent|temporary|contextual", "status": "open|resolved",
+    "stance": "positive|negative|neutral|uncertain" | null, "raw_quote": "..." | null }
 ] }`;
 
 export async function extractMemoryCandidates(transcript: string): Promise<ExtractionResult> {
@@ -99,7 +110,8 @@ export async function extractMemoryCandidates(transcript: string): Promise<Extra
           { role: 'user', content: `방금 한 말: "${transcript}"` },
         ],
         response_format: { type: 'json_object' },
-        temperature: 0.4,
+        // 1차 수정: 추출은 원문 충실도가 중요하다 — 0.4 → 0.2.
+        temperature: 0.2,
       }),
     });
 
@@ -146,6 +158,12 @@ export async function extractMemoryCandidates(transcript: string): Promise<Extra
                   : 0.5,
               retention: c.retention,
               status: c.status,
+              stance: STANCES.includes(c.stance) ? c.stance : null,
+              // 원문에 실제로 있는 구간일 때만 저장한다 (모델이 지어낸 인용 방지).
+              raw_quote:
+                typeof c.raw_quote === 'string' && c.raw_quote.trim() && isGroundedIn(c.raw_quote, transcript)
+                  ? c.raw_quote.trim().slice(0, 300)
+                  : null,
             })
           )
       : [];
