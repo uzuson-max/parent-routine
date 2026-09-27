@@ -35,7 +35,7 @@ export function buildGeneratedResult(
   relationshipLevel: number,
   validMemoryUnitIds: Set<number>,
   validInsightIds: Set<number>
-): Omit<
+): Omit
   ResponseResult,
   'validation_passed' | 'validation_failure_reason' | 'regeneration_count' | 'closes_conversation' | 'repeated_memory_detected' | 'fallback_used'
 > {
@@ -160,6 +160,10 @@ export function buildGeneratedResult(
     memory_relevance: memoryRelevance,
     conversation_opportunity: conversationOpportunity,
     question_present: questionPresent,
+    // 1차 수정 — 모델 자기 보고(질문/부탁에 실제로 답했는가). 없거나 형식이 틀리면 undefined로 두고,
+    // validator는 결정적 검사(질문만으로 된 응답인지)로 판단한다.
+    answered_user_question:
+      typeof parsed.answered_user_question === 'boolean' ? parsed.answered_user_question : undefined,
     channel,
     response: responseText,
     relationship_level: relationshipLevel,
