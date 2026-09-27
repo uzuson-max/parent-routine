@@ -7,6 +7,7 @@ import type {
   ValidationFailureReason,
   ValidationResult,
 } from '@/lib/response/responsetypes';
+import { intentNeedsAnswer, isGroundedIn, normalizeLoose, UtteranceIntent } from '@/lib/response/understanding';
 
 // ---- Validation 내부 유틸 ----
 
@@ -109,6 +110,47 @@ function mentionsPastMemoryLikePhrase(response: string): boolean {
   return /(전에|예전에|저번에).{0,30}(했잖아|말했잖아|그랬잖아)/.test(response);
 }
 
+// ---- 1차 수정 규칙 유틸 ----
+
+// 응답의 모든 문장이 질문인가 ("제주도에서 제일 해보고 싶은 게 뭐야?" 처럼 되묻기만 한 응답).
+export function isQuestionOnlyResponse(response: string): boolean {
+  const sentences = splitSentences(response);
+  if (sentences.length === 0) return false;
+  return sentences.every((s) => /[?？]\s*$/.test(s));
+}
+
+// reminder_request 응답이 "무엇을 언제 알려달라는지"를 실제로 받아서 확인했는가.
+// 알려달라는 행위 자체를 언급했거나, 사용자 질문 원문과 2글자 조각이 2개 이상 겹치면 인정한다.
+// ("지금은 뭐가 제일 걸려?" 같은 generic 되묻기를 잡기 위한 최소 검사)
+export function acknowledgesReminder(response: string, userQuestion: string | null | undefined): boolean {
+  if (/(알려|그때|챙겨|잊지\s*않|까먹지\s*않|말해\s*줄|찔러)/.test(response)) return true;
+  if (!userQuestion) return false;
+  const r = normalizeLoose(response);
+  const q = normalizeLoose(userQuestion);
+  let hit = 0;
+  for (let i = 0; i < q.length - 1; i++) if (r.includes(q.slice(i, i + 2))) hit++;
+  return hit >= 2;
+}
+
+// 원하는/관심 있는 것처럼 묻거나 권하는 표현
+const DESIRE_MARKERS = /(하고\s*싶|가고\s*싶|해\s*보고\s*싶|보고\s*싶|먹고\s*싶|좋아|관심|끌려|끌리|어때|뭐\s*하|뭐\s*할|가\s*볼|가\s*봐|추천)/;
+// 부정을 유지하고 있다는 표시 (이게 있으면 부정 대상을 언급해도 괜찮다)
+const NEGATION_MARKERS = /(싫|말고|빼|안\s*가|안\s*갈|제외|아니야|아닌|별로|없|말자|패스)/;
+
+// 사용자가 싫다고 한 대상을, 부정 표시 없이 "원하는 것"처럼 묻거나 권한 문장이 있는가.
+export function findNegativeStanceAsInterest(response: string, negativeTargets: string[]): string | null {
+  if (!negativeTargets || negativeTargets.length === 0) return null;
+  for (const sentence of splitSentences(response)) {
+    const ns = normalizeLoose(sentence);
+    for (const target of negativeTargets) {
+      const nt = normalizeLoose(target);
+      if (!nt || !ns.includes(nt)) continue;
+      if (DESIRE_MARKERS.test(sentence) && !NEGATION_MARKERS.test(sentence)) return sentence;
+    }
+  }
+  return null;
+}
+
 function isRepeatedQuestion(previous: string, current: string): boolean {
   if (!previous || !current) return false;
   return normalizeForRepeatCheck(previous) === normalizeForRepeatCheck(current);
@@ -149,7 +191,7 @@ export function computeRepeatedMemoryDetected(
 // 정보)만으로 판정한다. 한 응답에서 여러 규칙이 동시에 위반될 수 있으므로 실패 사유는 배열로
 // 전부 모은다(스펙 3절 — "가능하면 모든 failure reason을 수집한다").
 export function validateResponse(
-  result: Pick<
+  result: Pick
     ResponseResult,
     | 'response'
     | 'response_strategy'
@@ -157,6 +199,7 @@ export function validateResponse(
     | 'memory_unit_id_used'
     | 'memory_relevance'
     | 'conversation_opportunity'
+    | 'answered_user_question'
   >,
   context: ValidationContext
 ): ValidationResult {
@@ -265,6 +308,34 @@ export function validateResponse(
     mentionsPastMemoryLikePhrase(response)
   ) {
     reasons.push('STRATEGY_OUTPUT_MISMATCH');
+  }
+
+  // RULE 15 — QUESTION_NOT_ANSWERED (1차 수정). 사용자가 질문/부탁/의견 요청을 했는데
+  // (a) 모델 스스로 답하지 않았다고 보고했거나, (b) 응답이 질문 문장으로만 이루어져 있으면 실패.
+  // reminder_request는 "토요일 아침에 알려달라는 거지?" 같은 확인 질문 하나가 정상 응답이므로 (b) 대신
+  // "요청을 받아서 확인했는가"(acknowledgesReminder)를 본다.
+  if (context.utteranceIntent) {
+    const needs = intentNeedsAnswer(context.utteranceIntent as UtteranceIntent, context.userQuestion ?? null);
+    if (needs) {
+      const selfReportedNo = result.answered_user_question === false;
+      const notAnswered =
+        context.utteranceIntent === 'reminder_request'
+          ? !acknowledgesReminder(response, context.userQuestion)
+          : isQuestionOnlyResponse(response);
+      if (selfReportedNo || notAnswered) reasons.push('QUESTION_NOT_ANSWERED');
+    }
+  }
+
+  // RULE 16 — NEGATIVE_STANCE_AS_INTEREST (1차 수정). "제주도는 싫고" → "제주도에서 뭐 하고 싶어?" 같은 뒤집기.
+  if (context.negativeTargets && findNegativeStanceAsInterest(response, context.negativeTargets)) {
+    reasons.push('NEGATIVE_STANCE_AS_INTEREST');
+  }
+
+  // RULE 17 — ANCHOR_NOT_IN_TRANSCRIPT (1차 수정). anchor_quote는 원문 복사여야 한다.
+  // 원문에 없는 "그럴듯한 주제"를 붙잡았다고 기록하는 것을 막는다.
+  const anchorQuote = result.conversation_opportunity?.anchor_quote ?? null;
+  if (context.transcript && anchorQuote && !isGroundedIn(anchorQuote, context.transcript)) {
+    reasons.push('ANCHOR_NOT_IN_TRANSCRIPT');
   }
 
   return { passed: reasons.length === 0, reasons };
