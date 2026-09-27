@@ -16,8 +16,16 @@ import { buildGeneratedResult } from '@/lib/response/responseutils';
 import {
   PERSONALITY_PROMPT,
   buildRegenerationPrompt,
-  buildSystemPrompt,
+  buildResponsePrompt,
 } from '@/lib/response/responseprompt';
+import type { ResponsePrompt, SystemPromptInput } from '@/lib/response/responseprompt';
+import {
+  buildIntentFallback,
+  STT_FAILED_RESPONSE,
+  STT_FAILED_TRANSCRIPT,
+  tryRepair,
+} from '@/lib/response/responsefallback';
+import { negativeTargets } from '@/lib/response/understanding';
 
 // 기존에 이 파일에서 export하던 PERSONALITY_PROMPT — 외부 5개 파일이 '@/lib/responseEngine'에서 import하므로 그대로 다시 export한다.
 export { PERSONALITY_PROMPT };
@@ -165,11 +173,8 @@ export async function generateResponse(
     fetchNickname(userId),
     fetchRecentTurns(userId, entryId),
   ]);
-  const relationshipLevel = calcRelationshipLevel(entryCount);
 
-  // systemPrompt 조립(블록 8개 + 본문 템플릿)은 lib/response/responsePrompt.ts의 buildSystemPrompt()로 이동했다.
-  // 넘기는 값은 원래 이 자리에서 쓰던 것과 완전히 같다 — 결과 문자열도 원본과 동일하다.
-  const systemPrompt = buildSystemPrompt({
+  return generateResponseCore({
     transcript,
     analysis,
     memoryCandidates,
@@ -177,18 +182,54 @@ export async function generateResponse(
     relevantMemoryUnits,
     relevantInsights,
     initialTopic,
-    relationshipLevel,
+    relationshipLevel: calcRelationshipLevel(entryCount),
     nickname,
     callAllowed,
     recentTurns,
   });
+}
 
-  // 아래 validation 준비(직전 턴 찾기)에서 쓰던 값. 원래는 systemPrompt 조립 중에 만들어졌는데 그 코드가
-  // buildSystemPrompt()로 옮겨갔으므로, 원본과 똑같은 식으로 여기서도 계산한다.
+// 1차 수정 — DB 조회가 끝난 뒤의 순수 생성 경로. generateResponse()가 조회 결과를 넘겨 호출하고,
+// scripts/test-response-v1.ts가 DB 없이 같은 경로를 그대로 돌릴 때도 이 함수를 쓴다.
+export async function generateResponseCore(input: SystemPromptInput): Promise<ResponseResult> {
+  const {
+    transcript,
+    analysis,
+    relevantMemoryUnits,
+    relevantInsights,
+    relationshipLevel,
+    callAllowed,
+    recentTurns,
+  } = input;
+  const utteranceIntent: string | null = analysis?.utterance_intent ?? null;
+
+  // 음성 인식 실패는 GPT로 보내지 않는다 (예전엔 "음성 변환이 실패했구나. 무슨 일이 있었던 거야?" 같은 응답이 나갔다).
+  if (!transcript || !transcript.trim() || transcript === STT_FAILED_TRANSCRIPT) {
+    return {
+      ...emptyDecisionFields(relationshipLevel),
+      response_strategy: 'CASUAL',
+      question_present: true,
+      response: STT_FAILED_RESPONSE,
+      validation_passed: false,
+      validation_failure_reason: null,
+      regeneration_count: 0,
+      closes_conversation: false,
+      repeated_memory_detected: false,
+      fallback_used: true,
+      utterance_intent: utteranceIntent,
+      repaired: false,
+      fallback_kind: 'stt_failed',
+      anchor_discarded: false,
+    };
+  }
+
+  // 1차 수정 — 정적 규칙(system, 매 호출 동일 → prompt caching)과 동적 입력+출력 계약(user)을 분리했다.
+  const prompt = buildResponsePrompt(input);
+
   const chronologicalTurns = [...recentTurns].reverse();
 
   // STEP 6 — validation에 필요한 후보 id 집합과, REPEATED_QUESTION/REPEATED_MEMORY 판정에 쓸
-  // "가장 최근 턴" 정보를 미리 준비해둔다. chronologicalTurns는 위에서 이미 오래된 순으로 정렬돼 있다.
+  // "가장 최근 턴" 정보를 미리 준비해둔다. chronologicalTurns는 오래된 순으로 정렬돼 있다.
   const validMemoryUnitIds = new Set(relevantMemoryUnits.map((m) => m.id));
   const validInsightIds = new Set(relevantInsights.map((i) => i.id));
   const previousTurnForValidation: ValidationContext['previousResponse'] =
@@ -201,154 +242,183 @@ export async function generateResponse(
   const validationContext: ValidationContext = {
     validMemoryUnitIds,
     previousResponse: previousTurnForValidation,
+    // 1차 수정 — 질문 무시 / 부정 뒤집기 / anchor 원문 대조 검사에 쓰인다.
+    transcript,
+    utteranceIntent,
+    userQuestion: analysis?.user_question ?? null,
+    negativeTargets: negativeTargets(analysis?.stances),
   };
 
+  const finalize = (
+    result: GeneratedResult,
+    extra: Pick<ResponseResult, 'validation_passed' | 'validation_failure_reason' | 'regeneration_count'> & {
+      repaired: boolean;
+      anchorDiscarded: boolean;
+    }
+  ): ResponseResult => ({
+    ...result,
+    validation_passed: extra.validation_passed,
+    validation_failure_reason: extra.validation_failure_reason,
+    regeneration_count: extra.regeneration_count,
+    closes_conversation: isClosingResponse(result.response),
+    repeated_memory_detected: computeRepeatedMemoryDetected(result.memory_unit_id_used, result.response, previousTurnForValidation),
+    fallback_used: false,
+    utterance_intent: utteranceIntent,
+    repaired: extra.repaired,
+    fallback_kind: null,
+    anchor_discarded: extra.anchorDiscarded,
+  });
+
+  const build = (parsed: any) =>
+    buildGeneratedResult(parsed, callAllowed, relevantMemoryUnits, relevantInsights, relationshipLevel, validMemoryUnitIds, validInsightIds);
+
   try {
-    // 1차 generation — 기존 STEP 1~5와 완전히 동일한 GPT 호출 1회.
-    const firstParsed = await callGenerationGPT(systemPrompt);
-    const firstResult = buildGeneratedResult(
-      firstParsed,
-      callAllowed,
-      relevantMemoryUnits,
-      relevantInsights,
-      relationshipLevel,
-      validMemoryUnitIds,
-      validInsightIds
-    );
+    // 1차 generation
+    const firstResult = build(await callGenerationGPT(prompt, GENERATION_TEMPERATURE));
     const firstValidation = validateResponse(firstResult, validationContext);
 
     if (firstValidation.passed) {
-      return {
-        ...firstResult,
+      return finalize(firstResult, {
         validation_passed: true,
         validation_failure_reason: null,
         regeneration_count: 0,
-        // STEP 7 — 실제로 반환되는 firstResult 기준으로 계산한다.
-        closes_conversation: isClosingResponse(firstResult.response),
-        repeated_memory_detected: computeRepeatedMemoryDetected(
-          firstResult.memory_unit_id_used,
-          firstResult.response,
-          previousTurnForValidation
-        ),
-        fallback_used: false,
-      };
+        repaired: false,
+        anchorDiscarded: false,
+      });
     }
 
-    // STEP 6 — validation 실패 시 정확히 1회만 regeneration을 시도한다. 별도의 validator GPT 호출을
-    // 만들지 않고, 기존 generateResponse() GPT 호출(callGenerationGPT)을 실패 사유가 추가된 프롬프트로
-    // 다시 호출하는 방식으로 구현한다. 정상 흐름의 GPT 호출 3회는 그대로 유지되고, 이 1회만 추가되므로
-    // 최대 GPT 호출 수는 4회이며 5회 이상 호출되는 경로는 없다.
-    const regenerationPrompt = buildRegenerationPrompt(systemPrompt, firstValidation.reasons, firstResult.response);
-    const secondParsed = await callGenerationGPT(regenerationPrompt);
-    const secondResult = buildGeneratedResult(
-      secondParsed,
-      callAllowed,
-      relevantMemoryUnits,
-      relevantInsights,
-      relationshipLevel,
-      validMemoryUnitIds,
-      validInsightIds
-    );
+    // 1차 수정 — 실패 사유가 형식 문제뿐이면(질문 2개 이상 / anchor 인용 불일치) 재생성 대신 코드로 최소 수정한다.
+    // 수정본도 validator를 그대로 다시 통과해야 한다(규칙 완화 없음). 예전 실데이터의 재생성 사유는 거의 전부
+    // TOO_MANY_QUESTIONS였다 — 이 경로가 불필요한 두 번째 GPT 호출을 없앤다.
+    const firstRepair = tryRepair({ result: firstResult, reasons: firstValidation.reasons }, validationContext);
+    if (firstRepair) {
+      return finalize(firstRepair.result, {
+        validation_passed: true,
+        validation_failure_reason: firstValidation.reasons.join(', '),
+        regeneration_count: 0,
+        repaired: true,
+        anchorDiscarded: firstRepair.anchorDiscarded,
+      });
+    }
+
+    // 의미 문제(질문 무시, 부정 뒤집기, 기억 오용 등)는 정확히 1회 재생성한다. 정적 system은 그대로(캐시 유지),
+    // user 메시지 끝에 실패 사유만 덧붙인다.
+    const regenerationPrompt = buildRegenerationPrompt(prompt, firstValidation.reasons, firstResult.response);
+    const secondResult = build(await callGenerationGPT(regenerationPrompt, REGENERATION_TEMPERATURE));
     const secondValidation = validateResponse(secondResult, validationContext);
 
     if (secondValidation.passed) {
-      return {
-        ...secondResult,
+      return finalize(secondResult, {
         validation_passed: true,
-        // 최종적으로는 통과했지만, "왜 regeneration이 필요했는지"를 로그에서 알 수 있도록 1차
-        // 실패 사유를 남겨둔다 (validation_passed=true인데 이 필드가 채워져 있으면 "regeneration을
-        // 거쳐 통과했다"는 뜻으로 읽으면 된다).
+        // 최종적으로는 통과했지만, 왜 regeneration이 필요했는지 알 수 있도록 1차 실패 사유를 남긴다.
         validation_failure_reason: firstValidation.reasons.join(', '),
         regeneration_count: 1,
-        // STEP 7 — 실제로 반환되는 secondResult 기준으로 계산한다.
-        closes_conversation: isClosingResponse(secondResult.response),
-        repeated_memory_detected: computeRepeatedMemoryDetected(
-          secondResult.memory_unit_id_used,
-          secondResult.response,
-          previousTurnForValidation
-        ),
-        fallback_used: false,
-      };
+        repaired: false,
+        anchorDiscarded: false,
+      });
     }
 
-    // STEP 6 — regeneration까지 실패하면 deterministic fallback을 반환한다. 이 경로에는 추가 GPT
-    // 호출이 전혀 없다 — buildDeterministicFallback()은 순수 함수로, 현재 발화의 몇 가지 뚜렷한
-    // 키워드에 대응하는 고정 질문 패턴 중 하나를 코드로 "고르기"만 한다. memory/insight는 사용하지
-    // 않는다 (memory_unit_id_used는 반드시 null).
-    const fallbackResponseText = buildDeterministicFallback(transcript);
+    const secondRepair = tryRepair({ result: secondResult, reasons: secondValidation.reasons }, validationContext);
+    if (secondRepair) {
+      return finalize(secondRepair.result, {
+        validation_passed: true,
+        validation_failure_reason: secondValidation.reasons.join(', '),
+        regeneration_count: 1,
+        repaired: true,
+        anchorDiscarded: secondRepair.anchorDiscarded,
+      });
+    }
+
+    // 마지막 안전장치 — 키워드가 아니라 발화 의도 / 질문 원문 / 입장 / anchor 기반 문장 (GPT 호출 없음).
+    const fallbackText = buildIntentFallback(transcript, analysis, secondResult.conversation_opportunity.anchor_quote);
     return {
-      response_strategy: 'QUESTION',
-      interference_purpose: 'listen',
-      tone: 'neutral',
-      humor_opportunity: 'low',
-      memory_used: false,
-      memory_reference: null,
-      memory_unit_id_used: null,
-      insight_id_used: null,
+      ...emptyDecisionFields(relationshipLevel),
+      response_strategy: /[?？]/.test(fallbackText) ? 'QUESTION' : 'CASUAL',
       memory_relevance: secondResult.memory_relevance,
-      conversation_opportunity: secondResult.conversation_opportunity,
-      question_present: /[?？]/.test(fallbackResponseText),
-      channel: 'text',
-      response: fallbackResponseText,
-      relationship_level: relationshipLevel,
+      conversation_opportunity: {
+        ...secondResult.conversation_opportunity,
+        // fallback 문장은 기억을 쓰지 않는다. 원문에 없는 anchor는 기록에서도 폐기한다.
+        memory_unit_id: null,
+        ...(secondValidation.reasons.includes('ANCHOR_NOT_IN_TRANSCRIPT') ? { anchor_quote: null, anchor_fact: null } : {}),
+      },
+      question_present: /[?？]/.test(fallbackText),
+      response: fallbackText,
       validation_passed: false,
       validation_failure_reason: secondValidation.reasons.join(', '),
       regeneration_count: 1,
-      // STEP 7 — fallback 문장은 memory_unit_id_used가 항상 null이므로
-      // repeated_memory_detected는 항상 false다. closes_conversation은 fallback 문장 자체를
-      // isClosingResponse()로 판정한 결과를 그대로 쓴다(새 로직 아님).
-      closes_conversation: isClosingResponse(fallbackResponseText),
-      repeated_memory_detected: computeRepeatedMemoryDetected(null, fallbackResponseText, previousTurnForValidation),
+      closes_conversation: isClosingResponse(fallbackText),
+      repeated_memory_detected: false,
       fallback_used: true,
+      utterance_intent: utteranceIntent,
+      repaired: false,
+      fallback_kind: 'intent_template',
+      anchor_discarded: secondValidation.reasons.includes('ANCHOR_NOT_IN_TRANSCRIPT'),
     };
   } catch (err) {
     console.error('[responseEngine] 생성 실패:', err);
+    // 네트워크/파싱 자체가 실패한 경우. 예전엔 무조건 "오늘 얘기 잘 들었어."였는데, 질문/부탁이었다면 그걸 무시하게 된다.
+    const text = buildIntentFallback(transcript, analysis, null);
     return {
-      response_strategy: 'CASUAL',
-      interference_purpose: 'listen',
-      tone: 'neutral',
-      humor_opportunity: 'low',
-      memory_used: false,
-      memory_reference: null,
-      memory_unit_id_used: null,
-      insight_id_used: null,
-      memory_relevance: [],
-        conversation_opportunity: {
-        source: 'none',
-        type: 'none',
-        strength: 'NONE',
-        memory_unit_id: null,
-        anchor_quote: null,
-        anchor_fact: null,
-        question_target: null,
-      },
-      
-      question_present: false,
-      channel: 'text',
-      response: '오늘 얘기 잘 들었어.',
-      relationship_level: relationshipLevel,
-      // 네트워크/파싱 자체가 실패한 경우(=rule validation까지 가보지도 못한 경우)이므로
-      // validation_failure_reason은 null로 둔다 — 이건 "규칙 위반"이 아니라 "생성 실패"다.
+      ...emptyDecisionFields(relationshipLevel),
+      response_strategy: /[?？]/.test(text) ? 'QUESTION' : 'CASUAL',
+      question_present: /[?？]/.test(text),
+      response: text,
+      // "규칙 위반"이 아니라 "생성 실패"이므로 validation_failure_reason은 null.
       validation_passed: false,
       validation_failure_reason: null,
       regeneration_count: 0,
-      // STEP 7 — 이 경로는 memory를 전혀 쓰지 않았으므로 repeated_memory_detected는 항상 false다.
-      // 하드코딩된 안전 응답 문장 자체를 동일한 isClosingResponse()로 판정한다(새 로직 아님).
-      closes_conversation: isClosingResponse('오늘 얘기 잘 들었어.'),
+      closes_conversation: isClosingResponse(text),
       repeated_memory_detected: false,
       fallback_used: true,
+      utterance_intent: utteranceIntent,
+      repaired: false,
+      fallback_kind: 'error',
+      anchor_discarded: false,
     };
   }
+}
+
+type GeneratedResult = ReturnType<typeof buildGeneratedResult>;
+
+// fallback/STT 실패 경로에서 공통으로 쓰는 "기억을 전혀 쓰지 않은" 판단 필드 기본값.
+function emptyDecisionFields(relationshipLevel: number) {
+  return {
+    interference_purpose: 'listen' as const,
+    tone: 'neutral',
+    humor_opportunity: 'low' as const,
+    memory_used: false,
+    memory_reference: null,
+    memory_unit_id_used: null,
+    insight_id_used: null,
+    memory_relevance: [] as ResponseResult['memory_relevance'],
+    conversation_opportunity: {
+      source: 'none' as const,
+      type: 'none' as const,
+      strength: 'NONE' as const,
+      memory_unit_id: null,
+      anchor_quote: null,
+      anchor_fact: null,
+      question_target: null,
+    },
+    answered_user_question: false,
+    channel: 'text' as const,
+    relationship_level: relationshipLevel,
+  };
 }
 
 // ==================================================
 // STEP 6 — Rule-Based Response Validation / Regeneration / Fallback 헬퍼
 // ==================================================
 
-// 기존에 generateResponse() 안에 인라인으로 있던 fetch 호출을 그대로 함수로 옮긴 것뿐이다 —
-// 요청 payload/모델/temperature 등 어떤 것도 바꾸지 않았다. regeneration 시에도 이 함수를
-// 그대로 재사용한다 (별도의 validator GPT 호출이 아니라 같은 generation 호출의 재시도).
-async function callGenerationGPT(systemPrompt: string): Promise<any> {
+// 1차 수정 — temperature. 예전엔 분류(relevance/opportunity)와 문장 생성을 같은 호출에서 0.9로 했다.
+// 목표는 창의성을 없애는 게 아니라 "사용자가 한 말과 다른 방향으로 튀는 것"을 줄이는 것 — 생성은 0.6,
+// 이미 한 번 규칙을 어긴 뒤의 재생성은 더 보수적으로 0.4. (분석 호출은 lib/analysis.ts에서 0.8 → 0.2)
+const GENERATION_TEMPERATURE = 0.6;
+const REGENERATION_TEMPERATURE = 0.4;
+
+// 정적 규칙은 system, 동적 입력+출력 계약은 user 메시지로 보낸다. system이 매 호출 동일하므로
+// OpenAI 자동 prompt caching(1,024 토큰 이상 동일 prefix)의 대상이 된다. 재생성도 같은 함수를 쓴다.
+async function callGenerationGPT(prompt: ResponsePrompt, temperature: number): Promise<any> {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -357,23 +427,25 @@ async function callGenerationGPT(systemPrompt: string): Promise<any> {
     },
     body: JSON.stringify({
       model: 'gpt-4o-mini',
-      messages: [{ role: 'system', content: systemPrompt }],
+      messages: [
+        { role: 'system', content: prompt.system },
+        { role: 'user', content: prompt.user },
+      ],
       response_format: { type: 'json_object' },
-      temperature: 0.9,
+      temperature,
     }),
   });
 
   if (!res.ok) throw new Error('response engine 호출 실패: ' + (await res.text()));
   const json = await res.json();
+  if (json.usage) {
+    // 비용 비교용 — prompt_tokens / cached_tokens(캐시 적중분)를 남긴다.
+    console.log(
+      `[responseEngine] usage prompt=${json.usage.prompt_tokens} cached=${json.usage.prompt_tokens_details?.cached_tokens ?? 0} completion=${json.usage.completion_tokens}`
+    );
+  }
   return JSON.parse(json.choices[0].message.content);
 }
 
-// STEP 6 — deterministic fallback. GPT를 다시 호출하지 않는다. 현재 발화에 등장하는 몇 가지
-// 뚜렷한 키워드에 대응하는, 미리 정해둔 고정 질문 패턴 중 하나를 코드가 직접 고를 뿐이다.
-// "생성"이 아니라 "선택"이므로 이름 그대로 완전히 결정적(deterministic)이다.
-function buildDeterministicFallback(transcript: string): string {
-  if (transcript.includes('답답')) return '오늘 뭐가 제일 답답했어?';
-  if (transcript.includes('바쁘')) return '오늘 제일 먼저 끝내야 하는 건 뭐야?';
-  if (transcript.includes('제주도')) return '제주도에서 제일 해보고 싶은 게 뭐야?';
-  return '지금은 뭐가 제일 걸려?';
-}
+// 예전 buildDeterministicFallback()(transcript.includes('제주도') → 고정 질문 등 키워드 하드코딩)은 제거했다.
+// 대체: lib/response/responsefallback.ts의 tryRepair() / buildIntentFallback().
