@@ -1,4 +1,3 @@
-
 import { supabase } from '@/lib/supabase';
 import { kstIsoWithWeekday } from '@/lib/intervention/kstTime';
 import {
@@ -7,6 +6,7 @@ import {
   sanitizeDueAt,
   scheduleCommitment,
 } from '@/lib/intervention/commitmentSchedule';
+import { normalizeUnderstanding, StanceItem, UtteranceIntent } from '@/lib/response/understanding';
 
 interface AnalysisResult {
   type: 'excuse' | 'contradiction' | 'repetition' | 'none';
@@ -34,6 +34,11 @@ interface AnalysisResult {
   fulfilled_commitments: string[];
   commitment_context_updates: { commitment_id: string; context: string }[];
   memory_candidates: { memory_type: MemoryType; content: string }[];
+  // 1차 수정 — 응답 엔진이 "먼저 답해야 하는지"와 "무엇을 싫어한다고 했는지"를 잃지 않도록 같은 호출에서 함께 뽑는다.
+  // (새 GPT 호출 없음. 값은 lib/response/understanding.ts의 normalizeUnderstanding()으로 원문 대조 검증된다.)
+  utterance_intent: UtteranceIntent;
+  user_question: string | null;
+  stances: StanceItem[];
 }
 
 type MemoryType = 'interest' | 'project' | 'preference' | 'thought';
@@ -191,6 +196,17 @@ ${memoryCandidatesBlock}
 
 판단 기준:
 
+[발화 이해 — 가장 먼저 판단한다]
+- utterance_intent: 이 발화에서 사용자가 "하고 있는 행동" 하나. 아래 중 하나만 고른다.
+  question(무언가를 물음, 예: "어디 가야 되냐") / request(뭔가 해달라고 부탁) / opinion_request(참견이의 의견을 물음, 예: "너라면 어떻게 생각해?")
+  / information_request(사실·가격·방법 같은 정보를 물음, 예: "제주도 항공권 얼마야?") / reminder_request(나중에 알려달라고 부탁, 예: "토요일 아침에 갈 건데 그때 알려줘")
+  / vent(감정 토로, 예: "회사 진짜 답답하다") / statement(있었던 일·생각을 말함, 예: "20만 원짜리 옷 샀어")
+  / mixed(긴 이야기 끝에 질문이나 부탁이 붙은 경우). 긴 이야기라도 끝에 질문/부탁이 있으면 statement가 아니다.
+- user_question: 사용자가 실제로 던진 질문/부탁 구간을 발화 원문에서 글자 그대로 복사한다 (예: "어디가야 되냐"). 요약·재구성 금지. 질문/부탁이 없으면 null.
+- stances: 발화에 등장한 대상(장소·사람·물건·활동 등) 중 사용자가 입장을 드러낸 것들. 각 항목 { "target": "대상", "stance": "positive|negative|neutral|uncertain", "quote": "그 입장이 드러난 원문 구간 그대로" }.
+  "싫다/안 간다/별로/비싸서 안 된다"는 negative, "끌린다/좋다/가보고 싶다"는 positive, "괜찮은데 비싸다"처럼 망설이면 uncertain, 그냥 언급만 했으면 neutral.
+  부정한 대상을 관심사로 바꾸지 마라. 예: "제주도는 가기 싫고" → { "target": "제주도", "stance": "negative" }. 입장이 드러난 대상이 없으면 [].
+
 - commitment: 오늘 발화에서 사용자가 실제 행동 의지를 명확히 표현한 것 중 대표 1개 (없으면 null). commitment는 참견이가 발화 속에서 "발견해서 만들어내는" 게 아니다 — 사용자가 실제로 행동하겠다는 의지를 표현했을 때만 후보가 된다. 아래는 기본적으로 commitment가 아니다(=null):
   - 생각/희망/가능성 표현: "~하고 싶어", "~해보고 싶기도 해", "~할까 하는 생각이 들어", "~하면 좋겠다"
   - 필요성만 표현(아직 "하겠다"가 아님): "~해야 할 것 같아", "~해야 하는데"
@@ -214,6 +230,7 @@ ${memoryCandidatesBlock}
   - 관련성이 조금이라도 애매하면 넣지 마라. 오늘 발화가 그 약속을 아예 언급하지 않거나, 그냥 다른 화제(감정/잡담/전혀 다른 주제)라면 절대 억지로 연결하지 마라.
   - 이번 발화로 그 약속이 fulfilled_commitments에 이미 포함됐다면(=완료로 확정됐다면), 같은 약속에 대해 commitment_context_updates에는 넣지 마라. 완료된 약속은 상황 업데이트가 필요 없다.
   - 관련된 게 하나도 없으면 빈 배열 []을 반환해라.
+- 부정·거절도 사실이다: context_facts / memory_candidates에 사용자가 싫다고 한 것을 적을 때는 반드시 "싫다"는 의미를 그대로 남겨라 ("제주도에 관심 있다" ❌ → "제주도는 가기 싫다고 했다" ✓).
 - memory_candidates: 이건 context_facts와 완전히 다른 목적이다. context_facts는 "오늘 실제로 있었던 일"을 담는 거고, memory_candidates는 "이 사람을 계속 이해하는 데 나중에도 의미가 있을 만한 것"만 담는다. 그래서 같은 발화라도 필요하면 두 필드 모두에 들어갈 수 있다.
   담아야 하는 것: 지속적인 관심사, 실제로 해보고 싶다고 말한 프로젝트나 아이디어, 개인적인 취향, 앞으로도 반복해서 나올 법한 생각.
   담으면 안 되는 것: 오늘 하루 있었던 일(뭘 먹었는지, 날씨, 출퇴근 등), 일시적인 감정, 한 번 하고 지나갈 사소한 이야기, 그리고 사용자가 말하지 않은 걸 GPT가 성향으로 일반화한 것("사용자는 창업에 관심이 많다" 같은 건 절대 안 됨 — 사용자가 실제로 한 말의 의미만 보존해서 짧게 적어라, 예: "식물 가게를 직접 해보고 싶어 한다").
@@ -231,6 +248,9 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
 
 반드시 아래 JSON 형식으로만 답해:
 {
+  "utterance_intent": "question|request|opinion_request|vent|statement|reminder_request|information_request|mixed",
+  "user_question": "..." or null,
+  "stances": [],
   "type": "excuse|contradiction|repetition|none",
   "summary": "오늘 상황 요약 한 문장",
   "goal": "..." or null,
@@ -272,15 +292,18 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
           { role: 'user', content: userPrompt },
         ],
         response_format: { type: 'json_object' },
-        temperature: 0.8,
+        // 1차 수정: 이 호출은 분류/추출이다. 창의성보다 원문 충실도가 중요하므로 0.8 → 0.2.
+        temperature: 0.2,
       }),
     });
 
     if (!res.ok) throw new Error('분석 실패: ' + (await res.text()));
     const json = await res.json();
     const parsed = JSON.parse(json.choices[0].message.content);
+    const understanding = normalizeUnderstanding(parsed, transcript);
 
     return {
+      ...understanding,
       type: parsed.type ?? 'none',
       summary: parsed.summary ?? '',
       goal: parsed.goal ?? null,
@@ -326,6 +349,8 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
   } catch (err) {
     console.error('[callGPT] 분석 중 오류 발생:', err);
     return {
+      // GPT가 실패해도 "질문했는지/알려달라고 했는지"는 규칙 기반으로라도 남긴다.
+      ...normalizeUnderstanding(null, transcript),
       type: 'none',
       summary: transcript ? `${transcript.slice(0, 20)}...` : '내용 없음',
       goal: null,
@@ -546,4 +571,10 @@ export async function expireOldCommitments() {
     .eq('goal_status', 'active')
     .lt('commitment_until', now);
   if (error) console.error('[analysis] expireOldCommitments failed:', error.message);
+}
+
+// 1차 수정 — 테스트 스크립트(scripts/test-response-v1.ts)용. DB 조회 없이(과거 약속/패턴/기억 없음) 운영과 같은
+// 분석 프롬프트·모델·temperature로 발화 하나를 분석한다. 저장하지 않는다.
+export async function analyzeTranscriptOnly(transcript: string, persona: string = 'coach') {
+  return callGPT(transcript, persona, [], [], [], []);
 }
