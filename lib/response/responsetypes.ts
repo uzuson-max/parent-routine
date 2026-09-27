@@ -74,7 +74,11 @@ export type ValidationFailureReason =
   | 'OPPORTUNITY_MEMORY_MISMATCH'
   | 'INVALID_MEMORY_REFERENCE'
   | 'CURRENT_TURN_MEMORY_MISMATCH'
-  | 'STRATEGY_OUTPUT_MISMATCH';
+  | 'STRATEGY_OUTPUT_MISMATCH'
+  // 1차 수정 (2026-09)
+  | 'QUESTION_NOT_ANSWERED' // 사용자가 질문/부탁했는데 답/확인 없이 되묻기만 함
+  | 'NEGATIVE_STANCE_AS_INTEREST' // 사용자가 싫다고 한 대상을 원하는 것처럼 물음
+  | 'ANCHOR_NOT_IN_TRANSCRIPT'; // anchor_quote가 사용자 원문에 없음
 
 export interface ValidationResult {
   passed: boolean;
@@ -85,6 +89,11 @@ export interface ValidationResult {
 export interface ValidationContext {
   validMemoryUnitIds: Set<number>;
   previousResponse: { response: string; memoryUnitIdUsed: number | null } | null;
+  // 1차 수정 — 아래 값이 없으면(예전 스크립트 등) 해당 규칙은 검사하지 않는다.
+  transcript?: string;
+  utteranceIntent?: string | null;
+  userQuestion?: string | null;
+  negativeTargets?: string[];
 }
 
 export interface ResponseResult {
@@ -105,6 +114,9 @@ export interface ResponseResult {
   // STEP 5 — 이번 응답(response) 문장 자체에 실제로 질문이 남아 있는지. "사용자가 한마디 더
   // 하고 싶어지게 만드는 응답"인지를 코드에서도 대략 점검할 수 있게 하는 순수 로깅/디버깅용 필드다.
   question_present: boolean;
+  // 1차 수정 — 모델 자기 보고: 사용자의 질문/부탁에 실제로 답(또는 reminder 확인)했는가.
+  // validator가 결정적 검사(질문만으로 된 응답인지)와 함께 쓴다. 예전 행에는 없다.
+  answered_user_question?: boolean;
   channel: 'text' | 'voice' | 'call';
   response: string;
   relationship_level: number;
@@ -136,6 +148,19 @@ export interface ResponseResult {
   // validation_passed=false인데 fallback_used=false)는 존재하지 않는다 — STEP 6 구조상 validation이
   // 최종적으로 실패하면 반드시 fallback 또는 catch 경로로 빠지기 때문이다.
   fallback_used: boolean;
+  // 1차 수정 — 로깅용. 예전 행에는 없다.
+  //   utterance_intent: analysis가 판단한 발화 의도 (lib/response/understanding.ts)
+  //   repaired: LLM이 쓴 응답에서 형식 문제만 코드로 고쳐(초과 질문 문장 제거, 원문에 없는 anchor 폐기)
+  //             validator를 다시 통과시킨 경우 true. 문장 자체는 LLM이 쓴 것이므로 fallback_used는 false다.
+  //   fallback_kind: fallback_used=true일 때 어떤 방식이었는지
+  //     'intent_template' — 발화 의도/질문 원문/입장/anchor 기반 안전 문장 (키워드 하드코딩 아님)
+  //     'stt_failed'      — 음성 인식 실패 안내 (GPT 호출 없음)
+  //     'error'           — 생성 자체 실패(네트워크/파싱)
+  //   anchor_discarded: anchor_quote가 원문에 없어서 폐기(null 처리)했는가
+  utterance_intent?: string | null;
+  repaired?: boolean;
+  fallback_kind?: 'intent_template' | 'stt_failed' | 'error' | null;
+  anchor_discarded?: boolean;
 }
 
 // fetchRecentTurns()가 반환하는 최근 대화 한 턴 (responseEngine.ts에서 이동).
