@@ -1,10 +1,14 @@
-
 import { supabase } from '@/lib/supabase';
 import { extractMemoryCandidates, MemoryCandidate } from '@/lib/memoryExtraction';
 import { resolveEntity } from '@/lib/entityResolver';
 import { tokenize, filterConfirmedCommitments } from '@/lib/memoryRetrieval';
 import { buildMemoryEmbeddingText, generateMemoryEmbedding } from '@/lib/memoryEmbedding';
- 
+import { isMissingStanceColumnError } from '@/lib/memoryRetrieval';
+
+// 1차 수정 — memory_units.stance는 migration(SQL 별도 제공)으로 추가되는 컬럼이다. migration 전에는
+// 컬럼이 없다는 에러가 나므로, 한 번 보면 이 프로세스에서는 stance 없이 저장한다(raw_quote는 기존 컬럼이라 항상 저장).
+let stanceColumnAvailable = true;
+
 // memoryExtraction.ts의 MemoryType(추출 판단용)과 memory_units.memory_type의 실제 DB CHECK 제약은
 // 완전히 같지 않다. DB가 실제로 허용하는 값은:
 //   event, person, place, feeling, thought, interest, concern, commitment, preference, relationship, pattern
@@ -29,7 +33,7 @@ const DB_SAFE_MEMORY_TYPE: Record<string, string> = {
   commitment: 'commitment',
   experience: 'event', // DB에 experience 값 없음 — 과거에 있었던 일이므로 event로 취급
 };
- 
+
 const LINK_STOPWORDS = new Set([
   '오늘', '어제', '내일', '모레', '이번', '저번', '다음', '진짜', '정말', '너무', '완전',
   '그냥', '근데', '그런데', '그리고', '그래서', '하지만', '아니', '그래', '엄청', '약간',
@@ -122,7 +126,7 @@ export interface MemoryPipelineResult {
   skippedCount: number;
   candidates: MemoryCandidate[];
 }
- 
+
 const EMPTY_RESULT: Omit<MemoryPipelineResult, 'skippedReason'> = {
   ran: false,
   extractedCount: 0,
@@ -130,7 +134,7 @@ const EMPTY_RESULT: Omit<MemoryPipelineResult, 'skippedReason'> = {
   skippedCount: 0,
   candidates: [],
 };
- 
+
 export async function runMemoryPipeline(
   entryId: string,
   userId: string,
@@ -141,53 +145,61 @@ export async function runMemoryPipeline(
     if (!transcript || !transcript.trim() || transcript === '(음성 변환 실패)') {
       return { ...EMPTY_RESULT, skippedReason: 'no_transcript' };
     }
- 
+
     const { data: already, error: dupCheckError } = await supabase
       .from('memory_units')
       .select('id')
       .eq('source_entry_id', entryId)
       .limit(1)
       .maybeSingle();
- 
+
     if (dupCheckError) {
       console.error('[memoryPipeline] 중복 확인 실패 (계속 진행):', dupCheckError.message);
     } else if (already) {
       console.log(`[memoryPipeline] entry ${entryId} 는 이미 처리됨 — 스킵`);
       return { ...EMPTY_RESULT, skippedReason: 'already_processed' };
     }
- 
+
     const { candidates } = await extractMemoryCandidates(transcript);
- 
+
     if (candidates.length === 0) {
       return { ran: true, extractedCount: 0, insertedCount: 0, skippedCount: 0, candidates: [] };
     }
- 
+
     let inserted = 0;
     let skipped = 0;
- 
+
     for (const c of candidates) {
       try {
         const subjectEntityId = await resolveEntity(userId, c.subject, c.memory_type);
         const dbMemoryType = DB_SAFE_MEMORY_TYPE[c.memory_type] ?? 'event';
- 
-        const { data: insertedRow, error } = await supabase
-          .from('memory_units')
-          .insert({
-            user_id: userId,
-            source_entry_id: entryId,
-            source_channel: sourceChannel,
-            memory_type: dbMemoryType,
-            subject_entity_id: subjectEntityId,
-            content: c.content,
-            emotion: c.emotional_relevance,
-            temporal_context: c.temporal_context,
-            importance: c.importance,
-            retention: c.retention,
-            decay_rate: c.retention === 'permanent' ? 0 : 0.05,
-            status: c.status,
-          })
-          .select('id')
-          .single();
+
+        const baseRow = {
+          user_id: userId,
+          source_entry_id: entryId,
+          source_channel: sourceChannel,
+          memory_type: dbMemoryType,
+          subject_entity_id: subjectEntityId,
+          content: c.content,
+          raw_quote: c.raw_quote,
+          emotion: c.emotional_relevance,
+          temporal_context: c.temporal_context,
+          importance: c.importance,
+          retention: c.retention,
+          decay_rate: c.retention === 'permanent' ? 0 : 0.05,
+          status: c.status,
+        };
+        const insertUnit = (row: Record<string, any>) =>
+          supabase.from('memory_units').insert(row).select('id').single();
+
+        let { data: insertedRow, error } = await insertUnit(
+          stanceColumnAvailable ? { ...baseRow, stance: c.stance } : baseRow
+        );
+        if (error && stanceColumnAvailable && isMissingStanceColumnError(error)) {
+          stanceColumnAvailable = false;
+          console.log('[memoryPipeline] memory_units.stance 컬럼 없음 — stance 없이 저장 (migration 적용 전)');
+          ({ data: insertedRow, error } = await insertUnit(baseRow));
+        }
 
         if (error) {
           console.error('[memoryPipeline] memory_units insert 실패:', error.message);
@@ -242,7 +254,7 @@ export async function runMemoryPipeline(
         skipped++;
       }
     }
- 
+
     return {
       ran: true,
       extractedCount: candidates.length,
