@@ -11,6 +11,7 @@ import type {
   MemoryRelevanceItem,
   ResponseResult,
 } from '@/lib/response/responsetypes';
+type OmittedFields = 'validation_passed' | 'validation_failure_reason' | 'regeneration_count' | 'closes_conversation' | 'repeated_memory_detected' | 'fallback_used';
 
 // Opportunity STEP 1 — anchor 텍스트 필드 정리. 문자열이 아니거나 비어 있으면 null, 모델이 앞뒤에
 // 따옴표를 붙여 보낸 경우만 벗겨낸다. 내용 자체는 수정하지 않는다(원문 그대로 기록되는 게 목적).
