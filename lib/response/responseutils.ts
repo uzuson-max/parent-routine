@@ -36,10 +36,7 @@ export function buildGeneratedResult(
   relationshipLevel: number,
   validMemoryUnitIds: Set<number>,
   validInsightIds: Set<number>
-): Omit
-  ResponseResult,
-  'validation_passed' | 'validation_failure_reason' | 'regeneration_count' | 'closes_conversation' | 'repeated_memory_detected' | 'fallback_used'
-> {
+): Omit<ResponseResult, OmittedFields> {
   const channel: 'text' | 'call' = parsed.channel === 'call' && callAllowed ? 'call' : 'text';
 
   const rawMemoryRelevance = Array.isArray(parsed.memory_relevance) ? parsed.memory_relevance : [];
