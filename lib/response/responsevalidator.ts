@@ -190,19 +190,10 @@ export function computeRepeatedMemoryDetected(
 // ResponseResult(validation 3개 필드 제외)와 이번 턴의 context(후보 memory id 집합, 직전 턴
 // 정보)만으로 판정한다. 한 응답에서 여러 규칙이 동시에 위반될 수 있으므로 실패 사유는 배열로
 // 전부 모은다(스펙 3절 — "가능하면 모든 failure reason을 수집한다").
-export function validateResponse(
-  result: Pick
-    ResponseResult,
-    | 'response'
-    | 'response_strategy'
-    | 'question_present'
-    | 'memory_unit_id_used'
-    | 'memory_relevance'
-    | 'conversation_opportunity'
-    | 'answered_user_question'
-  >,
-  context: ValidationContext
-): ValidationResult {
+type ValidatedFields = 'response' | 'response_strategy' | 'question_present' | 'memory_unit_id_used' | 'memory_relevance' | 'conversation_opportunity' | 'answered_user_question';
+type ValidatedResult = Pick<ResponseResult, ValidatedFields>;
+
+export function validateResponse(result: ValidatedResult, context: ValidationContext): ValidationResult {
   const reasons: ValidationFailureReason[] = [];
   const response = typeof result.response === 'string' ? result.response : '';
 
