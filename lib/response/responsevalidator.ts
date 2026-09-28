@@ -478,3 +478,30 @@ export function detectUnanswerableQuestion(response: string): UnanswerableDetect
 export function isQuestionNotAnswerable(response: string): boolean {
   return detectUnanswerableQuestion(response) !== null;
 }
+
+// lib/response/responsevalidator.ts
+const SPECIFIC_DETAIL_SIGNALS: { label: string; pattern: RegExp }[] = [
+  // 숫자 (아라비아 숫자 — 금액·횟수·기간 대부분이 여기 걸린다)
+  { label: 'number', pattern: /[0-9０-９]/ },
+  // 한글 수사 + 단위 ("두 번", "세 마리", "몇 달")
+  {
+    label: 'counted_quantity',
+    pattern: /(한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|스무|몇)\s?(번|개|명|마리|살|시간|달|주|학기|잔|권|벌|장|판|그릇|곳|군데)/,
+  },
+  // 한글 금액/기간 ("만 원", "삼 학기")
+  { label: 'amount', pattern: /(십|백|천|만|억)\s?원|[일이삼사오육칠팔구십]\s?(학기|개월|년차)/ },
+  // 변화 표현 (V1 확정 2026-09-28) — "너무/처음/결국/막상/원래"는 흔한 토로·서술 어휘라 신호에서 뺐다
+  // ("요즘 너무 피곤해", "처음엔 괜찮았는데" 같은 추상 발화가 FAIL하던 false positive).
+  { label: 'change_marker', pattern: /아직|벌써|갑자기|하필|유독|(^|\s)또(\s|$)/ },
+  // 미완료 / 멈춤 / 어긋남
+  {
+    label: 'unfinished_or_mismatch',
+    pattern: /(안|못)\s?했|(안|못)\s?하고|려고\s?했는데|줄\s?알았|는데도|접었|그만뒀|그만 뒀|포기했|미뤘|취소했|까먹|잊어버렸|놓쳤/,
+  },
+  // 동물 (V1 확정) — 단독으로 strong signal. 일반 관계어(친구/엄마/동생 등)는 단독으로 발동하지 않도록 신호에서 뺐다.
+  // "고양이가 소파를 다 긁어놨어", "고양이 때문에 잠을 못 잤어" 같은 실제 사건을 놓치지 않는 게 우선이고,
+  // 그 대가로 "고양이가 좋더라" 같은 감상도 걸린다(검증된 잔여 FP).
+  { label: 'animal', pattern: /고양이|강아지/ },
+  // 영문 고유명사/브랜드 (2글자 이상)
+  { label: 'latin_name', pattern: /[A-Za-z]{2,}/ },
+];
