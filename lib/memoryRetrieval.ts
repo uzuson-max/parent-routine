@@ -164,9 +164,9 @@ async function selectUnits(build: (columns: string) => PromiseLike<{ data: any; 
   return first;
 }
 
-export async function filterConfirmedCommitments
-  T extends { memory_type: string; source_entry_id?: string | null }
->(userId: string, units: T[]): Promise<T[]> {
+type CommitmentFilterable = { memory_type: string; source_entry_id?: string | null };
+
+export async function filterConfirmedCommitments<T extends CommitmentFilterable>(userId: string, units: T[]): Promise<T[]> {
   const commitmentUnits = units.filter((u) => u.memory_type === 'commitment');
   if (commitmentUnits.length === 0) return units;
 
