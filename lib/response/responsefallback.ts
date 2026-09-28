@@ -19,10 +19,8 @@ import type {
 import { validateResponse } from '@/lib/response/responsevalidator';
 import { intentNeedsAnswer, isGroundedIn, negativeTargets, normalizeLoose, StanceItem } from '@/lib/response/understanding';
 
-type GeneratedResult = Omit
-  ResponseResult,
-  'validation_passed' | 'validation_failure_reason' | 'regeneration_count' | 'closes_conversation' | 'repeated_memory_detected' | 'fallback_used'
->;
+type OmittedFields = 'validation_passed' | 'validation_failure_reason' | 'regeneration_count' | 'closes_conversation' | 'repeated_memory_detected' | 'fallback_used';
+type GeneratedResult = Omit<ResponseResult, OmittedFields>;
 
 export interface FallbackCandidate {
   result: GeneratedResult;
