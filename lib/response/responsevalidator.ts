@@ -110,6 +110,91 @@ function mentionsPastMemoryLikePhrase(response: string): boolean {
   return /(전에|예전에|저번에).{0,30}(했잖아|말했잖아|그랬잖아)/.test(response);
 }
 
+// ---- Opportunity NONE 탈출구 차단 유틸 (2026-09-28) ----
+//
+// "이 발화는 물고 늘어질 구체적인 디테일이 있는가"만 판정한다. anchor를 새로 만들거나 고르지 않는다 —
+// 그건 generation(GPT)의 몫이고, 여기서는 "구체적인데 NONE으로 빠진 건 이상하다"를 잡아 재생성만 유도한다.
+// 명백한 신호만 본다(오탐으로 모든 발화에 opportunity를 강제하지 않는 게 우선). 발화 길이만으로는 판정하지 않는다.
+//
+// 조사 "도"는 신호에서 뺐다 — 거의 모든 문장에 조사로 들어가서, 넣으면 사실상 "모든 발화 강제"가 된다.
+const SPECIFIC_DETAIL_SIGNALS: { label: string; pattern: RegExp }[] = [
+  // 숫자 (아라비아 숫자 — 금액·횟수·기간 대부분이 여기 걸린다)
+  { label: 'number', pattern: /[0-9０-９]/ },
+  // 한글 수사 + 단위 ("두 번", "세 마리", "몇 달")
+  {
+    label: 'counted_quantity',
+    pattern: /(한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|스무|몇)\s?(번|개|명|마리|살|시간|달|주|학기|잔|권|벌|장|판|그릇|곳|군데)/,
+  },
+  // 한글 금액/기간 ("만 원", "삼 학기")
+  { label: 'amount', pattern: /(십|백|천|만|억)\s?원|[일이삼사오육칠팔구십]\s?(학기|개월|년차)/ },
+  // 변화 표현 (V1 확정 2026-09-28) — "너무/처음/결국/막상/원래"는 흔한 토로·서술 어휘라 신호에서 뺐다
+  // ("요즘 너무 피곤해", "처음엔 괜찮았는데" 같은 추상 발화가 FAIL하던 false positive).
+  { label: 'change_marker', pattern: /아직|벌써|갑자기|하필|유독|(^|\s)또(\s|$)/ },
+  // 미완료 / 멈춤 / 어긋남
+  {
+    label: 'unfinished_or_mismatch',
+    pattern: /(안|못)\s?했|(안|못)\s?하고|려고\s?했는데|줄\s?알았|는데도|접었|그만뒀|그만 뒀|포기했|미뤘|취소했|까먹|잊어버렸|놓쳤/,
+  },
+  // 동물 (V1 확정) — 단독으로 strong signal. 일반 관계어(친구/엄마/동생 등)는 단독으로 발동하지 않도록 신호에서 뺐다.
+  // "고양이가 소파를 다 긁어놨어", "고양이 때문에 잠을 못 잤어" 같은 실제 사건을 놓치지 않는 게 우선이고,
+  // 그 대가로 "고양이가 좋더라" 같은 감상도 걸린다(검증된 잔여 FP).
+  { label: 'animal', pattern: /고양이|강아지/ },
+  // 영문 고유명사/브랜드 (2글자 이상)
+  { label: 'latin_name', pattern: /[A-Za-z]{2,}/ },
+];
+
+// 공백 제외 이 길이 미만이면 신호가 있어도 강제하지 않는다 ("또 라면" 같은 한마디).
+const SPECIFIC_DETAIL_MIN_LENGTH = 8;
+
+// 이 규칙을 적용하는 발화 의도. 질문/부탁 계열은 "먼저 답"이 우선이라 제외한다.
+const OPPORTUNITY_REQUIRED_INTENTS = new Set(['statement', 'mixed', 'vent']);
+
+// 원문에서 발견된 구체성 신호 라벨 목록 (없으면 빈 배열). 테스트/로그용으로 export.
+export function detectSpecificDetails(transcript: string): string[] {
+  if (!transcript) return [];
+  if (transcript.replace(/\s/g, '').length < SPECIFIC_DETAIL_MIN_LENGTH) return [];
+  return SPECIFIC_DETAIL_SIGNALS.filter((s) => s.pattern.test(transcript)).map((s) => s.label);
+}
+
+// ---- RULE 19 — 숫자 tail anchor가 앞 대상을 잘라먹은 경우 (2026-09-29) ----
+//
+// 실제 확인된 두 실패만 잡는 최소 안전장치다(anchor 품질 시스템이 아니다):
+//   "지난주에 제주도 항공권을 17만원에 봤어." → anchor "17만원에 봤어"  → response에서 "항공권"이 사라짐
+//   "회사에서 발표를 3번이나 다시 했어."      → anchor "3번이나 다시 했어" → response에서 "발표"가 사라짐
+// anchor가 숫자/수량으로 시작하고, 원문에서 바로 앞 어절이 을/를로 끝나면 그 어절(잘린 대상)을 돌려준다.
+// 원문 위치를 정확히 못 찾거나 문장 구조가 애매하면 판단하지 않는다(null).
+
+// anchor 맨 앞의 숫자/수량 표현. 한글 수사는 "이번", "일단" 같은 일반 단어와 헷갈리지 않도록
+// 큰 단위(십/백/천/만/억)가 들어간 금액·수이거나, 고유어 수사 + 단위일 때만 인정한다.
+const NUMERIC_HEAD =
+  /^(?:[0-9０-９]|[일이삼사오육칠팔구]?[십백천만억][일이삼사오육칠팔구십백천만억]*\s?(?:원|번|개|명|학기|개월|년|잔|시간|살|마리)|(?:한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|스무|몇)\s?(?:번|개|명|마리|살|시간|달|주|학기|잔|권|벌|장|판|그릇|곳|군데))/;
+
+const EDGE_PUNCT = /^[\s"'“”‘’「」.,!?？~…]+|[\s"'“”‘’「」.,!?？~…]+$/g;
+
+// 반환값: 잘린 대상 어절(예: "항공권을", "발표를") 또는 null.
+export function detectTruncatedAnchorHead(anchorQuote: string | null | undefined, transcript: string | null | undefined): string | null {
+  if (!anchorQuote || !transcript) return null;
+  const anchor = anchorQuote.replace(EDGE_PUNCT, '').replace(/\s+/g, ' ');
+  if (!anchor || !NUMERIC_HEAD.test(anchor)) return null;
+
+  const text = transcript.replace(/\s+/g, ' ');
+  const idx = text.indexOf(anchor);
+  if (idx <= 0) return null; // 원문에서 정확한 위치를 못 찾았거나 문장 맨 앞이면 판단하지 않는다
+  if (text.indexOf(anchor, idx + 1) !== -1) return null; // 같은 구간이 두 번 나오면 애매 → 판단하지 않는다
+  if (text[idx - 1] !== ' ') return null; // 어절 중간에서 시작한 anchor는 애매 → 판단하지 않는다
+
+  const before = text.slice(0, idx - 1);
+  const prevWord = before.slice(before.lastIndexOf(' ') + 1);
+  // 문장부호로 끊긴 경우("항공권을, 17만원에")나 한글/영숫자가 아닌 어절은 애매 → 판단하지 않는다
+  if (!/^[가-힣A-Za-z0-9]{2,}$/.test(prevWord)) return null;
+  return /[을를]$/.test(prevWord) ? prevWord : null;
+}
+
+// "항공권을" → "항공권". response 쪽은 조사 차이를 허용하기 위해 핵심 어절만 본다.
+function truncatedHeadCore(head: string): string {
+  return head.replace(/[을를]$/, '');
+}
+
 // ---- 1차 수정 규칙 유틸 ----
 
 // 응답의 모든 문장이 질문인가 ("제주도에서 제일 해보고 싶은 게 뭐야?" 처럼 되묻기만 한 응답).
@@ -329,6 +414,30 @@ export function validateResponse(result: ValidatedResult, context: ValidationCon
     reasons.push('ANCHOR_NOT_IN_TRANSCRIPT');
   }
 
+  // RULE 18 — SPECIFIC_CURRENT_TURN_WITHOUT_OPPORTUNITY (2026-09-28).
+  // statement/mixed/vent 발화에 구체적인 디테일(숫자·금액·변화/강조 표현·미완료·특정 대상 등)이 있는데
+  // opportunity를 none으로 냈으면 실패 → 기존 재생성 1회 경로로 넘어가 "다시 골라보게" 한다.
+  // source='current_turn'인데 type='none'으로 온 경우도 사실상 none이라 같이 본다.
+  // 구체성 신호가 없는 추상적 발화("그냥 요즘 좀 그렇다")는 none을 그대로 허용한다.
+  if (context.transcript && context.utteranceIntent && OPPORTUNITY_REQUIRED_INTENTS.has(context.utteranceIntent)) {
+    const opp = result.conversation_opportunity;
+    const effectivelyNone = !opp || opp.source === 'none' || opp.type === 'none';
+    if (effectivelyNone && detectSpecificDetails(context.transcript).length > 0) {
+      reasons.push('SPECIFIC_CURRENT_TURN_WITHOUT_OPPORTUNITY');
+    }
+  }
+
+  // RULE 19 — ANCHOR_TRUNCATED_HEAD (2026-09-29).
+  // 숫자/수량으로 시작하는 anchor가 원문의 바로 앞 대상(…을/를)을 잘랐고, 최종 response에서도 그 대상이
+  // 사라졌을 때만 실패 → 기존 재생성 1회 경로. response에 대상이 살아 있으면(조사 차이 허용) 통과한다.
+  const truncatedHead = detectTruncatedAnchorHead(result.conversation_opportunity?.anchor_quote, context.transcript);
+  if (truncatedHead) {
+    const core = normalizeLoose(truncatedHeadCore(truncatedHead));
+    if (core && !normalizeLoose(response).includes(core)) {
+      reasons.push('ANCHOR_TRUNCATED_HEAD');
+    }
+  }
+
   return { passed: reasons.length === 0, reasons };
 }
 
@@ -478,30 +587,3 @@ export function detectUnanswerableQuestion(response: string): UnanswerableDetect
 export function isQuestionNotAnswerable(response: string): boolean {
   return detectUnanswerableQuestion(response) !== null;
 }
-
-// lib/response/responsevalidator.ts
-const SPECIFIC_DETAIL_SIGNALS: { label: string; pattern: RegExp }[] = [
-  // 숫자 (아라비아 숫자 — 금액·횟수·기간 대부분이 여기 걸린다)
-  { label: 'number', pattern: /[0-9０-９]/ },
-  // 한글 수사 + 단위 ("두 번", "세 마리", "몇 달")
-  {
-    label: 'counted_quantity',
-    pattern: /(한|두|세|네|다섯|여섯|일곱|여덟|아홉|열|스무|몇)\s?(번|개|명|마리|살|시간|달|주|학기|잔|권|벌|장|판|그릇|곳|군데)/,
-  },
-  // 한글 금액/기간 ("만 원", "삼 학기")
-  { label: 'amount', pattern: /(십|백|천|만|억)\s?원|[일이삼사오육칠팔구십]\s?(학기|개월|년차)/ },
-  // 변화 표현 (V1 확정 2026-09-28) — "너무/처음/결국/막상/원래"는 흔한 토로·서술 어휘라 신호에서 뺐다
-  // ("요즘 너무 피곤해", "처음엔 괜찮았는데" 같은 추상 발화가 FAIL하던 false positive).
-  { label: 'change_marker', pattern: /아직|벌써|갑자기|하필|유독|(^|\s)또(\s|$)/ },
-  // 미완료 / 멈춤 / 어긋남
-  {
-    label: 'unfinished_or_mismatch',
-    pattern: /(안|못)\s?했|(안|못)\s?하고|려고\s?했는데|줄\s?알았|는데도|접었|그만뒀|그만 뒀|포기했|미뤘|취소했|까먹|잊어버렸|놓쳤/,
-  },
-  // 동물 (V1 확정) — 단독으로 strong signal. 일반 관계어(친구/엄마/동생 등)는 단독으로 발동하지 않도록 신호에서 뺐다.
-  // "고양이가 소파를 다 긁어놨어", "고양이 때문에 잠을 못 잤어" 같은 실제 사건을 놓치지 않는 게 우선이고,
-  // 그 대가로 "고양이가 좋더라" 같은 감상도 걸린다(검증된 잔여 FP).
-  { label: 'animal', pattern: /고양이|강아지/ },
-  // 영문 고유명사/브랜드 (2글자 이상)
-  { label: 'latin_name', pattern: /[A-Za-z]{2,}/ },
-];
