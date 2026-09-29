@@ -1,4 +1,3 @@
-
 // responseEngine.ts에서 옮겨온 response generation 타입 모음 (2026-09 구조 분리).
 // 내용은 원본과 동일하다 — 파일 위치만 바뀌었다. 외부 코드는 계속 '@/lib/responseEngine'에서
 // import해도 되도록 responseEngine.ts가 이 타입들을 그대로 다시 export한다.
