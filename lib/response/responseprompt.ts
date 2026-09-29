@@ -150,6 +150,7 @@ export const STATIC_RESPONSE_RULES = `${PERSONALITY_PROMPT}
 - 관찰(insight)은 raw 기억보다 훨씬 무겁다. 오늘 발화가 그 관찰의 주제와 직접 겹칠 때만, 문득 알아챈 것처럼("너 라면 취향 은근 확고하잖아"). 보고서/통계 톤 금지.
   관찰 문장에 "세 번째" 같은 정확한 횟수가 이미 들어 있으면 뭉뚱그리지 말고 그대로 써도 된다.
 
+==================================================
 규칙 4 — anchor (무엇을 붙잡았는가)
 ==================================================
 순서: 원문 → 구체적인 사건/경험 하나 고르기 → anchor_quote / anchor_fact → 그 anchor에서 파생되는 question_target → response.
@@ -531,6 +532,16 @@ const REASON_HINT: Partial<Record<ValidationFailureReason, string>> = {
   GENERIC_ENCOURAGEMENT: '격려 문구뿐이었다 → 사용자가 한 말의 구체적인 내용에 반응해라.',
   EMPTY_RESPONSE: 'response가 비어 있었다.',
   RESPONSE_TOO_LONG: '너무 길었다 → 1~3문장.',
+  SPECIFIC_CURRENT_TURN_WITHOUT_OPPORTUNITY: `구체적인 디테일이 있는 발화인데 conversation_opportunity를 none으로 냈다 → 사용자가 이미 말한 구체적인 디테일 중 하나를 찾아 source="current_turn"(또는 조건이 맞으면 "memory")으로 다시 판단해라.
+  · 우선순위: 숫자·금액 / 고유명사 / 구체적인 사물·사람·동물 / 특정 사건 / 미완료 상태("아직 안 했다") / 예상과 다른 상태 / 강조된 표현("너무", "갑자기", "또", "하필").
+  · 핵심 원칙: 참견이가 궁금해할 것은 "사용자가 말하지 않은 빈칸"만이 아니다. 사용자가 이미 말한 아주 작은 디테일 중 "왜 저걸 저렇게 말했지?", "근데 그건 왜 그렇지?" 싶은 부분을 붙잡아라.
+  · 예) "고양이 털이 너무 많이 날려서 토요일에 청소해야 할 것 같아." → 나쁜 선택: 청소 방법 / 청소 팁 / 청소를 언제 할지 / 집안일 계획. 좋은 선택: "고양이 털이 너무 많이 날린다", 요즘 유독 많이 날리는 이유, 털갈이인지.
+  · 예) "식물 온라인 등록하려고 5만원까지 썼는데 아직 안 했어." → 나쁜 선택: 식물 사업을 어떻게 할지 / 온라인 등록 방법 / 사업 계획. 좋은 선택: "5만원까지 썼는데 아직 안 했다", 돈까지 쓰고 아직 안 한 이유, 무엇 때문에 멈췄는지.
+  · 예) "백스테이지 클럽을 4학기까지 갔는데 그 이후에 접었어." → 좋은 선택: "4학기까지 갔다", "그 이후에 접었다", "잡음이 들렸다".
+  · 긴 발화면 전부 짚지 말고 그중 딱 하나만. anchor_quote는 그 부분을 원문에서 짧게(한 구절) 글자 그대로 복사한다. anchor_fact와 question_target도 채우고, response는 그 anchor를 바탕으로 쓴다.
+  · opportunity가 있다고 반드시 질문할 필요는 없다(짧은 반응도 된다). 무거운 토로면 장난은 줄인다.`,
+  ANCHOR_TRUNCATED_HEAD:
+    '숫자/수량으로 시작하는 anchor가 원문에서 바로 앞의 구체적인 대상(예: "제주도 항공권을", "발표를")을 잘라냈고, response에서도 그 대상이 사라졌다 → 원문에 있는 그 대상 어절을 response에 다시 살려라("17만원" 대신 "17만원짜리 항공권", "3번" 대신 "발표를 3번"). anchor를 억지로 길게 만들라는 게 아니라 response가 원문의 핵심 대상을 놓치지 않게 하라는 것이다. 원문에 없는 사실(계획·의도·이유)은 새로 더하지 마라.',
 };
 
 // 재생성: 정적 system은 그대로 두고(캐시 유지), user 메시지 끝에 실패 사유만 덧붙인다.
@@ -540,6 +551,12 @@ export function buildRegenerationPrompt(
   previousResponse: string
 ): ResponsePrompt {
   const hints = reasons.map((r) => `- ${r}: ${REASON_HINT[r] ?? '규칙 위반 — 해당 규칙을 다시 확인해라.'}`).join('\n');
+  // opportunity가 none이라서 실패한 경우엔 "Opportunity 판단 유지" 지시가 none을 그대로 붙잡게 만든다 —
+  // 그때만 opportunity는 다시 판단하게 하고, 나머지(맥락/기억 판단)는 그대로 유지시킨다.
+  const reselectOpportunity = reasons.includes('SPECIFIC_CURRENT_TURN_WITHOUT_OPPORTUNITY');
+  const keepLine = reselectOpportunity
+    ? '- 현재 대화 맥락, Memory Relevance 판단, 기억 사용 조건은 유지해라. Conversation Opportunity는 위 사유대로 다시 판단해라. 새 기억을 지어내지 마라.'
+    : '- 현재 대화 맥락, Conversation Opportunity, Memory Relevance 판단, 기억 사용 조건은 유지해라. 새 기억을 지어내지 마라.';
   return {
     system: original.system,
     user: `${original.user}
@@ -554,7 +571,7 @@ ${previousResponse}
 
 지켜라:
 - 실패한 응답을 반복하지 말고, 위 사유를 전부 고친 새 응답을 써라.
-- 현재 대화 맥락, Conversation Opportunity, Memory Relevance 판단, 기억 사용 조건은 유지해라. 새 기억을 지어내지 마라.
+${keepLine}
 - 물음표는 최대 1개. 사용자가 물었다면 먼저 답해라.
 - 위와 같은 JSON 형식으로만 답해라.`,
   };
