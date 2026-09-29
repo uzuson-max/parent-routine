@@ -78,7 +78,8 @@ export type ValidationFailureReason =
   // 1차 수정 (2026-09)
   | 'QUESTION_NOT_ANSWERED' // 사용자가 질문/부탁했는데 답/확인 없이 되묻기만 함
   | 'NEGATIVE_STANCE_AS_INTEREST' // 사용자가 싫다고 한 대상을 원하는 것처럼 물음
-  | 'ANCHOR_NOT_IN_TRANSCRIPT'; // anchor_quote가 사용자 원문에 없음
+  | 'ANCHOR_NOT_IN_TRANSCRIPT' // anchor_quote가 사용자 원문에 없음
+  | 'SPECIFIC_CURRENT_TURN_WITHOUT_OPPORTUNITY'; // 구체적 디테일이 있는 발화인데 opportunity를 none으로 냄
 
 export interface ValidationResult {
   passed: boolean;
