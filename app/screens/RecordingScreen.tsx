@@ -13,7 +13,12 @@ interface RecordingScreenProps {
   // true면 화면이 뜨자마자 바로 녹음을 시작한다 (홈 마이크 / ＋ 더 이야기하기).
   // 중간 안내 화면 없이 "누르면 바로 듣고 있음" 상태가 되게 하기 위함.
   autoStart?: boolean;
+  // 빈 녹음 안내 화면의 [홈으로]. 업로드/분석 없이 그냥 녹음 화면만 닫는다.
+  onCancel?: () => void;
 }
+
+// 이보다 짧게 녹음하고 멈추면 "실수로 바로 멈춘 것"으로 보고 업로드/STT/분석으로 보내지 않는다.
+const MIN_RECORDING_MS = 800;
 
 // 녹음 중 상태를 텍스트 타이머 하나로만 보여주던 것 대신, 듣고 있다는 걸 시각적으로
 // 표현하는 작은 waveform. 실제 입력 레벨을 분석하지 않고(별도 오디오 분석 파이프라인 없이도)
@@ -37,7 +42,7 @@ function Waveform({ color }: { color: string }) {
   );
 }
 
-export default function RecordingScreen({ initialTopic, onFinish, autoStart }: RecordingScreenProps) {
+export default function RecordingScreen({ initialTopic, onFinish, autoStart, onCancel }: RecordingScreenProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [seconds, setSeconds] = useState(0);
   const [mode, setMode] = useState<"voice" | "text">("voice");
@@ -54,6 +59,10 @@ export default function RecordingScreen({ initialTopic, onFinish, autoStart }: R
   // 텍스트 모드로 바꾸면서 녹음을 버릴 때는 onFinish(업로드)로 넘기지 않는다.
   const discardRef = useRef(false);
   const autoStartedRef = useRef(false);
+  // 빈 녹음 판정용 — recorder.start() 직전 시각(ms).
+  const startedAtRef = useRef(0);
+  // true = 방금 녹음이 비어 있어서 업로드하지 않고 이 화면 안에서 안내 중.
+  const [emptyNotice, setEmptyNotice] = useState(false);
 
   // 마이크 스트림은 lib/micStream.ts가 대화 루프 내내 들고 있다. 여기서는 녹음기(MediaRecorder)만
   // 정리하고 트랙은 끄지 않는다 — 끄면 ＋ 더 이야기하기 때 iOS에서 권한 팝업이 다시 뜰 수 있다.
@@ -85,10 +94,18 @@ export default function RecordingScreen({ initialTopic, onFinish, autoStart }: R
         setIsRecording(false);
         if (discardRef.current) return;
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        // 빈 녹음(즉시 중지 / 데이터 없음)은 AI가 판단할 문제가 아니다 — 서버로 보내지 않고 여기서 끝낸다.
+        const durationMs = Date.now() - startedAtRef.current;
+        if (durationMs < MIN_RECORDING_MS || blob.size === 0) {
+          setEmptyNotice(true);
+          return;
+        }
         onFinish(blob);
       };
+      startedAtRef.current = Date.now();
       recorder.start();
       mediaRecorderRef.current = recorder;
+      setEmptyNotice(false);
       setMicFailed(false);
       setIsRecording(true);
       setSeconds(0);
@@ -229,6 +246,18 @@ export default function RecordingScreen({ initialTopic, onFinish, autoStart }: R
               다 말했어
             </button>
           </>
+        ) : emptyNotice ? (
+          <>
+            <p style={styles.mainCopy}>아직 아무 말도 안 했는데?</p>
+            <button className={TACTILE_PRESS_CLASS} style={styles.stopButton} onClick={start}>
+              다시 말하기
+            </button>
+            {onCancel && (
+              <button className={TACTILE_PRESS_CLASS} style={styles.homeButton} onClick={onCancel}>
+                홈으로
+              </button>
+            )}
+          </>
         ) : micFailed ? (
           <>
             <p style={styles.mainCopy}>마이크가 안 잡히네</p>
@@ -301,6 +330,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   recordingButton: { width: "100%", padding: "16px", ...tactile.primaryButton, ...typography.ctaLabel },
   // 녹음 중 유일한 행동 — primary로 크게.
   stopButton: { width: "100%", padding: "16px", ...tactile.primaryButton, ...typography.ctaLabel, display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", marginTop: "4px" },
+  homeButton: { width: "100%", padding: "14px", ...tactile.secondaryButton, ...typography.ctaLabel },
   stopSquare: { width: "12px", height: "12px", borderRadius: "3px", background: "#fff", flexShrink: 0 },
   wordmark: { ...typography.eyebrow, color: inkAlpha.faint },
   disabledButton: { opacity: 0.45, cursor: "not-allowed" },
