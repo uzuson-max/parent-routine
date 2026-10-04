@@ -1,3 +1,4 @@
+
 // responseEngine.ts에서 옮겨온 LLM 응답(JSON) 정리/방어 로직 (2026-09 구조 분리).
 // 함수 본문·판정 조건·기본값은 원본과 동일하다 — 파일 위치만 바뀌었다.
 // 의존 방향: responseTypes ← responseUtils ← responseEngine (이 파일은 responseEngine을 import하지 않는다).
@@ -8,9 +9,21 @@ import type {
   ConversationOpportunitySource,
   ConversationOpportunityStrength,
   ConversationOpportunityType,
+  MemoryRelation,
   MemoryRelevanceItem,
   ResponseResult,
 } from '@/lib/response/responsetypes';
+import { MEMORY_RELATIONS } from '@/lib/response/responsetypes';
+
+// P0 — relation 정리. relevance=NO면 항상 no_relation. YES인데 relation이 없거나 형식이 틀리면
+// "관련은 있지만 꺼낼 가치는 확인 안 됨"으로 보수적으로 same_topic_only로 둔다(→ RULE 8에서 사용 불가).
+function normalizeRelation(relevance: 'YES' | 'NO', raw: unknown): MemoryRelation {
+  if (relevance === 'NO') return 'no_relation';
+  if (typeof raw === 'string' && (MEMORY_RELATIONS as readonly string[]).includes(raw) && raw !== 'no_relation') {
+    return raw as MemoryRelation;
+  }
+  return 'same_topic_only';
+}
 type OmittedFields = 'validation_passed' | 'validation_failure_reason' | 'regeneration_count' | 'closes_conversation' | 'repeated_memory_detected' | 'fallback_used';
 
 // Opportunity STEP 1 — anchor 텍스트 필드 정리. 문자열이 아니거나 비어 있으면 null, 모델이 앞뒤에
@@ -48,7 +61,11 @@ export function buildGeneratedResult(
         validMemoryUnitIds.has(item.memory_unit_id) &&
         (item.relevance === 'YES' || item.relevance === 'NO')
     )
-    .map((item: any) => ({ memory_unit_id: item.memory_unit_id, relevance: item.relevance }));
+    .map((item: any) => ({
+      memory_unit_id: item.memory_unit_id,
+      relevance: item.relevance,
+      relation: normalizeRelation(item.relevance, item.relation),
+    }));
 
   const relevantYesIds = new Set(
     memoryRelevance.filter((r) => r.relevance === 'YES').map((r) => r.memory_unit_id)
