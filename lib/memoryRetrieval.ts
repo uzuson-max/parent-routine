@@ -1,3 +1,4 @@
+
 import { supabase } from '@/lib/supabase';
 import { generateMemoryEmbedding } from '@/lib/memoryEmbedding';
 import type { Stance } from '@/lib/response/understanding';
@@ -53,12 +54,66 @@ export function tokenize(text: string | null | undefined): string[] {
   return [...raw, ...stems];
 }
 
+// P0 — 검색 전용 불용어. memoryPipeline.ts의 LINK_STOPWORDS(링크 생성용)와 같은 목록에 어미/추임새 조각을 더했다.
+// 예전엔 검색에 불용어가 없어서 "싶다/진짜/오늘" 같은 흔한 단어의 부분 일치만으로 아무 기억이나 "연결 신호"를 얻었다
+// (예: "회사 그만두고 싶다" ↔ "식물 키워보고 싶다"). 링크 생성 동작은 바꾸지 않기 위해 별도 목록으로 둔다.
+const RETRIEVAL_STOPWORDS = new Set([
+  '오늘', '어제', '내일', '모레', '이번', '저번', '다음', '진짜', '정말', '너무', '완전',
+  '그냥', '근데', '그런데', '그리고', '그래서', '하지만', '아니', '그래', '엄청', '약간',
+  '거기', '여기', '저기', '이거', '그거', '저거', '뭔가', '이제', '아까', '갑자기', '계속',
+  '우리', '나는', '내가', '너는', '니가', '한테', '한번', '조금',
+  '한다', '했다', '된다', '싶다', '같다', '보다', '이다', '있다', '없다', '거야', '이야',
+  '요즘', '생각', '사용자', '했던', '하는', '하고', '해서', '했어', '있어', '없어', '같아', '같은',
+]);
+// 어미/보조용언 조각으로 시작하는 토큰("싶다고", "싶어서", "있었는데", "했는데" 등)도 신호로 치지 않는다.
+const RETRIEVAL_STOPWORD_PREFIX = /^(싶|같아|같은|같다|있었|있는|없는|없어|했|해서|해야|하는|하면|하고|한다|된다|되는|그냥|진짜|정말|너무|완전|요즘)/;
+
+export function isRetrievalStopword(token: string): boolean {
+  return RETRIEVAL_STOPWORDS.has(token) || RETRIEVAL_STOPWORD_PREFIX.test(token);
+}
+
+/** 검색용 토큰 — tokenize() 결과에서 불용어를 뺀 것. 발화 원문 + (있다면) 분석이 뽑은 핵심 주제어를 합친다. */
+export function buildRetrievalTokens(transcript: string, topics: string[] = []): Set<string> {
+  const tokens = [...tokenize(transcript), ...topics.flatMap((t) => tokenize(t))];
+  return new Set(tokens.filter((t) => !isRetrievalStopword(t)));
+}
+
+export interface RankableMemoryUnit {
+  id: number;
+  content: string;
+  subject_entity_id?: string | null;
+  importance?: number | null;
+  retention?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  last_referenced_at?: string | null;
+  reference_count?: number | null;
+}
+
+export interface RankedMemoryCandidate<T extends RankableMemoryUnit> {
+  m: T;
+  score: number;
+  reason: string;
+  simRaw: number;
+  simSituation: number;
+}
+
+export interface RankInput {
+  retrievalTokens: Set<string>;
+  matchedEntityIds: Set<string>;
+  // 기억 id → 발화 원문 임베딩과의 cosine 유사도 / 상황 문장 임베딩과의 유사도
+  simRawById: Map<number, number>;
+  simSituationById: Map<number, number>;
+  limit?: number;
+  now?: number;
+}
+
 function scoreCandidate(
-  m: any,
-  transcript: string,
-  transcriptTokens: Set<string>,
+  m: RankableMemoryUnit,
+  retrievalTokens: Set<string>,
   matchedEntityIds: Set<string>,
-  semanticSimilarity: number = 0
+  semanticSimilarity: number,
+  now: number
 ): { score: number; reason: string; hasSignal: boolean } {
   let score = 0;
   const reasons: string[] = [];
@@ -70,8 +125,8 @@ function scoreCandidate(
     hasSignal = true;
   }
 
-  const contentTokens = tokenize(m.content);
-  const exactOverlap = new Set(contentTokens.filter((t) => transcriptTokens.has(t)));
+  const contentTokens = tokenize(m.content).filter((t) => !isRetrievalStopword(t));
+  const exactOverlap = new Set(contentTokens.filter((t) => retrievalTokens.has(t)));
   if (exactOverlap.size > 0) {
     score += exactOverlap.size;
     hasSignal = true;
@@ -79,10 +134,10 @@ function scoreCandidate(
   }
 
   const partialOverlap = new Set<string>();
-  const transcriptTokenArr = Array.from(transcriptTokens);
+  const retrievalTokenArr = Array.from(retrievalTokens);
   for (const ct of contentTokens) {
     if (exactOverlap.has(ct)) continue;
-    for (const tt of transcriptTokenArr) {
+    for (const tt of retrievalTokenArr) {
       if (tt.length >= 2 && ct.length >= 2 && (ct.includes(tt) || tt.includes(ct))) {
         partialOverlap.add(`${ct}~${tt}`);
       }
@@ -105,7 +160,7 @@ function scoreCandidate(
   // 제거하고, "최근에" 재사용됐을 때만 감쇠형 페널티를 준다. 후보 자체는 절대 제거하지 않는다.
   const referenceCount = m.reference_count ?? 0;
   if (referenceCount > 0 && m.last_referenced_at) {
-    const hoursSinceRef = (Date.now() - new Date(m.last_referenced_at).getTime()) / (60 * 60 * 1000);
+    const hoursSinceRef = (now - new Date(m.last_referenced_at).getTime()) / (60 * 60 * 1000);
     const recencyFactor = Math.max(0, 1 - hoursSinceRef / RECENT_USAGE_PENALTY_WINDOW_HOURS);
     if (recencyFactor > 0) {
       const penalty = Math.min(referenceCount, 5) * RECENT_USAGE_PENALTY_WEIGHT * recencyFactor;
@@ -115,7 +170,7 @@ function scoreCandidate(
   }
 
   // STEP 2 — semantic similarity(0~1, RPC의 cosine 유사도)를 후보 우선순위에 반영한다.
-  // 이 값 자체가 "사용 여부"를 결정하지 않는다 — 순수 랭킹 가산점이다.
+  // P0 — 값은 "원문 검색어"와 "상황 문장 검색어" 중 더 높은 유사도다.
   if (semanticSimilarity > 0) {
     const semanticBonus = semanticSimilarity * SEMANTIC_SIMILARITY_WEIGHT;
     score += semanticBonus;
@@ -129,7 +184,7 @@ function scoreCandidate(
   }
 
   if (m.created_at) {
-    const daysSince = (Date.now() - new Date(m.created_at).getTime()) / (24 * 60 * 60 * 1000);
+    const daysSince = (now - new Date(m.created_at).getTime()) / (24 * 60 * 60 * 1000);
     const recencyBonus = Math.max(0, 1 - daysSince / 30) * 0.5;
     if (recencyBonus > 0) {
       score += recencyBonus;
@@ -138,6 +193,39 @@ function scoreCandidate(
   }
 
   return { score, reason: reasons.length > 0 ? reasons.join('; ') : 'baseline(importance/retention만)', hasSignal };
+}
+
+/**
+ * P0 — 점수 계산 + "연결 신호 없음" 제거 + 정렬 + 상위 limit개. DB를 읽지 않는 순수 함수다.
+ * 운영 retrieval(retrieveRelevantMemoriesWithTrace)과 평가 스크립트(scripts/eval-memory-connection.ts)가 같은 함수를 쓴다.
+ */
+export function rankMemoryCandidates<T extends RankableMemoryUnit>(
+  units: T[],
+  input: RankInput
+): { ranked: RankedMemoryCandidate<T>[]; droppedNoSignal: number } {
+  const now = input.now ?? Date.now();
+  const limit = input.limit ?? 5;
+  let droppedNoSignal = 0;
+  const scored: RankedMemoryCandidate<T>[] = [];
+  for (const m of units) {
+    const simRaw = input.simRawById.get(m.id) ?? 0;
+    const simSituation = input.simSituationById.get(m.id) ?? 0;
+    const { score, reason, hasSignal } = scoreCandidate(
+      m,
+      input.retrievalTokens,
+      input.matchedEntityIds,
+      Math.max(simRaw, simSituation),
+      now
+    );
+    // 1차 수정 — 이번 발화와 연결 신호가 전혀 없는 기억은 후보에서 뺀다 (importance/최근성 가산점만으로는 안 올라온다).
+    if (!hasSignal) {
+      droppedNoSignal++;
+      continue;
+    }
+    scored.push({ m, score, reason, simRaw, simSituation });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return { ranked: scored.slice(0, limit), droppedNoSignal };
 }
 
 const MEMORY_UNIT_BASE_COLUMNS =
@@ -214,13 +302,85 @@ export async function filterConfirmedCommitments<T extends CommitmentFilterable>
   }
 }
 
-export async function retrieveRelevantMemories(
+// P0 — 분석 단계(lib/analysis.ts)가 같은 호출에서 뽑은 검색 힌트. 없으면 원문만으로 검색한다(기존 동작).
+export interface RetrievalHints {
+  situation?: string | null;
+  topics?: string[];
+}
+
+// P0 — 검색이 실제로 무엇을 했는지 남기는 기록. upload 라우트가 voice_entries.response.retrieval_trace로 저장한다.
+// "검색이 못 찾았나 / GPT가 안 골랐나 / 검증에서 떨어졌나"를 구분하기 위한 것 — 동작에는 영향 없음.
+export interface RetrievalTrace {
+  queries: { raw: string; situation: string | null; topics: string[] };
+  pool_sizes: { base: number; entity: number; semantic_raw: number; semantic_situation: number; merged: number; eligible: number };
+  dropped_no_signal: number;
+  candidates: { id: number; score: number; sim_raw: number; sim_situation: number; reason: string }[];
+  errors: string[];
+}
+
+function emptyTrace(transcript: string, hints?: RetrievalHints): RetrievalTrace {
+  return {
+    queries: { raw: transcript, situation: hints?.situation ?? null, topics: hints?.topics ?? [] },
+    pool_sizes: { base: 0, entity: 0, semantic_raw: 0, semantic_situation: 0, merged: 0, eligible: 0 },
+    dropped_no_signal: 0,
+    candidates: [],
+    errors: [],
+  };
+}
+
+async function semanticMatches(
+  userId: string,
+  queryText: string | null,
+  trace: RetrievalTrace,
+  label: string
+): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  if (!queryText || !queryText.trim()) return out;
+  try {
+    const embedding = await generateMemoryEmbedding(queryText);
+    if (!embedding) {
+      trace.errors.push(`${label}: embedding 없음`);
+      return out;
+    }
+    const { data: matches, error } = await supabase.rpc('match_memory_units', {
+      query_embedding: embedding,
+      match_user_id: userId,
+      match_count: SEMANTIC_CANDIDATE_LIMIT,
+    });
+    if (error) {
+      console.error(`[memoryRetrieval] semantic RPC 실패(${label}) — 이 검색어 없이 계속:`, error.message);
+      trace.errors.push(`${label}: rpc ${error.message}`);
+      return out;
+    }
+    for (const r of matches ?? []) {
+      if (typeof r.id === 'number' && typeof r.similarity === 'number') out.set(r.id, r.similarity);
+    }
+  } catch (err: any) {
+    console.error(`[memoryRetrieval] semantic retrieval 실패(${label}) — 이 검색어 없이 계속:`, err?.message);
+    trace.errors.push(`${label}: ${err?.message ?? 'error'}`);
+  }
+  return out;
+}
+
+/**
+ * P0 — 원문 + 상황 문장 두 검색어로 의미 검색, 원문 + 핵심 주제어로 키워드/엔티티 매칭.
+ * 어떤 단계가 실패해도 던지지 않고 가능한 범위로 계속 진행한다.
+ */
+export async function retrieveRelevantMemoriesWithTrace(
   userId: string,
   transcript: string,
+  hints?: RetrievalHints,
   limit = 5
-): Promise<RelevantMemoryUnit[]> {
+): Promise<{ units: RelevantMemoryUnit[]; trace: RetrievalTrace }> {
+  const trace = emptyTrace(transcript, hints);
   try {
-    if (!transcript || !transcript.trim() || transcript === '(음성 변환 실패)') return [];
+    if (!transcript || !transcript.trim() || transcript === '(음성 변환 실패)') return { units: [], trace };
+
+    const topics = (hints?.topics ?? []).filter((t) => typeof t === 'string' && t.trim()).map((t) => t.trim());
+    // 상황 문장이 원문과 똑같으면 같은 검색을 두 번 할 이유가 없다.
+    const situation =
+      hints?.situation && hints.situation.trim() && hints.situation.trim() !== transcript.trim() ? hints.situation.trim() : null;
+    trace.queries = { raw: transcript, situation, topics };
 
     const { data: entities, error: entitiesError } = await supabase
       .from('entities')
@@ -230,104 +390,108 @@ export async function retrieveRelevantMemories(
 
     if (entitiesError) {
       console.error('[memoryRetrieval] entities 조회 실패 (엔티티 매칭 없이 계속):', entitiesError.message);
+      trace.errors.push(`entities: ${entitiesError.message}`);
     }
 
+    const topicSet = new Set(topics);
     const matchedEntityIds = new Set<string>(
       (entities ?? [])
-        .filter((e: any) => e.name && typeof e.name === 'string' && transcript.includes(e.name))
+        .filter(
+          (e: any) => e.name && typeof e.name === 'string' && (transcript.includes(e.name) || topicSet.has(e.name))
+        )
         .map((e: any) => e.id)
     );
 
-    const { data: basePool, error: baseError } = await selectUnits((cols) =>
-      supabase
-        .from('memory_units')
-        .select(cols)
-        .eq('user_id', userId)
-        .in('status', ['open', 'resolved'])
-        .order('importance', { ascending: false })
-        .limit(50)
-    );
-
-    if (baseError) console.error('[memoryRetrieval] base pool 조회 실패:', baseError.message);
-
-    let entityPool: any[] = [];
-    if (matchedEntityIds.size > 0) {
-      const { data, error } = await selectUnits((cols) =>
+    // 의미 검색 2개(원문 / 상황 문장)를 keyword 풀 조회와 병렬로 돌린다.
+    const [simRawById, simSituationById, baseRes, entityRes] = await Promise.all([
+      semanticMatches(userId, transcript, trace, 'raw'),
+      semanticMatches(userId, situation, trace, 'situation'),
+      selectUnits((cols) =>
         supabase
           .from('memory_units')
           .select(cols)
           .eq('user_id', userId)
           .in('status', ['open', 'resolved'])
-          .in('subject_entity_id', Array.from(matchedEntityIds))
-          .order('created_at', { ascending: false })
-          .limit(20)
-      );
-      if (error) console.error('[memoryRetrieval] entity pool 조회 실패:', error.message);
-      entityPool = data ?? [];
-    }
-
-    // STEP 2 — semantic(embedding 기반) 후보 수집. keyword 기반 basePool/entityPool을 대체하지 않고
-    // 항상 "추가로" 모은다. 아래 각 단계는 실패해도 개별적으로 흡수되어 keyword-only 결과로 계속 진행한다.
-    let semanticPool: any[] = [];
-    const semanticSimilarityById = new Map<number, number>();
-    try {
-      const queryEmbedding = await generateMemoryEmbedding(transcript);
-      if (queryEmbedding) {
-        const { data: matches, error: rpcError } = await supabase.rpc('match_memory_units', {
-          query_embedding: queryEmbedding,
-          match_user_id: userId,
-          match_count: SEMANTIC_CANDIDATE_LIMIT,
-        });
-        if (rpcError) {
-          console.error('[memoryRetrieval] semantic RPC 실패 (keyword retrieval만으로 계속):', rpcError.message);
-        } else if (matches && matches.length > 0) {
-          const semanticIds = matches.map((r: any) => r.id);
-          const { data: rows, error: rowsError } = await selectUnits((cols) =>
+          .order('importance', { ascending: false })
+          .limit(50)
+      ),
+      matchedEntityIds.size > 0
+        ? selectUnits((cols) =>
             supabase
               .from('memory_units')
               .select(cols)
               .eq('user_id', userId)
               .in('status', ['open', 'resolved'])
-              .in('id', semanticIds)
-          );
-          if (rowsError) {
-            console.error(
-              '[memoryRetrieval] semantic candidate 상세 조회 실패 (keyword retrieval만으로 계속):',
-              rowsError.message
-            );
-          } else {
-            semanticPool = rows ?? [];
-            for (const r of matches) {
-              if (typeof r.similarity === 'number') semanticSimilarityById.set(r.id, r.similarity);
-            }
-          }
-        }
+              .in('subject_entity_id', Array.from(matchedEntityIds))
+              .order('created_at', { ascending: false })
+              .limit(20)
+          )
+        : Promise.resolve({ data: [] as any[], error: null as any }),
+    ]);
+
+    if (baseRes.error) {
+      console.error('[memoryRetrieval] base pool 조회 실패:', baseRes.error.message);
+      trace.errors.push(`base: ${baseRes.error.message}`);
+    }
+    if (entityRes.error) {
+      console.error('[memoryRetrieval] entity pool 조회 실패:', entityRes.error.message);
+      trace.errors.push(`entity: ${entityRes.error.message}`);
+    }
+    const basePool: any[] = baseRes.data ?? [];
+    const entityPool: any[] = entityRes.data ?? [];
+
+    const semanticIds = Array.from(new Set([...Array.from(simRawById.keys()), ...Array.from(simSituationById.keys())]));
+    let semanticPool: any[] = [];
+    if (semanticIds.length > 0) {
+      const { data: rows, error: rowsError } = await selectUnits((cols) =>
+        supabase
+          .from('memory_units')
+          .select(cols)
+          .eq('user_id', userId)
+          .in('status', ['open', 'resolved'])
+          .in('id', semanticIds)
+      );
+      if (rowsError) {
+        console.error('[memoryRetrieval] semantic candidate 상세 조회 실패 (keyword retrieval만으로 계속):', rowsError.message);
+        trace.errors.push(`semantic_rows: ${rowsError.message}`);
+      } else {
+        semanticPool = rows ?? [];
       }
-    } catch (semanticErr: any) {
-      console.error('[memoryRetrieval] semantic retrieval 전체 실패 (keyword retrieval만으로 계속):', semanticErr?.message);
     }
 
     const merged = new Map<number, any>();
-    for (const m of [...(basePool ?? []), ...entityPool, ...semanticPool]) merged.set(m.id, m);
-    if (merged.size === 0) return [];
+    for (const m of [...basePool, ...entityPool, ...semanticPool]) merged.set(m.id, m);
+    trace.pool_sizes = {
+      base: basePool.length,
+      entity: entityPool.length,
+      semantic_raw: simRawById.size,
+      semantic_situation: simSituationById.size,
+      merged: merged.size,
+      eligible: 0,
+    };
+    if (merged.size === 0) return { units: [], trace };
 
     const eligibleUnits = await filterConfirmedCommitments(userId, Array.from(merged.values()));
-    if (eligibleUnits.length === 0) return [];
+    trace.pool_sizes.eligible = eligibleUnits.length;
+    if (eligibleUnits.length === 0) return { units: [], trace };
 
-    const transcriptTokens = new Set(tokenize(transcript));
+    const { ranked, droppedNoSignal } = rankMemoryCandidates(eligibleUnits, {
+      retrievalTokens: buildRetrievalTokens(transcript, topics),
+      matchedEntityIds,
+      simRawById,
+      simSituationById,
+      limit,
+    });
+    trace.dropped_no_signal = droppedNoSignal;
+    trace.candidates = ranked.map(({ m, score, reason, simRaw, simSituation }) => ({
+      id: m.id,
+      score: Number(score.toFixed(3)),
+      sim_raw: Number(simRaw.toFixed(3)),
+      sim_situation: Number(simSituation.toFixed(3)),
+      reason,
+    }));
 
-    const scored = eligibleUnits
-      .map((m) => {
-        const semanticSimilarity = semanticSimilarityById.get(m.id) ?? 0;
-        const { score, reason, hasSignal } = scoreCandidate(m, transcript, transcriptTokens, matchedEntityIds, semanticSimilarity);
-        return { m, score, reason, hasSignal };
-      })
-      // 1차 수정 — 이번 발화와 연결 신호가 전혀 없는 기억은 후보에서 뺀다 (예전엔 importance 상위라는 이유만으로 top 5에 섞였다).
-      .filter((x) => x.hasSignal);
-
-    scored.sort((a, b) => b.score - a.score);
-
-    return scored.slice(0, limit).map(({ m, score, reason }) => ({
+    const units: RelevantMemoryUnit[] = ranked.map(({ m, score, reason }) => ({
       id: m.id,
       memory_type: m.memory_type,
       subject: m.entities?.name ?? null,
@@ -343,10 +507,22 @@ export async function retrieveRelevantMemories(
       relevanceScore: score,
       relevanceReason: reason,
     }));
+    return { units, trace };
   } catch (err: any) {
-    console.error('[memoryRetrieval] retrieveRelevantMemories 전체 실패 (빈 배열 반환):', err?.message);
-    return [];
+    console.error('[memoryRetrieval] retrieveRelevantMemoriesWithTrace 전체 실패 (빈 배열 반환):', err?.message);
+    trace.errors.push(`fatal: ${err?.message ?? 'error'}`);
+    return { units: [], trace };
   }
+}
+
+// 기존 호출부 호환용 — 원문만으로 검색하고 units만 돌려준다.
+export async function retrieveRelevantMemories(
+  userId: string,
+  transcript: string,
+  limit = 5
+): Promise<RelevantMemoryUnit[]> {
+  const { units } = await retrieveRelevantMemoriesWithTrace(userId, transcript, undefined, limit);
+  return units;
 }
 
 export async function markMemoriesReferenced(memoryUnitIds: number[]): Promise<void> {
