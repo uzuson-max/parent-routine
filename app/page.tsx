@@ -21,6 +21,7 @@ import DiscoveryScreen from "./screens/DiscoveryScreen";
 import LettersScreen from "./screens/LettersScreen";
 import { BRAND, pageBackground } from "@/lib/theme";
 import { acquireMicStream, releaseMicStream } from "@/lib/micStream";
+  import { playFx } from "@/lib/fx";
 
 const ONBOARDING_KEY = "ganseobi_onboarding_completed";
 // 첫 실행 사용자가 "첫 녹음 → 첫 기록"까지 마쳤는지 표시. 한 번 true가 되면 그 세션에서만
@@ -310,6 +311,7 @@ export default function Home() {
           autoStart={autoStartRecording}
                 // 빈 녹음 안내의 [홈으로] — 업로드가 없었으니 resetAll()(닉네임 질문/첫 기록 처리)을 타지 않고 홈으로만 간다.
           onCancel={() => {
+                          playFx("buttonPress");
             releaseMicStream();
             setSelectedTopic("");
             setStep("landing");
@@ -430,6 +432,7 @@ export default function Home() {
           result={result}
           onTalkMore={talkMore}
           onHome={() => {
+                          playFx("buttonPress");
             releaseMicStream();
             setAudioBlob(null);
             setSelectedTopic("");
@@ -448,6 +451,7 @@ export default function Home() {
   // acquireMicStream()을 await 없이 클릭 핸들러 안에서 먼저 불러서, 사용자 제스처 안에서
   // 마이크 요청이 시작되게 한다(iOS Safari 대비). RecordingScreen은 같은 요청/스트림을 이어받는다.
   function startRecordingNow() {
+          playFx("micStart"); // 클릭 핸들러 안에서 바로 — 기다리지 않음, 실패해도 무시
     acquireMicStream().catch(() => {}); // 실패는 RecordingScreen이 화면 안에서 처리
     setAutoStartRecording(true);
     setStep("recording");
@@ -468,6 +472,7 @@ export default function Home() {
 
   // 응답 화면의 "홈으로" — 대화를 끝내는 순간이라 여기서 마이크를 놓아준다.
   function goHome() {
+          playFx("buttonPress");
     releaseMicStream();
     resetAll();
   }
