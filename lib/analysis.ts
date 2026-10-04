@@ -1,3 +1,4 @@
+
 import { supabase } from '@/lib/supabase';
 import { kstIsoWithWeekday } from '@/lib/intervention/kstTime';
 import {
@@ -39,6 +40,35 @@ interface AnalysisResult {
   utterance_intent: UtteranceIntent;
   user_question: string | null;
   stances: StanceItem[];
+  // P0 — 과거 기억 검색용 힌트 (lib/memoryRetrieval.ts가 원문과 함께 검색어로 쓴다). 같은 호출에서 함께 뽑는다(새 GPT 호출 없음).
+  // retrieval_situation: 기억 content와 같은 형식의 현재 상황 한 문장. 잡담·인사면 null.
+  // retrieval_topics: 핵심 대상/주제 2~4개 (키워드·엔티티 매칭용).
+  retrieval_situation: string | null;
+  retrieval_topics: string[];
+}
+
+const MAX_RETRIEVAL_TOPICS = 4;
+
+function sanitizeRetrievalSituation(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const t = value.trim();
+  if (!t) return null;
+  return t.length > 120 ? t.slice(0, 120) : t;
+}
+
+function sanitizeRetrievalTopics(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of value) {
+    if (typeof v !== 'string') continue;
+    const t = v.trim();
+    if (t.length < 1 || t.length > 20 || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+    if (out.length >= MAX_RETRIEVAL_TOPICS) break;
+  }
+  return out;
 }
 
 type MemoryType = 'interest' | 'project' | 'preference' | 'thought';
@@ -207,6 +237,15 @@ ${memoryCandidatesBlock}
   "싫다/안 간다/별로/비싸서 안 된다"는 negative, "끌린다/좋다/가보고 싶다"는 positive, "괜찮은데 비싸다"처럼 망설이면 uncertain, 그냥 언급만 했으면 neutral.
   부정한 대상을 관심사로 바꾸지 마라. 예: "제주도는 가기 싫고" → { "target": "제주도", "stance": "negative" }. 입장이 드러난 대상이 없으면 [].
 
+[과거 기억 검색용 힌트 — 이 두 필드는 사용자에게 보이지 않고, 예전에 했던 말을 찾는 검색어로만 쓰인다]
+- retrieval_situation: 지금 사용자 상황을 과거 기억과 비교할 수 있게 "~하고 싶어 한다 / ~를 고민한다 / ~했다 / ~가 힘들다" 형태의 한 문장으로.
+  사용자가 실제로 한 말의 뜻만 담는다. 원문에 없는 이유·감정·계획을 추가하지 마라. 인사·추임새·의미 없는 잡담이면 null.
+  예) "나 진짜 회사 그만두고 싶다" → "회사를 그만두고 싶어 한다"
+  예) "오늘 점심 뭐 먹지?" → "점심 메뉴를 고민한다"
+- retrieval_topics: 이 발화의 핵심 대상/주제 2~4개 (짧은 명사). 원문에 있는 단어나 그 직접적인 동의어·일반 표현까지만 허용한다.
+  예) "나 진짜 회사 그만두고 싶다" → ["회사", "퇴사"] / "고양이가 소파를 다 긁어놨어" → ["고양이", "소파"]
+  원문과 무관한 새 화제(예: 회사 얘기에 "여행")를 넣지 마라. 핵심 대상이 없으면 [].
+
 - commitment: 오늘 발화에서 사용자가 실제 행동 의지를 명확히 표현한 것 중 대표 1개 (없으면 null). commitment는 참견이가 발화 속에서 "발견해서 만들어내는" 게 아니다 — 사용자가 실제로 행동하겠다는 의지를 표현했을 때만 후보가 된다. 아래는 기본적으로 commitment가 아니다(=null):
   - 생각/희망/가능성 표현: "~하고 싶어", "~해보고 싶기도 해", "~할까 하는 생각이 들어", "~하면 좋겠다"
   - 필요성만 표현(아직 "하겠다"가 아님): "~해야 할 것 같아", "~해야 하는데"
@@ -251,6 +290,8 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
   "utterance_intent": "question|request|opinion_request|vent|statement|reminder_request|information_request|mixed",
   "user_question": "..." or null,
   "stances": [],
+  "retrieval_situation": "..." or null,
+  "retrieval_topics": [],
   "type": "excuse|contradiction|repetition|none",
   "summary": "오늘 상황 요약 한 문장",
   "goal": "..." or null,
@@ -304,6 +345,8 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
 
     return {
       ...understanding,
+      retrieval_situation: sanitizeRetrievalSituation(parsed.retrieval_situation),
+      retrieval_topics: sanitizeRetrievalTopics(parsed.retrieval_topics),
       type: parsed.type ?? 'none',
       summary: parsed.summary ?? '',
       goal: parsed.goal ?? null,
@@ -351,6 +394,9 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
     return {
       // GPT가 실패해도 "질문했는지/알려달라고 했는지"는 규칙 기반으로라도 남긴다.
       ...normalizeUnderstanding(null, transcript),
+      // 분석 실패 시 검색 힌트 없음 → memoryRetrieval은 원문만으로 검색한다(기존과 동일).
+      retrieval_situation: null,
+      retrieval_topics: [],
       type: 'none',
       summary: transcript ? `${transcript.slice(0, 20)}...` : '내용 없음',
       goal: null,
