@@ -1,3 +1,4 @@
+
 // responseEngine.ts에서 옮겨온 response generation 타입 모음 (2026-09 구조 분리).
 // 내용은 원본과 동일하다 — 파일 위치만 바뀌었다. 외부 코드는 계속 '@/lib/responseEngine'에서
 // import해도 되도록 responseEngine.ts가 이 타입들을 그대로 다시 export한다.
@@ -15,9 +16,48 @@ export type InterferencePurpose =
 // STEP 3 — Memory Relevance. "이 memory 후보가 오늘 발화/최근 대화와 의미적으로 연결되는가"
 // 만을 나타내는 값이다. YES는 "사용 가능한 후보"라는 뜻일 뿐, "이번 응답에 반드시 언급해야 한다"는
 // 뜻이 아니다(그 판단은 Opportunity — STEP 4 — 의 몫이며 이번 단계에서는 구현하지 않는다).
+// P0 — 기억과 현재 발화의 관계. "관련 있음(relevance)"과 "지금 꺼낼 가치"를 분리하기 위한 라벨.
+//   same_problem           같은 문제/고민이 다시 나옴
+//   past_want_relevant_now 과거에 원했던 것이 지금 상황과 직접 이어짐
+//   past_plan_relevant_now 과거에 하려던 계획이 지금 상황과 직접 이어짐
+//   contradiction          과거와 지금이 흥미롭게 다름
+//   continuation           과거 관심·행동이 이어지거나 커졌음
+//   same_topic_only        주제만 같고 지금 꺼낼 이유는 약함 (관련은 있지만 꺼내지 않는 게 기본)
+//   no_relation            관련 없음 (relevance=NO)
+export type MemoryRelation =
+  | 'same_problem'
+  | 'past_want_relevant_now'
+  | 'past_plan_relevant_now'
+  | 'contradiction'
+  | 'continuation'
+  | 'same_topic_only'
+  | 'no_relation';
+
+export const MEMORY_RELATIONS: readonly MemoryRelation[] = [
+  'same_problem',
+  'past_want_relevant_now',
+  'past_plan_relevant_now',
+  'contradiction',
+  'continuation',
+  'same_topic_only',
+  'no_relation',
+];
+
+// 실제 응답에 기억을 꺼내 써도 되는 관계. same_topic_only / no_relation은 여기 없다
+// (RETRIEVAL RELEVANCE ≠ INTERVENTION WORTHINESS — responsevalidator.ts RULE 8에서 강제).
+export const WORTHY_MEMORY_RELATIONS: ReadonlySet<MemoryRelation> = new Set<MemoryRelation>([
+  'same_problem',
+  'past_want_relevant_now',
+  'past_plan_relevant_now',
+  'contradiction',
+  'continuation',
+]);
+
 export interface MemoryRelevanceItem {
   memory_unit_id: number;
   relevance: 'YES' | 'NO';
+  // P0 — buildGeneratedResult가 항상 채운다. 예전 기록/테스트 객체와의 호환을 위해 optional.
+  relation?: MemoryRelation;
 }
 
 // STEP 4 — Conversation Opportunity. Relevance가 "연결 여부"라면, Opportunity는 "개입할 타이밍의 가치"다.
@@ -162,6 +202,58 @@ export interface ResponseResult {
   repaired?: boolean;
   fallback_kind?: 'intent_template' | 'stt_failed' | 'error' | null;
   anchor_discarded?: boolean;
+  // 2026-09-29 — 관찰용 기록만. repair(keepOneQuestion)가 실제로 실행될 때마다 그 입력/출력을 남긴다.
+  // 동작에는 영향이 없다(값을 읽는 곳 없음). 예전 행에는 없다.
+  repair_log?: RepairLogEntry[];
+  // 2026-09-30 — 관찰용 기록만. 첫 생성(GPT 원본 → buildGeneratedResult 이후 → 첫 검증)을 비교하기 위해 남긴다.
+  // 동작에는 영향이 없다(값을 읽는 곳 없음). validation_failure_reason의 의미는 그대로다. 예전 행에는 없다.
+  initial_trace?: InitialGenerationTrace;
+}
+
+// 첫 생성 1회분 관찰 기록. raw는 GPT가 낸 값을 가공 없이 그대로(타입이 틀려도 그대로) 담는다.
+export interface InitialGenerationTrace {
+  generation: 'initial';
+  raw: {
+    opportunity: {
+      source: unknown;
+      type: unknown;
+      strength: unknown;
+      memory_unit_id: unknown;
+      anchor: unknown;
+      fact: unknown;
+      target: unknown;
+    } | null; // conversation_opportunity 자체가 없거나 객체가 아니면 null
+    memory_used: unknown;
+    memory_relevance: unknown;
+    response: unknown;
+  };
+  normalized: {
+    opportunity: {
+      source: string;
+      type: string;
+      strength: string;
+      memory_unit_id: number | null;
+      anchor: string | null;
+      fact: string | null;
+      target: string | null;
+    };
+    response: string;
+  };
+  validation: {
+    passed: boolean;
+    failure_reason: string | null; // 첫 검증 사유 원본 (나중 단계에서 덮어써지지 않음)
+  };
+}
+
+// tryRepair()가 keepOneQuestion을 실제로 실행한 1회분 기록 (관찰용, 동작 영향 없음).
+export interface RepairLogEntry {
+  repair_stage: 'initial' | 'regeneration' | 'rule19_regeneration';
+  repair_reason: string; // 이 repair를 일으킨 검증 실패 사유 (예: "TOO_MANY_QUESTIONS")
+  repair_input_response: string; // repair 전 LLM 원문
+  repair_question_target: string | null;
+  repair_anchor_quote: string | null;
+  repair_output_response: string; // keepOneQuestion 결과
+  repair_applied: boolean; // 수정본이 validator를 통과해 실제로 쓰였는가 (false면 버려짐)
 }
 
 // fetchRecentTurns()가 반환하는 최근 대화 한 턴 (responseEngine.ts에서 이동).
