@@ -15,8 +15,7 @@ export async function GET(request: Request) {
       .select('id, transcript, response, created_at')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
-      .limit(50);
-
+      .limit(200);
     if (error) {
       console.error('[api/user/entries] 조회 실패:', error.message);
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
