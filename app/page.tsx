@@ -308,6 +308,12 @@ export default function Home() {
         <RecordingScreen
           initialTopic={selectedTopic}
           autoStart={autoStartRecording}
+                // 빈 녹음 안내의 [홈으로] — 업로드가 없었으니 resetAll()(닉네임 질문/첫 기록 처리)을 타지 않고 홈으로만 간다.
+          onCancel={() => {
+            releaseMicStream();
+            setSelectedTopic("");
+            setStep("landing");
+          }}
           onFinish={(input: Blob | string) => {
             setAudioBlob(input);
             const savedPhone = typeof window !== "undefined" ? localStorage.getItem("ganseobi_phone") : null;
