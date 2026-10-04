@@ -1,9 +1,8 @@
-
 "use client";
 
-import { BRAND, inkAlpha, pageBackground, tactile, typography, shadow, border, radius, TACTILE_PRESS_CLASS } from "@/lib/theme";
-import Mascot, { type MascotPose } from "@/components/Mascot";
-import { IconHome, IconRecord, IconMemory, IconMic, IconGear, IconLetter } from "@/components/icons";
+import { BRAND, TACTILE_PRESS_CLASS, inkAlpha, border } from "@/lib/theme";
+import FishTank from "@/components/FishTank";
+import { IconHome, IconRecord, IconMemory, IconGear, IconLetter } from "@/components/icons";
 
 export interface RecordEntry {
   id: string;
@@ -24,7 +23,7 @@ interface TimelineScreenProps {
   onOpenCalendar: () => void;
   onOpenMyPage: () => void;
   onOpenInsights: () => void;
-   // 참견이의 편지 진입점. 넘기지 않으면 아이콘 자체를 그리지 않는다(기존 사용처 호환).
+  // 참견이의 편지 진입점. 넘기지 않으면 아이콘 자체를 그리지 않는다(기존 사용처 호환).
   onOpenLetters?: () => void;
   // 실제 DB의 안 읽은 편지 개수. 0이거나 없으면 badge를 그리지 않는다.
   unreadLetterCount?: number;
@@ -38,12 +37,14 @@ function truncate(text: string, max: number): string {
   return clean.length > max ? clean.slice(0, max) + "…" : clean;
 }
 
-// Home은 "참견이가 지금 나에게 할 말이 있는가"만 판단한다. 과거 기록을 훑어서 대신 보여주는
-// 3번째 모드(예전의 "recent")는 두지 않는다 — 최신 기록을 재활용해 마치 지금 말을 거는 것처럼
-// 보여주는 것도 결국 "기록 앱" UX라, 진짜 proactive callback이 없으면 그냥 조용한 empty state로 간다.
-const EMPTY_HEADLINE = "오늘은 아직\n참견할 게 없는데?";
-const EMPTY_SUBTEXT = "아침에 생각나는 거 있으면\n그냥 말해둬.";
-
+// ============================================================================
+// Home C안 — 금붕어 어항.
+// 홈의 주인공은 어항이다. 이번 달에 남긴 생각이 치어/금붕어로 살고 있고, 마이크 하나만 있다.
+// 설명 문구("오늘의 생각 말하기" 등)는 넣지 않는다.
+// 참견이가 먼저 꺼낼 말(proactiveLine)이 있을 때만 어항 위에 말풍선 카드가 뜨고,
+// 그때 마이크/카드를 누르면 기존처럼 그 문장을 주제로 들고 녹음 화면으로 간다.
+// 녹음 → 분석 → 응답 흐름(page.tsx / RecordingScreen)은 전혀 건드리지 않는다.
+// ============================================================================
 export default function TimelineScreen({
   onOpenRecording,
   onOpenCalendar,
@@ -51,26 +52,13 @@ export default function TimelineScreen({
   onOpenInsights,
   onOpenLetters,
   unreadLetterCount = 0,
+  entries,
   proactiveLine,
-  nickname,
 }: TimelineScreenProps) {
-  // entries는 페이지 상위에서 여전히 불러오지만(기록/캘린더 탭 등 다른 곳에서 쓰임),
-  // Home의 메시지는 오직 proactiveLine(아직 아무 데도 안 꺼낸 진짜 개입)에만 반응한다.
-  // proactiveLine이 undefined = 아직 확인 중. 확인 중에도 홈 전체(마스코트·마이크 CTA·네비)는
-  // 바로 보여주고, 메시지 자리만 옅은 skeleton으로 비워둔다 — 캐릭터만 서 있는 대기 화면 없음.
-  const ready = proactiveLine !== undefined;
-  const hasCallback = ready && !!(proactiveLine && proactiveLine.content);
+  const hasCallback = !!(proactiveLine && proactiveLine.content);
 
-  const callbackLine = hasCallback ? truncate(proactiveLine!.content, 90) : "";
-  const headline = hasCallback ? callbackLine : nickname ? `${nickname},\n${EMPTY_HEADLINE}` : EMPTY_HEADLINE;
-
-  const pose: MascotPose = !ready ? "기본" : hasCallback ? "궁금" : "기본";
-  const ctaText = hasCallback ? "대답하기" : "오늘의 생각 말하기";
-
-  const handleCtaClick = () => {
+  const handleMic = () => {
     if (hasCallback && proactiveLine) {
-      // 참견이가 던진 말에 답하러 가는 거라, 녹음 화면에 그 문장을 주제로 들고 간다.
-      // 업로드는 기존 흐름(memory pipeline → responseEngine) 그대로.
       onOpenRecording(proactiveLine.content);
     } else {
       onOpenRecording();
@@ -80,35 +68,31 @@ export default function TimelineScreen({
   return (
     <div style={styles.container}>
       <style>{`
-        @keyframes ganseobiMascotIn {
-          0% { opacity: 0; transform: translateY(10px) scale(0.92); }
-          60% { opacity: 1; transform: translateY(-2px) scale(1.03); }
-          100% { opacity: 1; transform: translateY(0) scale(1); }
+        @import url('https://fonts.googleapis.com/css2?family=Jua&display=swap');
+        @keyframes tlMicBreathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.045); } }
+        @keyframes tlCardIn {
+          0% { opacity: 0; transform: translateY(8px) scale(0.94) rotate(-1deg); }
+          100% { opacity: 1; transform: translateY(0) scale(1) rotate(-1deg); }
         }
-        @keyframes ganseobiBubbleIn {
-          0% { opacity: 0; transform: translateY(6px) scale(0.96); }
-          100% { opacity: 1; transform: translateY(0) scale(1); }
-        }
-        .ganseobi-mascot-in { animation: ganseobiMascotIn 0.45s ease-out both; }
-        .ganseobi-bubble-in { animation: ganseobiBubbleIn 0.3s ease-out 0.15s both; }
-        @media (prefers-reduced-motion: reduce) {
-          .ganseobi-mascot-in, .ganseobi-bubble-in { animation: none; }
-        }
+        .tl-mic { animation: tlMicBreathe 2.8s ease-in-out infinite; transition: box-shadow .12s, transform .12s; }
+        .tl-mic:active { animation: none; transform: translate(4px,4px); box-shadow: 1px 1px 0 #1B1630 !important; }
+        .tl-mic:focus-visible, .tl-sticker:focus-visible { outline: 3px dashed #1B1630; outline-offset: 5px; }
+        .tl-sticker:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 #1B1630 !important; }
+        .tl-callback { animation: tlCardIn .35s ease-out both; }
+        @media (prefers-reduced-motion: reduce) { .tl-mic, .tl-callback { animation: none; } }
       `}</style>
 
-      {/* HEADER — 아주 작고 차분한 앱 셸 상단. Home에서 주인공이 되면 안 되므로 wordmark 하나만. */}
-           {/* HEADER — 아주 작고 차분한 앱 셸 상단. Home에서 주인공이 되면 안 되므로 wordmark +
-          오른쪽 끝의 작은 편지 아이콘만. 아이콘은 wordmark와 같은 옅은 톤으로 두고, 터치 영역만 44px로 넓힌다. */}
+      {/* HEADER — 로고 + 편지 아이콘만 */}
       <div style={styles.header}>
-        <span style={styles.headerLabel}>참견이</span>
+        <span style={styles.logo}>참견이</span>
         {onOpenLetters && (
           <button
-            className={TACTILE_PRESS_CLASS}
+            className="tl-sticker"
             style={styles.letterButton}
             onClick={onOpenLetters}
             aria-label={unreadLetterCount > 0 ? `참견이의 편지, 안 읽은 편지 ${unreadLetterCount}통` : "참견이의 편지"}
           >
-            <IconLetter style={{ width: 22, height: 22 }} />
+            <IconLetter style={{ width: 24, height: 24 }} />
             {unreadLetterCount > 0 && (
               <span style={styles.letterBadge} aria-hidden>
                 {unreadLetterCount > 9 ? "9+" : unreadLetterCount}
@@ -117,58 +101,35 @@ export default function TimelineScreen({
           </button>
         )}
       </div>
-      
-      {/* CORE — Home은 "기록을 보여주는 화면"이 아니라 "참견이가 지금 나에게 할 말이 있는 화면"이다.
-          그래서 여기엔 딱 두 상태만 있다: (1) 참견이가 꺼낼 말이 있음 → 그 말이 화면의 유일한
-          주인공. (2) 없음 → 차분한 empty state. 과거 기록을 다시 보여주는 3번째 모드는 없다.
-          이 그룹은 flex: 1 + justifyContent: center로 헤더 아래 ~ 하단 네비 위의 남는 공간
-          안에서 세로 중앙 정렬되고, 고정 높이 spacer는 쓰지 않는다. */}
-      <div style={styles.coreGroup}>
-        <div className="ganseobi-mascot-in" style={styles.mascotWrap}>
-          <Mascot pose={pose} size={60} />
+
+      <div style={styles.core}>
+        {/* 참견이가 먼저 꺼낼 말이 있을 때만 — 어항 위에 붙는 말풍선 카드 */}
+        <div style={styles.callbackSlot}>
+          {hasCallback && proactiveLine && (
+            <button className="tl-callback tl-sticker" style={styles.callbackCard} onClick={handleMic}>
+              <span style={styles.callbackStamp}>참견이 등장.</span>
+              <span style={styles.callbackText}>{truncate(proactiveLine.content, 90)}</span>
+            </button>
+          )}
         </div>
 
-        {ready && hasCallback && (
-          // 참견이가 먼저 말을 거는 순간 — 이 카드가 화면에서 가장 강한 요소여야 한다.
-          <div className="ganseobi-bubble-in" style={styles.callbackWrap}>
-            <span style={styles.stamp}>참견이 등장.</span>
-            <div style={styles.messageCard}>
-              <h1 style={styles.messageText}>{headline}</h1>
-            </div>
-          </div>
-        )}
+        <FishTank entries={entries} onTankPress={handleMic} />
 
-        {!ready && (
-          // 참견거리 확인 중 — 캐릭터만 덩그러니 세워두지 않고, 메시지 자리만 아주 옅게 비워둔다.
-          // 홈의 나머지(마이크 CTA·하단 네비)는 이미 다 보이고 바로 누를 수 있다.
-          <div style={styles.emptyWrap} aria-hidden>
-            <span style={{ ...styles.skeletonLine, width: "62%" }} />
-            <span style={{ ...styles.skeletonLine, width: "44%" }} />
-            <span style={{ ...styles.skeletonLine, width: "52%", height: 12, marginTop: 6 }} />
-          </div>
-        )}
-
-        {ready && !hasCallback && (
-          // 참견할 거리가 없을 때 — 억지로 참견을 만들어내지 않고, 카드 없이 담백하게 보여준다.
-          <div className="ganseobi-bubble-in" style={styles.emptyWrap}>
-            <h1 style={styles.emptyHeadline}>{headline}</h1>
-            <p style={styles.emptySubtext}>{EMPTY_SUBTEXT}</p>
-          </div>
-        )}
-
-        {/* 대답하기 / 오늘의 생각 말하기 — Home에서 유일한 행동. 참견거리 확인을 기다리지 않고
-            처음부터 보여준다(확인 전엔 "오늘의 생각 말하기", 참견이 도착하면 "대답하기"로 바뀜). */}
-        <button className={TACTILE_PRESS_CLASS} style={styles.mainCta} onClick={handleCtaClick}>
-          <span style={styles.ctaMicWrap}>
-            <IconMic style={{ width: 18, height: 18, color: "#fff" }} />
-          </span>
-          <span style={styles.ctaText}>{ctaText}</span>
+        <button
+          className="tl-mic"
+          style={styles.mic}
+          onClick={handleMic}
+          aria-label={hasCallback ? "대답하기" : "생각 말하기"}
+        >
+          <svg width="38" height="38" viewBox="0 0 24 24" aria-hidden>
+            <rect x="8.5" y="3" width="7" height="12" rx="3.5" fill="#FFFFFF" stroke="#1B1630" strokeWidth={2.2} />
+            <path d="M5.5 11.5 C5.5 15.5 8.5 18 12 18 C15.5 18 18.5 15.5 18.5 11.5" fill="none" stroke="#1B1630" strokeWidth={2.2} strokeLinecap="round" />
+            <path d="M12 18 V21.5" fill="none" stroke="#1B1630" strokeWidth={2.2} strokeLinecap="round" />
+          </svg>
         </button>
       </div>
 
-      {/* NAVIGATION — 기록(내가 남긴 이야기)·MEMORY(참견이가 축적한 기억)로 가는 보조 진입점.
-          position:fixed라 문서 흐름 밖에 있으므로, 이 네비가 콘텐츠를 가리지 않도록
-          컨테이너의 paddingBottom으로 공간을 미리 확보해둔다(아래 styles.container 참고). */}
+      {/* NAVIGATION — 기존 그대로 */}
       <div style={styles.bottomNav}>
         <div style={{ ...styles.navItem, ...styles.navItemActive }}>
           <IconHome style={{ width: 20, height: 20 }} />
@@ -191,180 +152,144 @@ export default function TimelineScreen({
   );
 }
 
+const INK = "#1B1630";
+
 const styles: { [key: string]: React.CSSProperties } = {
   container: {
-    ...pageBackground,
-    color: BRAND.ink,
+    minHeight: "100dvh",
     boxSizing: "border-box",
     display: "flex",
     flexDirection: "column",
-    // 모바일 앱이 PC 브라우저에서 어색하게 옆으로 늘어나 보이지 않도록, 모바일 width를
-    // 기준으로 max-width를 잡고 넓은 화면에서는 가운데 정렬한다.
     maxWidth: "480px",
     marginLeft: "auto",
     marginRight: "auto",
-    // 16px 고정값만으로는 기기에 따라 env(safe-area-inset-top)이 기대만큼 안 잡히면서
-    // 상태표시줄과 겹쳐 보이는 경우가 있어서, max()로 최소 여백을 항상 보장한다.
+    overflowX: "hidden",
+    fontFamily: "'Jua', sans-serif",
+    color: INK,
+    backgroundColor: "#FFE9A8",
+    backgroundImage: "radial-gradient(#FFDA78 17%, transparent 18%)",
+    backgroundSize: "34px 34px",
     paddingTop: "max(20px, calc(env(safe-area-inset-top, 0px) + 12px))",
     paddingLeft: "20px",
     paddingRight: "20px",
-    // 하단 고정 네비(약 60px) + 여백을 항상 확보 — 76px짜리 빈 div를 문서 흐름에 끼워넣는 대신
-    // 컨테이너 자체의 padding으로만 처리해서, 실제 네비 높이보다 화면을 더 길게 만들지 않는다.
     paddingBottom: "calc(78px + env(safe-area-inset-bottom, 0px))",
   },
-// app/screens/TimelineScreen.tsx — ⑤ styles의 기존 `header: {...},` 전체를 이걸로 교체
   header: {
     flexShrink: 0,
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    height: "28px",
+    height: "48px",
   },
-  // 보이는 아이콘은 22px지만 터치 영역은 44x44. 음수 margin으로 헤더 높이(28px)와 오른쪽 여백은 그대로 둔다.
+  logo: {
+    fontSize: 26,
+    letterSpacing: "-0.5px",
+    transform: "rotate(-4deg)",
+    display: "inline-block",
+    textShadow: "3px 3px 0 #FFFFFF",
+  },
   letterButton: {
     position: "relative",
-    width: 44,
-    height: 44,
-    margin: "-8px -11px -8px 0",
+    width: 46,
+    height: 46,
+    borderRadius: "50%",
+    border: `3px solid ${INK}`,
+    background: "#FFFFFF",
+    boxShadow: `3px 3px 0 ${INK}`,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: "transparent",
-    border: "none",
     padding: 0,
-    color: inkAlpha.muted,
+    color: INK,
     cursor: "pointer",
   },
-  // 빨간 알림 뱃지 대신 브랜드 라벤더의 작은 숫자.
   letterBadge: {
     position: "absolute",
-    top: 7,
-    right: 5,
-    minWidth: 15,
-    height: 15,
-    padding: "0 4px",
+    top: -6,
+    right: -6,
+    minWidth: 20,
+    height: 20,
+    padding: "0 5px",
     boxSizing: "border-box",
     borderRadius: 999,
-    background: BRAND.lavender,
+    background: "#FF5B4A",
+    border: `2px solid ${INK}`,
     color: "#fff",
-    fontSize: 9.5,
-    fontWeight: 700,
-    lineHeight: "15px",
+    fontSize: 11,
+    lineHeight: "16px",
     textAlign: "center",
-    boxShadow: `0 0 0 2px ${BRAND.bg}`,
   },
-  headerLabel: {
-    ...typography.eyebrow,
-    color: inkAlpha.faint,
-    textTransform: "none",
-  },
-  // 헤더 아래 ~ 하단 네비 위까지 "남는 공간"을 이 wrapper가 갖고, 그 안에서 콘텐츠를 세로
-  // 중앙 정렬한다. 고정 높이 spacer 없이도 화면 높이에 따라 자연스럽게 여백이 분배된다.
-  coreGroup: {
+  core: {
     flex: "1 1 auto",
     minHeight: 0,
     display: "flex",
     flexDirection: "column",
     justifyContent: "center",
+    alignItems: "center",
     gap: "18px",
   },
-  mascotWrap: { display: "flex", justifyContent: "center" },
-  // 참견이가 말을 걸 때 — 스탬프 + 메시지 카드가 화면의 시각적 주인공. 가운데 정렬로
-  // "카드 하나가 나에게 도착했다"는 느낌을 준다.
-  callbackWrap: {
+  // 콜백 카드가 없어도 어항 위치가 크게 흔들리지 않도록 최소 높이만 확보
+  callbackSlot: {
+    width: "100%",
+    minHeight: 8,
+    display: "flex",
+    justifyContent: "center",
+  },
+  callbackCard: {
+    width: "100%",
+    maxWidth: 340,
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    gap: "10px",
+    gap: 6,
+    padding: "12px 16px 14px",
+    background: "#FFFFFF",
+    border: `3px solid ${INK}`,
+    borderRadius: 22,
+    boxShadow: `4px 4px 0 ${INK}`,
+    cursor: "pointer",
+    fontFamily: "'Jua', sans-serif",
+    color: INK,
     textAlign: "center",
   },
-  stamp: { ...tactile.stamp, padding: "4px 10px", fontSize: 12, fontWeight: 700, letterSpacing: "0.3px" },
-  messageCard: {
-    ...tactile.card,
-    borderRadius: radius.xl,
-    padding: "22px 20px",
-    width: "100%",
-    boxSizing: "border-box",
+  callbackStamp: {
+    padding: "2px 10px",
+    borderRadius: 10,
+    background: "#FFD23F",
+    border: `2px solid ${INK}`,
+    fontSize: 12,
   },
-  messageText: {
-    ...typography.headline,
-    fontSize: 20,
-    margin: 0,
-    lineHeight: 1.45,
-    whiteSpace: "pre-line",
-    textAlign: "center",
+  callbackText: {
+    fontSize: 18,
+    lineHeight: 1.4,
+    wordBreak: "keep-all",
   },
-  // 참견할 거리가 없을 때 — 카드 없이 담백한 텍스트만. 장식을 더해 눈에 띄게 만들지 않는다.
-  emptyWrap: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: "8px",
-    textAlign: "center",
-    padding: "0 8px",
-  },
-  emptyHeadline: {
-    ...typography.headline,
-    fontSize: 19,
-    margin: 0,
-    lineHeight: 1.45,
-    whiteSpace: "pre-line",
-    color: inkAlpha.soft,
-    textAlign: "center",
-  },
-  // 메시지가 들어올 자리 — 옅은 막대 몇 개(애니메이션 없음). empty state 텍스트와 비슷한 높이.
-  skeletonLine: {
-    display: "block",
-    height: 18,
-    borderRadius: 9,
-    background: inkAlpha.hairline,
-  },
-  emptySubtext: {
-    ...typography.sub,
-    margin: 0,
-    lineHeight: 1.5,
-    whiteSpace: "pre-line",
-    color: inkAlpha.faint,
-    textAlign: "center",
-  },
-  // 음성 입력은 핵심 행동이므로 시각적으로 충분히 강조하되, 메시지 카드보다 화면을 압도하지는
-  // 않는 크기로 — 한 줄 pill이지만 탭하기 충분히 크고 존재감 있게.
-  mainCta: {
-    width: "100%",
-    ...tactile.primaryButton,
-    padding: "16px 20px",
-    display: "flex",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: "10px",
-  },
-  ctaMicWrap: {
-    width: "32px",
-    height: "32px",
-    borderRadius: "50%",
-    background: "rgba(255,255,255,0.18)",
-    border: "1px solid rgba(255,255,255,0.25)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
+  mic: {
     flexShrink: 0,
+    width: 84,
+    height: 84,
+    borderRadius: "50%",
+    border: `4px solid ${INK}`,
+    background: "#FFD23F",
+    boxShadow: `5px 5px 0 ${INK}`,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+    cursor: "pointer",
+    WebkitTapHighlightColor: "transparent",
   },
-  ctaText: { ...typography.ctaLabel, fontSize: 16 },
   bottomNav: {
     position: "fixed",
     bottom: 0,
     left: "50%",
     transform: "translateX(-50%)",
     width: "100%",
-    // container와 같은 max-width로 맞춰서, 넓은 화면에서 네비만 전체 폭으로 늘어나
-    // 콘텐츠 컬럼과 어긋나 보이지 않도록 한다.
     maxWidth: "480px",
     background: BRAND.card,
     borderTop: border.onCream,
     boxShadow: "0 -6px 20px rgba(34,28,44,0.06)",
     display: "flex",
-    // 홈 인디케이터가 있는 기기에서 네비 아이콘이 그 제스처 영역과 겹치지 않도록.
     paddingBottom: "env(safe-area-inset-bottom, 0px)",
     zIndex: 100,
   },
