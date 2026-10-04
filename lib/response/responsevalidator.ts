@@ -1,3 +1,4 @@
+
 // responseEngine.ts에서 옮겨온 rule-based response validation (2026-09 구조 분리).
 // 규칙·정규식·패턴 문자열·함수 로직은 원본과 동일하다 — 파일 위치만 바뀌었다.
 // 의존 방향: responseTypes ← responseValidator ← responseEngine (이 파일은 responseEngine을 import하지 않는다).
@@ -7,6 +8,7 @@ import type {
   ValidationFailureReason,
   ValidationResult,
 } from '@/lib/response/responsetypes';
+import { WORTHY_MEMORY_RELATIONS } from '@/lib/response/responsetypes';
 import { intentNeedsAnswer, isGroundedIn, normalizeLoose, UtteranceIntent } from '@/lib/response/understanding';
 
 // ---- Validation 내부 유틸 ----
@@ -322,15 +324,20 @@ export function validateResponse(result: ValidatedResult, context: ValidationCon
   }
 
   // RULE 8 — MEMORY_RELEVANCE_MISMATCH (스펙 11절의 5개 조건 전부)
+  // P0 — + 실제로 쓴 기억의 relation이 "꺼낼 가치가 있는 관계"(WORTHY_MEMORY_RELATIONS)여야 한다.
+  //      same_topic_only("오늘 식물 물 줬다" ↔ "식물 키우는 게 재밌다")는 관련은 있어도 꺼내지 않는다.
+  //      relation이 없는 예전 형식 객체(테스트 등)는 이 추가 검사를 건너뛴다.
   if (result.memory_unit_id_used !== null) {
     const id = result.memory_unit_id_used;
-    const relevanceYes = result.memory_relevance.some((r) => r.memory_unit_id === id && r.relevance === 'YES');
+    const usedItem = result.memory_relevance.find((r) => r.memory_unit_id === id && r.relevance === 'YES');
+    const relevanceYes = usedItem !== undefined;
     const validId = context.validMemoryUnitIds.has(id);
     const oppMatches =
       result.conversation_opportunity.source === 'memory' &&
       result.conversation_opportunity.strength === 'STRONG' &&
       result.conversation_opportunity.memory_unit_id === id;
-    if (!validId || !relevanceYes || !oppMatches) {
+    const relationWorthy = !usedItem?.relation || WORTHY_MEMORY_RELATIONS.has(usedItem.relation);
+    if (!validId || !relevanceYes || !oppMatches || !relationWorthy) {
       reasons.push('MEMORY_RELEVANCE_MISMATCH');
     }
   }
