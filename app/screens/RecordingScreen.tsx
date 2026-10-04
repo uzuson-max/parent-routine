@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { BRAND, inkAlpha, pageBackground, radius, shadow, border, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import { IconMic, IconMore } from "@/components/icons";
 import { acquireMicStream } from "@/lib/micStream";
+import { playFx } from "@/lib/fx";
 
 interface RecordingScreenProps {
   initialTopic?: string;
@@ -30,6 +31,9 @@ const MIN_RECORDING_MS = 800;
 const METER_INTERVAL_MS = 50;
 const INPUT_RMS_THRESHOLD = 0.015;
 const MIN_INPUT_MS = 150;
+// 녹음 시작 직후 이 시간 동안은 음량을 세지 않는다 — 마이크 시작 효과음(lib/fx.ts)이
+// 스피커→마이크로 다시 들어와서 무음 녹음이 "소리 있음"으로 판정되는 걸 막기 위함.
+const METER_WARMUP_MS = 200;
 
 type InputMeter = {
   ctx: AudioContext;
@@ -53,6 +57,7 @@ function startInputMeter(stream: MediaStream): InputMeter | null {
     const buf = new Float32Array(analyser.fftSize);
     const meter: InputMeter = { ctx, source, timer: 0 as any, samples: 0, maxRms: 0, inputMs: 0 };
     if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    const startedAt = Date.now();
     meter.timer = setInterval(() => {
       if (ctx.state !== "running") return;
       analyser.getFloatTimeDomainData(buf);
@@ -61,6 +66,7 @@ function startInputMeter(stream: MediaStream): InputMeter | null {
       const rms = Math.sqrt(sum / buf.length);
       meter.samples += 1;
       if (rms > meter.maxRms) meter.maxRms = rms;
+      if (Date.now() - startedAt < METER_WARMUP_MS) return;
       if (rms >= INPUT_RMS_THRESHOLD) meter.inputMs += METER_INTERVAL_MS;
     }, METER_INTERVAL_MS);
     return meter;
@@ -212,7 +218,18 @@ export default function RecordingScreen({ initialTopic, onFinish, autoStart, onC
     // inactive = 트랙이 먼저 끊겨(백그라운드 전환 등) 브라우저가 이미 onstop을 불러준 상태.
     if (!recorder || stoppingRef.current || recorder.state === "inactive") return;
     stoppingRef.current = true;
+    // 중지 효과음이 마이크로 다시 들어와 무음 판정을 흐리지 않도록, 소리 내기 전에 음량 측정을 먼저 멈춘다.
+    if (meterRef.current) clearInterval(meterRef.current.timer);
+    playFx("micStop");
     recorder.stop();
+  };
+
+  // 사용자가 직접 누른 녹음 시작(마이크 동그라미 / 다시 말하기)에만 시작음을 낸다.
+  // 자동 시작(autoStart)은 홈에서 누른 순간 page.tsx가 이미 소리를 냈으므로 여기서 다시 내지 않는다.
+  const startByTap = () => {
+    if (startingRef.current || isRecording) return;
+    playFx("micStart");
+    start();
   };
 
   const switchToText = () => {
@@ -306,7 +323,7 @@ export default function RecordingScreen({ initialTopic, onFinish, autoStart, onC
         )}
 
         {!isRecording ? (
-          <button className={TACTILE_PRESS_CLASS} style={styles.heroBox} onClick={start} aria-label="말하기 시작">
+          <button className={TACTILE_PRESS_CLASS} style={styles.heroBox} onClick={startByTap} aria-label="말하기 시작">
             <span style={styles.heroBoxHighlight} />
             <IconMic style={{ width: 40, height: 40, color: "#fff", position: "relative" }} />
           </button>
@@ -330,7 +347,7 @@ export default function RecordingScreen({ initialTopic, onFinish, autoStart, onC
         ) : emptyNotice ? (
           <>
             <p style={styles.mainCopy}>아직 아무 말도 안 했는데?</p>
-            <button className={TACTILE_PRESS_CLASS} style={styles.stopButton} onClick={start}>
+            <button className={TACTILE_PRESS_CLASS} style={styles.stopButton} onClick={startByTap}>
               다시 말하기
             </button>
             {onCancel && (
