@@ -1,3 +1,4 @@
+
 "use client";
 
 // 참견이 버튼 효과음(FX) — "효과음"보다는 작은 물건을 톡 건드리는 촉감에 가깝게.
@@ -13,6 +14,7 @@
 //   - 반드시 사용자 클릭 핸들러 안에서 부른다 — 모바일 autoplay 정책 때문에 AudioContext를 제스처 안에서 깨워야 한다.
 //   - 볼륨은 Web Audio GainNode로 조절한다 (iOS Safari는 <audio>.volume을 무시하기 때문).
 //   - MY > 효과음 토글(localStorage "ganseobi_sound_enabled" = "0")이 꺼져 있으면 재생하지 않는다.
+//     대신 그 경우에만 아주 짧은 햅틱(navigator.vibrate)으로 대체한다 (아래 playHaptic).
 
 export type FxName = "micStart" | "micStop" | "buttonPress";
 
@@ -76,6 +78,30 @@ export function renderFx(name: FxName, sampleRate: number): Float32Array {
   return out;
 }
 
+// --- 햅틱(진동) — 효과음이 OFF일 때만 쓰는 대체 피드백 ---
+// 같은 사용자 설정(MY > 효과음)을 쓴다: 효과음 ON → 소리만, 효과음 OFF → 아주 짧은 진동만.
+// navigator.vibrate는 세기 조절이 안 되고 길이만 정할 수 있어서, "약하게" = 아주 짧게(8~12ms)로 맞춘다.
+// iOS Safari 등 미지원 환경(navigator.vibrate 없음)과 PC(있어도 진동 모터 없음)에서는 아무 일도 일어나지 않는다.
+const HAPTIC_MS: Record<FxName, number> = {
+  micStart: 10, // 톡
+  micStop: 12, // 툭 (아주 조금 더 길게)
+  buttonPress: 8, // 가장 가볍게
+};
+const HAPTIC_MIN_INTERVAL_MS = 90; // 연타해도 진동이 다다닥 반복되지 않게 (효과음 MIN_INTERVAL_MS와 같은 값)
+let lastHapticAt = -Infinity;
+
+function playHaptic(name: FxName): void {
+  try {
+    if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return;
+    const now = performance.now();
+    if (now - lastHapticAt < HAPTIC_MIN_INTERVAL_MS) return;
+    lastHapticAt = now;
+    navigator.vibrate(HAPTIC_MS[name]);
+  } catch {
+    // 진동은 실패해도 아무 영향 없어야 한다 — 조용히 포기.
+  }
+}
+
 let ctx: AudioContext | null = null;
 let broken = false; // 이 기기에서 Web Audio가 안 되면 더 시도하지 않는다
 const buffers: Partial<Record<FxName, AudioBuffer>> = {};
@@ -113,6 +139,11 @@ if (typeof window !== "undefined") {
 }
 
 export function playFx(name: FxName): void {
+  // 효과음 OFF면 소리 대신 아주 약한 햅틱만 (지원 안 되면 아무것도 안 함). 효과음 ON이면 아래 기존 로직 그대로.
+  if (typeof window !== "undefined" && !soundEnabled()) {
+    playHaptic(name);
+    return;
+  }
   if (broken || typeof window === "undefined") return;
   try {
     if (!soundEnabled()) return;
