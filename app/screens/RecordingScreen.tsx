@@ -20,6 +20,69 @@ interface RecordingScreenProps {
 // 이보다 짧게 녹음하고 멈추면 "실수로 바로 멈춘 것"으로 보고 업로드/STT/분석으로 보내지 않는다.
 const MIN_RECORDING_MS = 800;
 
+// 무음 녹음 판정 — 말소리를 "알아듣는" 게 아니라, 실제로 소리가 들어왔는지만 본다.
+// Whisper는 무음을 받으면 "MBC 뉴스 ○○○입니다" 같은 문장을 지어내기 때문에, 녹음 시간이 길어도
+// 입력이 거의 없었으면 서버로 보내지 않는다.
+//   - METER_INTERVAL_MS마다 입력 음량(RMS, 0~1)을 잰다.
+//   - INPUT_RMS_THRESHOLD(약 -36dBFS)를 넘은 시간을 합쳐서 MIN_INPUT_MS 이상이면 "소리가 있었던 녹음".
+// 음량 측정이 안 되는 환경(AudioContext 미지원/초기화 실패/suspended 상태로 측정이 안 됨)에서는
+// 이 판정을 건너뛰고 기존 정상 녹음 경로를 그대로 탄다.
+const METER_INTERVAL_MS = 50;
+const INPUT_RMS_THRESHOLD = 0.015;
+const MIN_INPUT_MS = 150;
+
+type InputMeter = {
+  ctx: AudioContext;
+  source: MediaStreamAudioSourceNode;
+  timer: ReturnType<typeof setInterval>;
+  samples: number; // 실제로 측정에 성공한 횟수
+  maxRms: number; // 측정 중 가장 큰 음량 — 계속 정확히 0이면 측정 경로가 죽은 것으로 본다
+  inputMs: number; // 기준 음량을 넘은 시간 합계
+};
+
+function startInputMeter(stream: MediaStream): InputMeter | null {
+  try {
+    const Ctx: typeof AudioContext | undefined =
+      typeof window !== "undefined" ? window.AudioContext || (window as any).webkitAudioContext : undefined;
+    if (!Ctx) return null;
+    const ctx = new Ctx();
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    source.connect(analyser); // destination에는 연결하지 않는다 — 스피커로 소리가 나가지 않음
+    const buf = new Float32Array(analyser.fftSize);
+    const meter: InputMeter = { ctx, source, timer: 0 as any, samples: 0, maxRms: 0, inputMs: 0 };
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    meter.timer = setInterval(() => {
+      if (ctx.state !== "running") return;
+      analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+      const rms = Math.sqrt(sum / buf.length);
+      meter.samples += 1;
+      if (rms > meter.maxRms) meter.maxRms = rms;
+      if (rms >= INPUT_RMS_THRESHOLD) meter.inputMs += METER_INTERVAL_MS;
+    }, METER_INTERVAL_MS);
+    return meter;
+  } catch {
+    return null;
+  }
+}
+
+function stopInputMeter(meter: InputMeter | null) {
+  if (!meter) return;
+  clearInterval(meter.timer);
+  // 마이크 트랙은 lib/micStream.ts 소유라 끄지 않는다 — 측정용 연결과 AudioContext만 정리.
+  try { meter.source.disconnect(); } catch {}
+  meter.ctx.close().catch(() => {});
+}
+
+// 측정이 실제로 동작했는지: 충분히 여러 번 쟀고, 신호가 한 번이라도 0이 아니었어야 한다.
+// (실제 마이크는 조용해도 아주 작은 잡음이 있다 — 끝까지 정확히 0이면 측정 경로 이상으로 보고 판정을 건너뛴다.)
+function meterIsReliable(meter: InputMeter | null): meter is InputMeter {
+  return !!meter && meter.samples >= 5 && meter.maxRms > 0;
+}
+
 // 녹음 중 상태를 텍스트 타이머 하나로만 보여주던 것 대신, 듣고 있다는 걸 시각적으로
 // 표현하는 작은 waveform. 실제 입력 레벨을 분석하지 않고(별도 오디오 분석 파이프라인 없이도)
 // 각 바가 서로 다른 딜레이로 오르내리게 해서 "말하는 리듬"처럼 보이게 한다.
@@ -61,6 +124,8 @@ export default function RecordingScreen({ initialTopic, onFinish, autoStart, onC
   const autoStartedRef = useRef(false);
   // 빈 녹음 판정용 — recorder.start() 직전 시각(ms).
   const startedAtRef = useRef(0);
+  // 무음 판정용 입력 음량 측정기 — 녹음 한 번마다 새로 만들고 끝나면 정리한다.
+  const meterRef = useRef<InputMeter | null>(null);
   // true = 방금 녹음이 비어 있어서 업로드하지 않고 이 화면 안에서 안내 중.
   const [emptyNotice, setEmptyNotice] = useState(false);
 
@@ -69,6 +134,8 @@ export default function RecordingScreen({ initialTopic, onFinish, autoStart, onC
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      stopInputMeter(meterRef.current);
+      meterRef.current = null;
       const rec = mediaRecorderRef.current;
       if (rec && rec.state !== "inactive") {
         discardRef.current = true;
@@ -91,17 +158,29 @@ export default function RecordingScreen({ initialTopic, onFinish, autoStart, onC
       };
       recorder.onstop = () => {
         if (timerRef.current) clearInterval(timerRef.current);
+        const meter = meterRef.current;
+        meterRef.current = null;
+        stopInputMeter(meter);
         setIsRecording(false);
         if (discardRef.current) return;
         const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        // 빈 녹음(즉시 중지 / 데이터 없음)은 AI가 판단할 문제가 아니다 — 서버로 보내지 않고 여기서 끝낸다.
+        // 빈 녹음(즉시 중지 / 데이터 없음 / 무음)은 AI가 판단할 문제가 아니다 — 서버로 보내지 않고 여기서 끝낸다.
         const durationMs = Date.now() - startedAtRef.current;
-        if (durationMs < MIN_RECORDING_MS || blob.size === 0) {
+        const reliable = meterIsReliable(meter);
+        const silent = reliable && meter.inputMs < MIN_INPUT_MS;
+        console.log("[recording] stop", {
+          durationMs,
+          bytes: blob.size,
+          meter: reliable ? { inputMs: meter.inputMs, maxRms: Number(meter.maxRms.toFixed(4)) } : "unavailable",
+        });
+        if (durationMs < MIN_RECORDING_MS || blob.size === 0 || silent) {
           setEmptyNotice(true);
           return;
         }
         onFinish(blob);
       };
+      stopInputMeter(meterRef.current);
+      meterRef.current = startInputMeter(stream);
       startedAtRef.current = Date.now();
       recorder.start();
       mediaRecorderRef.current = recorder;
@@ -111,6 +190,8 @@ export default function RecordingScreen({ initialTopic, onFinish, autoStart, onC
       setSeconds(0);
       timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
     } catch (e) {
+      stopInputMeter(meterRef.current);
+      meterRef.current = null;
       // 권한 거부/마이크 없음 — 알림창 대신 화면 안에서 조용히 알려주고, 글로 남기는 길은 열어둔다.
       setMicFailed(true);
     } finally {
