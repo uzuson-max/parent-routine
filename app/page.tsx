@@ -82,6 +82,8 @@ export default function Home() {
   const [tankReplyTo, setTankReplyTo] = useState<string | undefined>(undefined);
   // 녹음을 보내고 참견이가 생각하는 중 — 홈 어항 가운데 물방울이 꿀렁거린다.
   const [homeThinking, setHomeThinking] = useState(false);
+    // "이렇게 말한 거 맞아?" 확인을 기다리는 녹음 — [맞아]를 누르면 이걸 그대로 다시 보낸다.
+  const [pendingSpeech, setPendingSpeech] = useState<{ blob: Blob; replyTo?: string } | null>(null);
 
   const fetchEntries = async () => {
     try {
@@ -179,12 +181,25 @@ export default function Home() {
   // (참견이의 대답이 떠 있는 동안은 바로 대답할 수 있게 마이크를 들고 있는다 — 기존 ＋ 더 이야기하기 루프와 같은 원칙)
   const changeHomeBubble = (b: HomeBubble | null) => {
     if (!b || b.kind === "notice") releaseMicStream();
+        // 확인 말풍선이 내려가면(닫기/새 녹음) 확인 기다리던 녹음도 버린다.
+    if (!b || b.kind !== "confirm") setPendingSpeech(null);
     setHomeBubble(b);
   };
-
+  // "이렇게 말한 거 맞아?" — [맞아]면 같은 녹음을 확인 표시와 함께 다시 보내 저장, [아니]면 버린다.
+  const confirmSpeech = (yes: boolean) => {
+    const pending = pendingSpeech;
+    setPendingSpeech(null);
+    if (!yes || !pending) {
+      changeHomeBubble(null);
+      return;
+    }
+    setHomeBubble(null);
+    setHomeThinking(true);
+    uploadFromHome(pending.blob, pending.replyTo, true).finally(() => setHomeThinking(false));
+  };
   // 홈(어항) 안에서 녹음한 음성을 보낸다. 화면을 바꾸지 않는 게 기본이고,
   // 확인/전화처럼 전용 화면이 꼭 필요한 결과만 기존 화면으로 넘긴다.
-  const uploadFromHome = async (input: Blob, replyTo?: string) => {
+    const uploadFromHome = async (input: Blob, replyTo?: string, speechConfirmed = false) => {
     try {
       const { data: { session } } = await supabaseClient.auth.getSession();
       if (!session) {
@@ -199,6 +214,7 @@ export default function Home() {
       form.append("phone", savedPhone || "");
       form.append("persona", "coach");
       if (replyTo) form.append("topic", replyTo);
+            if (speechConfirmed) form.append("speech_confirmed", "1");
 
       const res = await fetch("/api/voice/upload", {
         method: "POST",
@@ -213,6 +229,12 @@ export default function Home() {
       // 서버 STT가 "말소리 없음"으로 판단 — 아무것도 저장되지 않았다.
       if (body.data?.no_speech) {
         changeHomeBubble({ kind: "notice", text: NO_SPEECH_TEXT });
+        return;
+      }
+            // 받아쓴 내용이 무음 환각처럼 보임 — 버리지 않고 "이렇게 말한 거 맞아?"로 확인한다(아직 저장 안 됨).
+      if (body.data?.needs_confirm) {
+        setPendingSpeech({ blob: input, replyTo });
+        setHomeBubble({ kind: "confirm", text: String(body.data.transcript || "") });
         return;
       }
       if (!body.data?.id) throw new Error("entry id missing from response");
@@ -281,6 +303,14 @@ export default function Home() {
       if (body.success && body.data?.no_speech) {
         releaseMicStream();
         setHomeBubble({ kind: "notice", text: NO_SPEECH_TEXT });
+        setSelectedTopic("");
+        setStep("landing");
+        return;
+      }
+            // 받아쓴 내용이 무음 환각처럼 보임 — 홈으로 가서 "이렇게 말한 거 맞아?"로 확인한다(아직 저장 안 됨).
+      if (body.success && body.data?.needs_confirm && typeof input !== "string") {
+        setPendingSpeech({ blob: input, replyTo: selectedTopic || undefined });
+        setHomeBubble({ kind: "confirm", text: String(body.data.transcript || "") });
         setSelectedTopic("");
         setStep("landing");
         return;
@@ -364,6 +394,7 @@ export default function Home() {
           unreadLetterCount={unreadLetterCount}
           bubble={homeBubble}
           onBubbleChange={changeHomeBubble}
+                    onConfirmSpeech={confirmSpeech}
           thinking={homeThinking}
           onStartRecording={(replyTo) => {
             setTankReplyTo(replyTo);
