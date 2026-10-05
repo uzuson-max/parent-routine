@@ -19,10 +19,14 @@ export interface TankEntry {
   id: string;
   createdAt: string;
   transcript: string;
+    // 참견이의 말에 대답한 녹음이면 true — 생각이 아니라 대화라서 어항에 넣지 않는다.
+  isReply?: boolean;
 }
 
 interface FishTankProps {
   entries: TankEntry[] | null;
+    // 방금 녹음을 보내고 참견이가 생각하는 중 — 어항 가운데 커다란 물방울이 꿀렁거린다.
+  thinking?: boolean;
   // 어항 물 부분을 눌렀을 때(= 마이크와 같은 동작). 없으면 어항 터치로는 아무 일도 안 일어난다.
   onTankPress?: () => void;
 }
@@ -74,7 +78,7 @@ const FRY_OFFSETS: [number, number][] = [
   [6, 28],
 ];
 
-export default function FishTank({ entries, onTankPress }: FishTankProps) {
+export default function FishTank({ entries, thinking, onTankPress }: FishTankProps) {
   const [night, setNight] = useState(false);
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const [thought, setThought] = useState<{ text: string; key: number } | null>(null);
@@ -99,7 +103,7 @@ export default function FishTank({ entries, onTankPress }: FishTankProps) {
   const { fishes, schools } = useMemo(() => {
     const now = new Date();
     const list = (entries ?? [])
-      .filter((e) => e.transcript && isThisMonth(e.createdAt, now) && charCount(e.transcript) > NOISE_MAX)
+            .filter((e) => e.transcript && !e.isReply && isThisMonth(e.createdAt, now) && charCount(e.transcript) > NOISE_MAX)
       // 오래된 것 → 최신 순
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
@@ -333,7 +337,15 @@ export default function FishTank({ entries, onTankPress }: FishTankProps) {
           </>
         )}
 
-        {thought && (
+                {thinking && (
+          <div className="ft-thinking" role="status" aria-label="참견이가 생각하는 중">
+            <span className="ft-dot" />
+            <span className="ft-dot" style={{ animationDelay: ".15s" }} />
+            <span className="ft-dot" style={{ animationDelay: ".3s" }} />
+          </div>
+        )}
+
+        {thought && !thinking && (
           <div key={thought.key} className="ft-thought" role="status">
             {thought.text}
           </div>
@@ -427,6 +439,11 @@ const CSS = `
 .ft-thought::after{content:"";position:absolute;left:41%;bottom:-31px;width:7px;height:7px;border-radius:50%;background:#fff;border:2.5px solid #1B1630}
 @keyframes ft-thought{0%{transform:translate(-50%,24px) scale(.5);opacity:0}12%{transform:translate(-50%,0) scale(1.06);opacity:1}18%{transform:translate(-50%,0) scale(1)}80%{transform:translate(-50%,-6px) scale(1);opacity:1}100%{transform:translate(-50%,-26px) scale(.95);opacity:0}}
 .ft-table{position:relative;margin:-14px -40px 0;height:56px;border-top:4px solid #1B1630;border-bottom:4px solid #1B1630;box-shadow:inset 0 -18px 0 rgba(27,22,48,.16);z-index:1}
+.ft-thinking{position:absolute;left:50%;top:44%;z-index:9;width:92px;height:92px;margin:-46px 0 0 -46px;box-sizing:border-box;border-radius:50%;border:3px solid #1B1630;background:rgba(255,255,255,.72);display:flex;align-items:center;justify-content:center;gap:7px;animation:ft-wobble 1.6s ease-in-out infinite;pointer-events:none}
+.ft-thinking::after{content:"";position:absolute;left:20px;top:14px;width:18px;height:11px;border-radius:50%;background:#fff;transform:rotate(-30deg)}
+.ft-dot{width:10px;height:10px;border-radius:50%;background:#1B1630;animation:ft-dot 1s ease-in-out infinite}
+@keyframes ft-wobble{0%,100%{transform:scale(1,1) translateY(0)}25%{transform:scale(1.06,.94) translateY(3px)}50%{transform:scale(.95,1.05) translateY(-6px)}75%{transform:scale(1.03,.97) translateY(0)}}
+@keyframes ft-dot{0%,100%{transform:translateY(0);opacity:.35}50%{transform:translateY(-6px);opacity:1}}
 @media (prefers-reduced-motion: reduce){
   .ft-swim,.ft-bob,.ft-tail,.ft-eye,.ft-sway,.ft-wave,.ft-bubble,.ft-ray,.ft-zz{animation:none}
 }
