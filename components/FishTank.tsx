@@ -152,7 +152,7 @@ export default function FishTank({ entries, thinking, onTankPress }: FishTankPro
 
   return (
     <div className="ft-wrap">
-      <style>{CSS}</style>
+            <style dangerouslySetInnerHTML={{ __html: CSS }} />
 
       <div className="ft-lid" aria-hidden>
         <div className="ft-lid-shine" />
