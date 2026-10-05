@@ -19,6 +19,7 @@ import ThinkingScreen from "./screens/ThinkingScreen"; // 👈 1. 상단 import�
 import FirstTalkScreen from "./screens/FirstTalkScreen";
 import DiscoveryScreen from "./screens/DiscoveryScreen";
 import LettersScreen from "./screens/LettersScreen";
+import TankRecordingScreen from "./screens/TankRecordingScreen";
 import { BRAND, pageBackground } from "@/lib/theme";
 import { acquireMicStream, releaseMicStream } from "@/lib/micStream";
   import { playFx } from "@/lib/fx";
@@ -37,6 +38,7 @@ type Step =
   | "landing"
   | "raw_landing"
   | "recording"
+  | "tank_recording"
   | "phone_input"
   | "nickname"
   | "mypage"
@@ -76,6 +78,10 @@ export default function Home() {
   // 홈(어항) 위에 뜨는 참견이 말풍선 — 홈 안에서 녹음한 것에 대한 대답 / 무음 안내.
   // 다른 탭(기록/MY 등)에 다녀와도 유지되도록 page에서 들고 있는다.
   const [homeBubble, setHomeBubble] = useState<HomeBubble | null>(null);
+  // 물속 녹음 화면(tank_recording)이 대답하는 대상 — 참견이의 대답/먼저 꺼낸 말. 없으면 새 생각.
+  const [tankReplyTo, setTankReplyTo] = useState<string | undefined>(undefined);
+  // 녹음을 보내고 참견이가 생각하는 중 — 홈 어항 가운데 물방울이 꿀렁거린다.
+  const [homeThinking, setHomeThinking] = useState(false);
 
   const fetchEntries = async () => {
     try {
@@ -306,7 +312,12 @@ export default function Home() {
 
   return (
     // 크림 배경이 기기 화면 끝(홈 인디케이터 아래)까지 채워지도록 wrapper는 100dvh 전체를 덮는다.
-    <div style={{ ...(step === "landing" ? tankWallBackground : pageBackground), minHeight: "100dvh" }}>
+    <div
+      style={{
+        ...(step === "landing" ? tankWallBackground : step === "tank_recording" ? tankWaterBackground : pageBackground),
+        minHeight: "100dvh",
+      }}
+    >
       {error && (
         <div style={errorBannerStyle}>
           문제가 생겼어: {error}
@@ -353,13 +364,40 @@ export default function Home() {
           unreadLetterCount={unreadLetterCount}
           bubble={homeBubble}
           onBubbleChange={changeHomeBubble}
-          onSubmitVoice={uploadFromHome}
-          onOpenRecording={(topic) => {
-            // 참견이가 던진 말에 답하러 가는 거면(topic 있음), 다음에 홈에 돌아왔을 때는
-            // 방금 남긴 반응이 새 한마디로 자연스럽게 이어지도록 비워둔다.
-            if (topic) setProactiveLine(null);
-            setSelectedTopic(topic || "");
-            startRecordingNow();
+          thinking={homeThinking}
+          onStartRecording={(replyTo) => {
+            setTankReplyTo(replyTo);
+            setStep("tank_recording");
+          }}
+        />
+      )}
+
+      {step === "tank_recording" && (
+        <TankRecordingScreen
+          replyTo={tankReplyTo}
+          onDone={(blob) => {
+            // 물고기가 위로 떠난 뒤 — 홈으로 돌아가 어항에서 "생각 중"을 보여주며 업로드한다.
+            const replyTo = tankReplyTo;
+            setTankReplyTo(undefined);
+            setHomeBubble(null);
+            setHomeThinking(true);
+            setStep("landing");
+            uploadFromHome(blob, replyTo).finally(() => setHomeThinking(false));
+          }}
+          onCancel={() => {
+            playFx("buttonPress");
+            // 참견이의 대답이 아직 떠 있으면 바로 다시 대답할 수 있게 마이크를 들고 있는다.
+            if (homeBubble?.kind !== "reply") releaseMicStream();
+            setTankReplyTo(undefined);
+            setStep("landing");
+          }}
+          onMicFailed={() => {
+            // 마이크를 못 잡음 — 기존 녹음 화면(글로 남기기 가능)으로.
+            if (tankReplyTo && proactiveLine && tankReplyTo === proactiveLine.content) setProactiveLine(null);
+            setSelectedTopic(tankReplyTo || "");
+            setTankReplyTo(undefined);
+            setAutoStartRecording(false);
+            setStep("recording");
           }}
         />
       )}
@@ -587,48 +625,3 @@ export default function Home() {
   function resetAll() {
     setAudioBlob(null);
     setSelectedTopic("");
-    setEntryId(null);
-    setUploadData(null);
-    setResult(null);
-
-    // 첫 실행의 첫 기록 직후에는 회원가입성 질문(닉네임 등)을 요구하지 않고 바로 홈으로 보낸다.
-    // 닉네임은 원래 있던 구조 그대로 "다음" 녹음부터 필요해지는 시점에 물어본다.
-    if (isFirstRun) {
-      markFirstEntryDoneIfNeeded();
-      setStep("landing");
-      return;
-    }
-
-    const alreadyAsked = typeof window !== "undefined" && localStorage.getItem("ganseobi_nickname_asked");
-    if (!alreadyAsked) {
-      setStep("nickname");
-    } else {
-      setStep("landing");
-    }
-  }
-}
-
-// 홈(어항) 화면일 때 wrapper 배경 — 어항 벽과 같은 색이라 화면 가장자리에서 크림색이 비치지 않는다.
-const tankWallBackground: React.CSSProperties = {
-  backgroundColor: "#FFE9A8",
-  backgroundImage: "radial-gradient(#FFDA78 17%, transparent 18%)",
-  backgroundSize: "34px 34px",
-};
-
-const errorBannerStyle: React.CSSProperties = {
-  position: "fixed",
-  top: 0,
-  left: 0,
-  right: 0,
-  background: BRAND.border,
-  color: BRAND.yellow,
-  padding: "12px 16px",
-  // position:fixed는 body의 padding-top(안전영역)을 무시하고 화면 맨 위에 그대로 붙기 때문에,
-  // 여기서 따로 상단 안전영역만큼 더 얹어줘야 시계/상태바 아이콘과 안 겹친다.
-  paddingTop: "calc(12px + env(safe-area-inset-top, 0px))",
-  fontSize: 14,
-  zIndex: 999,
-  textAlign: "center",
-  fontWeight: "bold",
-  borderBottom: `2px solid ${BRAND.yellow}`,
-};
