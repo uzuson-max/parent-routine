@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
-import TimelineScreen, { type RecordEntry } from "./screens/TimelineScreen";
+import TimelineScreen, { type RecordEntry, type HomeBubble } from "./screens/TimelineScreen";
 import LandingScreen from "./screens/LandingScreen";
 import RecordingScreen from "./screens/RecordingScreen";
 import PhoneInputScreen from "./screens/PhoneInputScreen";
@@ -27,6 +27,8 @@ const ONBOARDING_KEY = "ganseobi_onboarding_completed";
 // 첫 실행 사용자가 "첫 녹음 → 첫 기록"까지 마쳤는지 표시. 한 번 true가 되면 그 세션에서만
 // 닉네임/전화번호 같은 부가 입력을 건너뛰기 위한 용도로만 쓰고, 이후에는 기존 플로우를 그대로 탄다.
 const FIRST_ENTRY_DONE_KEY = "ganseobi_first_entry_done";
+// 녹음은 했는데 실제로 말소리가 없었을 때(클라이언트 무음 판정 / 서버 STT 무음 판정) 홈 어항 위에 뜨는 말.
+const NO_SPEECH_TEXT = "아직 아무 말도 안 했는데?";
 
 type Step =
   | "onboarding"
@@ -71,6 +73,9 @@ export default function Home() {
   const [unreadLetterCount, setUnreadLetterCount] = useState(0);
   // true면 RecordingScreen이 뜨자마자 바로 녹음을 시작한다(홈 마이크 / ＋ 더 이야기하기).
   const [autoStartRecording, setAutoStartRecording] = useState(false);
+  // 홈(어항) 위에 뜨는 참견이 말풍선 — 홈 안에서 녹음한 것에 대한 대답 / 무음 안내.
+  // 다른 탭(기록/MY 등)에 다녀와도 유지되도록 page에서 들고 있는다.
+  const [homeBubble, setHomeBubble] = useState<HomeBubble | null>(null);
 
   const fetchEntries = async () => {
     try {
@@ -160,7 +165,78 @@ export default function Home() {
 
   useEffect(() => {
     if (step === "landing") fetchEntries();
+    // 홈에서 녹음하던 마이크는 다른 탭으로 나가면 놓아준다(녹음 표시등이 계속 켜져 있지 않게).
+    if (step === "calendar" || step === "mypage" || step === "insights" || step === "letters") releaseMicStream();
   }, [step]);
+
+  // 홈 말풍선을 닫거나 안내만 띄울 때는 대화가 이어지지 않으니 마이크를 놓아준다.
+  // (참견이의 대답이 떠 있는 동안은 바로 대답할 수 있게 마이크를 들고 있는다 — 기존 ＋ 더 이야기하기 루프와 같은 원칙)
+  const changeHomeBubble = (b: HomeBubble | null) => {
+    if (!b || b.kind === "notice") releaseMicStream();
+    setHomeBubble(b);
+  };
+
+  // 홈(어항) 안에서 녹음한 음성을 보낸다. 화면을 바꾸지 않는 게 기본이고,
+  // 확인/전화처럼 전용 화면이 꼭 필요한 결과만 기존 화면으로 넘긴다.
+  const uploadFromHome = async (input: Blob, replyTo?: string) => {
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      if (!session) {
+        throw new Error("로그인 세션을 만들지 못했습니다. 새로고침 후 다시 시도해주세요.");
+      }
+      // 참견이가 먼저 꺼낸 말에 대답한 거면, 그 말은 이제 내려놓는다.
+      if (replyTo && proactiveLine && replyTo === proactiveLine.content) setProactiveLine(null);
+
+      const savedPhone = typeof window !== "undefined" ? localStorage.getItem("ganseobi_phone") : null;
+      const form = new FormData();
+      form.append("audio", input, "recording.webm");
+      form.append("phone", savedPhone || "");
+      form.append("persona", "coach");
+      if (replyTo) form.append("topic", replyTo);
+
+      const res = await fetch("/api/voice/upload", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: form,
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !body.success) {
+        throw new Error(body.error || `upload API ${res.status}`);
+      }
+
+      // 서버 STT가 "말소리 없음"으로 판단 — 아무것도 저장되지 않았다.
+      if (body.data?.no_speech) {
+        changeHomeBubble({ kind: "notice", text: NO_SPEECH_TEXT });
+        return;
+      }
+      if (!body.data?.id) throw new Error("entry id missing from response");
+
+      fetchEntries(); // 새 치어/금붕어가 퐁당 들어온다
+      markFirstEntryDoneIfNeeded();
+
+      const state = body.data.call_state;
+      if (state === "no_action" || state === "saved_only") {
+        setHomeBubble({ kind: "reply", text: body.data.response?.response || "일단 들어뒀어." });
+        return;
+      }
+
+      // 확인/전화가 필요한 경우만 기존 화면으로 — 흐름은 doUpload와 똑같다.
+      setHomeBubble(null);
+      setEntryId(body.data.id);
+      setUploadData(body.data);
+      if (state === "awaiting_confirmation") {
+        setStep("awaiting_confirmation");
+      } else if (state === "calling_sent") {
+        setStep("calling");
+      } else {
+        setStep("call_failed");
+      }
+    } catch (e: any) {
+      console.error("[Home] tank upload failed:", e.message);
+      releaseMicStream();
+      setError(e.message);
+    }
+  };
 
   const doUpload = async (phoneNumber: string, input: Blob | string) => {
     setStep("uploading");
@@ -195,6 +271,14 @@ export default function Home() {
         throw new Error(body.error || `upload API ${res.status}`);
       }
       const body = await res.json();
+      // 서버 STT가 "말소리 없음"으로 판단 — 아무것도 저장되지 않았으니 홈으로 돌아가 안내만 띄운다.
+      if (body.success && body.data?.no_speech) {
+        releaseMicStream();
+        setHomeBubble({ kind: "notice", text: NO_SPEECH_TEXT });
+        setSelectedTopic("");
+        setStep("landing");
+        return;
+      }
       if (!body.success || !body.data?.id) {
         throw new Error(body.error || "entry id missing from response");
       }
@@ -222,7 +306,7 @@ export default function Home() {
 
   return (
     // 크림 배경이 기기 화면 끝(홈 인디케이터 아래)까지 채워지도록 wrapper는 100dvh 전체를 덮는다.
-    <div style={{ ...pageBackground, minHeight: "100dvh" }}>
+    <div style={{ ...(step === "landing" ? tankWallBackground : pageBackground), minHeight: "100dvh" }}>
       {error && (
         <div style={errorBannerStyle}>
           문제가 생겼어: {error}
@@ -267,6 +351,9 @@ export default function Home() {
           onOpenInsights={() => setStep("insights")}
           onOpenLetters={() => setStep("letters")}
           unreadLetterCount={unreadLetterCount}
+          bubble={homeBubble}
+          onBubbleChange={changeHomeBubble}
+          onSubmitVoice={uploadFromHome}
           onOpenRecording={(topic) => {
             // 참견이가 던진 말에 답하러 가는 거면(topic 있음), 다음에 홈에 돌아왔을 때는
             // 방금 남긴 반응이 새 한마디로 자연스럽게 이어지도록 비워둔다.
@@ -520,6 +607,13 @@ export default function Home() {
     }
   }
 }
+
+// 홈(어항) 화면일 때 wrapper 배경 — 어항 벽과 같은 색이라 화면 가장자리에서 크림색이 비치지 않는다.
+const tankWallBackground: React.CSSProperties = {
+  backgroundColor: "#FFE9A8",
+  backgroundImage: "radial-gradient(#FFDA78 17%, transparent 18%)",
+  backgroundSize: "34px 34px",
+};
 
 const errorBannerStyle: React.CSSProperties = {
   position: "fixed",
