@@ -10,6 +10,7 @@ import { retrieveRelevantMemoriesWithTrace, markMemoriesReferenced, RetrievalTra
 import { retrieveRelevantInsights, markInsightsSurfaced } from '@/lib/insightEngine';
 import { sendRoutineCall } from '@/lib/twilio';
 import OpenAI from 'openai';
+import { looksLikeNoSpeech } from '@/lib/noSpeech';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -74,6 +75,35 @@ export async function POST(request: Request) {
     }
     // 텍스트 입력이면 오디오 저장 자체가 없으므로 audio_url은 null로 남는다 (컬럼이 nullable이라 스키마 변경 불필요).
 
+       // STT는 기록(voice_entries)을 만들기 전에 먼저 한다 — 말소리가 없는 녹음이면 아예 기록을 만들지 않기 위해.
+    let transcript = '';
+    if (textInput) {
+      // 텍스트 입력은 STT를 거칠 필요 없이 그대로 transcript로 사용 — 이후 분석 파이프라인은 음성 입력과 완전히 동일하다.
+      transcript = textInput;
+    } else if (audio && buffer) {
+      try {
+        const fileObj = new File([new Uint8Array(buffer)], fileName!, { type: 'audio/webm' });
+        const transcription: any = await openai.audio.transcriptions.create({
+          file: fileObj,
+          model: 'whisper-1',
+          language: 'ko',
+          response_format: 'verbose_json',
+        });
+        const text: string = transcription?.text || '';
+        if (looksLikeNoSpeech(text, transcription?.segments)) {
+          console.log('[upload] 무음 녹음으로 판단 — 저장하지 않음:', JSON.stringify(text).slice(0, 80));
+          if (fileName) {
+            await supabase.storage.from('voice-recordings').remove([fileName]).catch(() => {});
+          }
+          return NextResponse.json({ success: true, data: { no_speech: true } });
+        }
+        transcript = text;
+      } catch (sttErr: any) {
+        console.error('STT 변환 중 에러 (무시하고 진행):', sttErr?.message);
+        transcript = '(음성 변환 실패)';
+      }
+    }
+
     const { data: entry, error: insertError } = await supabase
       .from('voice_entries')
       .insert({ user_id: userId, user_phone: effectivePhone, audio_url: audioUrl, persona, call_state: 'pending' })
@@ -83,25 +113,6 @@ export async function POST(request: Request) {
     if (insertError || !entry) {
       console.error('DB 생성 실패:', insertError?.message);
       return NextResponse.json({ success: false, error: insertError?.message }, { status: 500 });
-    }
-
-    let transcript = '';
-    if (textInput) {
-      // 텍스트 입력은 STT를 거칠 필요 없이 그대로 transcript로 사용 — 이후 분석 파이프라인은 음성 입력과 완전히 동일하다.
-      transcript = textInput;
-    } else if (audio && buffer) {
-      try {
-        const fileObj = new File([new Uint8Array(buffer)], fileName!, { type: 'audio/webm' });
-        const transcription = await openai.audio.transcriptions.create({
-          file: fileObj,
-          model: 'whisper-1',
-          language: 'ko',
-        });
-        transcript = transcription.text || '';
-      } catch (sttErr: any) {
-        console.error('STT 변환 중 에러 (무시하고 진행):', sttErr?.message);
-        transcript = '(음성 변환 실패)';
-      }
     }
 
     let analysisResult: any = null;
@@ -240,7 +251,11 @@ export async function POST(request: Request) {
       transcript,
       analysis: analysisResult,
       // P0 — response jsonb에 retrieval_trace를 함께 남긴다(스키마 변경 없음). responseResult가 없으면 기존처럼 null.
-      response: responseResult ? { ...responseResult, retrieval_trace: retrievalTrace } : null,
+         // reply_to — 참견이의 말(proactive callback / 홈에서 방금 받은 대답)에 대답한 녹음이면 그 말.
+      // 홈 어항은 이런 "대화"를 생각(금붕어)으로 세지 않는다(api/user/entries → isReply). 스키마 변경 없음.
+      response: responseResult
+        ? { ...responseResult, retrieval_trace: retrievalTrace, reply_to: topicFromForm ?? null }
+        : null,
       call_message: responseResult?.response || null,
       commitment_until: commitmentUntil,
       call_state: currentCallState,
