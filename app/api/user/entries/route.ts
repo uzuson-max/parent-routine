@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { getUserIdFromRequest } from '@/lib/auth';
+import { looksLikeNoSpeech } from '@/lib/noSpeech';
 
 export async function GET(request: Request) {
   try {
@@ -24,12 +25,16 @@ export async function GET(request: Request) {
     const entries = (data ?? [])
       // STT 실패했거나 빈 발화는 기록에서 제외
       .filter((row) => row.transcript && row.transcript !== '(음성 변환 실패)')
+      // 무음 녹음에 Whisper가 지어낸 문장("시청해주셔서 감사합니다" 등)만 있는 예전 기록도 제외
+      .filter((row) => !looksLikeNoSpeech(row.transcript as string, undefined))
       .map((row) => ({
         id: row.id,
         createdAt: row.created_at,
         transcript: row.transcript as string,
         // response jsonb에서 실제 화면에 보여줬던 참견이 대사만 추출
         responseText: (row.response as any)?.response ?? null,
+        // 참견이의 말에 대답한 녹음 — 홈 어항(생각)에는 넣지 않는다.
+        isReply: !!(row.response as any)?.reply_to,
       }));
 
     return NextResponse.json({ success: true, data: entries });
