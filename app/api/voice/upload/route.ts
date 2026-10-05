@@ -31,7 +31,8 @@ export async function POST(request: Request) {
     // 지금까지는 이 값을 읽지 않아서 RecordingScreen 상단 뱃지에만 보이고 실제 GPT 응답 생성에는
     // 전혀 반영되지 않았다 — 아래에서 읽어서 generateResponse에 그대로 넘긴다.
     const topicFromForm = (formData.get('topic') as string | null)?.trim() || undefined;
-
+    // 사용자가 "이렇게 말한 거 맞아?"에 [맞아]를 눌러 다시 보낸 녹음 — 무음/환각 의심 검사를 건너뛴다.
+    const speechConfirmed = formData.get('speech_confirmed') === '1';
     if (!audio && !textInput) {
       return NextResponse.json({ success: false, error: '오디오 또는 텍스트가 필요합니다.' }, { status: 400 });
     }
@@ -89,13 +90,24 @@ export async function POST(request: Request) {
           language: 'ko',
           response_format: 'verbose_json',
         });
-        const text: string = transcription?.text || '';
-        if (looksLikeNoSpeech(text, transcription?.segments)) {
-          console.log('[upload] 무음 녹음으로 판단 — 저장하지 않음:', JSON.stringify(text).slice(0, 80));
+                const text: string = transcription?.text || '';
+        // 받아쓴 글자가 아예 없으면 확인할 것도 없다 — 저장하지 않는다.
+        if (!text.trim()) {
+          console.log('[upload] 받아쓴 내용 없음 — 저장하지 않음');
           if (fileName) {
             await supabase.storage.from('voice-recordings').remove([fileName]).catch(() => {});
           }
           return NextResponse.json({ success: true, data: { no_speech: true } });
+        }
+        // Whisper 환각("시청해주셔서 감사합니다" 등)으로 의심되면 바로 버리지 않고 사용자에게 확인한다.
+        // 진짜로 그렇게 말한 사람도 있을 수 있어서 — 화면에 "이렇게 말한 거 맞아?"를 띄우고,
+        // [맞아]를 누르면 같은 녹음을 speech_confirmed=1로 다시 보낸다. 지금은 아무것도 저장하지 않는다.
+        if (!speechConfirmed && looksLikeNoSpeech(text, transcription?.segments)) {
+          console.log('[upload] 무음 환각 의심 — 사용자 확인 요청:', JSON.stringify(text).slice(0, 80));
+          if (fileName) {
+            await supabase.storage.from('voice-recordings').remove([fileName]).catch(() => {});
+          }
+          return NextResponse.json({ success: true, data: { needs_confirm: true, transcript: text } });
         }
         transcript = text;
       } catch (sttErr: any) {
@@ -254,7 +266,13 @@ export async function POST(request: Request) {
          // reply_to — 참견이의 말(proactive callback / 홈에서 방금 받은 대답)에 대답한 녹음이면 그 말.
       // 홈 어항은 이런 "대화"를 생각(금붕어)으로 세지 않는다(api/user/entries → isReply). 스키마 변경 없음.
       response: responseResult
-        ? { ...responseResult, retrieval_trace: retrievalTrace, reply_to: topicFromForm ?? null }
+              ? {
+            ...responseResult,
+            retrieval_trace: retrievalTrace,
+            reply_to: topicFromForm ?? null,
+            // 환각 의심이었지만 사용자가 "맞아"라고 확인한 녹음 — 목록에서 걸러지지 않게 표시한다.
+            ...(speechConfirmed ? { speech_confirmed: true } : {}),
+          }
         : null,
       call_message: responseResult?.response || null,
       commitment_until: commitmentUntil,
