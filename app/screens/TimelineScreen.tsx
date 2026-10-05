@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect } from "react";
@@ -26,8 +25,10 @@ export interface ProactiveLine {
 // 어항 위에 뜨는 참견이 말풍선.
 //   reply  — 방금 녹음에 대한 참견이의 대답. 이 상태에서 마이크를 누르면 "대답"으로 녹음된다.
 //   notice — "아직 아무 말도 안 했는데?" 같은 짧은 안내. 대답 대상이 아니다.
+//   confirm — 받아쓴 내용이 무음 환각("시청해주셔서 감사합니다" 등)처럼 보일 때. text는 받아쓴 내용이고,
+//             [맞아]를 누르면 그대로 저장, [아니]를 누르면 버린다(onConfirmSpeech).
 export interface HomeBubble {
-  kind: "reply" | "notice";
+  kind: "reply" | "notice" | "confirm";
   text: string;
 }
 
@@ -39,6 +40,8 @@ interface TimelineScreenProps {
   thinking?: boolean;
   bubble?: HomeBubble | null;
   onBubbleChange: (b: HomeBubble | null) => void;
+  // confirm 말풍선의 [맞아](true) / [아니](false)
+  onConfirmSpeech?: (yes: boolean) => void;
   onOpenCalendar: () => void;
   onOpenMyPage: () => void;
   onOpenInsights: () => void;
@@ -66,6 +69,7 @@ export default function TimelineScreen({
   thinking = false,
   bubble,
   onBubbleChange,
+  onConfirmSpeech,
   onOpenCalendar,
   onOpenMyPage,
   onOpenInsights,
@@ -90,7 +94,8 @@ export default function TimelineScreen({
     // 무엇에 대한 대답인지 여기서 정해서 녹음 화면에 들고 간다.
     const replyTo =
       bubble?.kind === "reply" ? bubble.text : hasCallback && proactiveLine ? proactiveLine.content : undefined;
-    if (bubble?.kind === "notice") onBubbleChange(null);
+    // 안내/확인 말풍선은 새로 말하기 시작하면 내려놓는다(확인 대기 중이던 녹음은 버려진다).
+    if (bubble?.kind === "notice" || bubble?.kind === "confirm") onBubbleChange(null);
     playFx("micStart");
     // 사용자 제스처 안에서 마이크 요청을 먼저 시작해둔다(iOS Safari 대비) — 녹음 화면이 같은 스트림을 이어받는다.
     acquireMicStream().catch(() => {});
@@ -135,27 +140,66 @@ export default function TimelineScreen({
       <div style={styles.core}>
         {/* 어항 위 말풍선 — 참견이의 대답 / 먼저 꺼낸 말 / 짧은 안내 */}
         <div style={styles.bubbleSlot}>
-          {shown && !thinking && (
-            <div key={shown.text} className="tl-bubble" style={styles.bubble} role="status">
-              {shown.stamp && <span style={styles.bubbleStamp}>{shown.stamp}</span>}
-              <span style={styles.bubbleText}>{shown.text}</span>
-              {shown.closable && (
+          {bubble?.kind === "confirm" && !thinking ? (
+            <div key={"confirm:" + bubble.text} className="tl-bubble" style={styles.bubble} role="status">
+              <span style={styles.bubbleStamp}>참견이</span>
+              <span style={styles.confirmAsk}>잘 못 들었어. 이렇게 말한 거 맞아?</span>
+              <span style={styles.confirmQuote}>“{bubble.text.length > 60 ? bubble.text.slice(0, 60) + "…" : bubble.text}”</span>
+              <div style={styles.confirmRow}>
                 <button
-                  className="tl-close"
-                  style={styles.bubbleClose}
-                  aria-label="말풍선 닫기"
-                  onClick={() => onBubbleChange(null)}
+                  className="tl-sticker"
+                  style={{ ...styles.confirmBtn, background: "#FFD23F" }}
+                  onClick={() => {
+                    playFx("buttonPress");
+                    onConfirmSpeech?.(true);
+                  }}
                 >
-                  <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
-                    <path d="M3 3 L11 11 M11 3 L3 11" stroke={INK} strokeWidth={2.4} strokeLinecap="round" />
-                  </svg>
+                  맞아
                 </button>
-              )}
+                <button
+                  className="tl-sticker"
+                  style={styles.confirmBtn}
+                  onClick={() => {
+                    playFx("buttonPress");
+                    onConfirmSpeech?.(false);
+                  }}
+                >
+                  아니, 말 안 했어
+                </button>
+              </div>
             </div>
+          ) : (
+            shown &&
+            !thinking && (
+              <div key={shown.text} className="tl-bubble" style={styles.bubble} role="status">
+                {shown.stamp && <span style={styles.bubbleStamp}>{shown.stamp}</span>}
+                <span style={styles.bubbleText}>{shown.text}</span>
+                {shown.closable && (
+                  <button
+                    className="tl-close"
+                    style={styles.bubbleClose}
+                    aria-label="말풍선 닫기"
+                    onClick={() => onBubbleChange(null)}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+                      <path d="M3 3 L11 11 M11 3 L3 11" stroke={INK} strokeWidth={2.4} strokeLinecap="round" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            )
           )}
         </div>
 
-        <div style={styles.tankBox}>
+        <div
+          style={{
+            ...styles.tankBox,
+            // 확인 말풍선은 버튼까지 있어서 키가 크다 — 그동안은 어항을 조금 줄여 마이크가 메뉴 뒤로 밀리지 않게.
+            ...(bubble?.kind === "confirm" && !thinking
+              ? { width: "min(100%, clamp(200px, calc((100dvh - 540px) * 0.67), 340px))" }
+              : null),
+          }}
+        >
           <FishTank entries={entries} thinking={thinking} onTankPress={handleMic} />
         </div>
 
@@ -329,6 +373,34 @@ const styles: { [key: string]: React.CSSProperties } = {
     maxHeight: "8.4em", // 6줄까지 — 더 길면 말풍선 안에서만 스크롤
     overflowY: "auto",
     whiteSpace: "pre-line",
+  },
+  confirmAsk: {
+    fontSize: 17,
+    lineHeight: 1.4,
+    wordBreak: "keep-all",
+  },
+  confirmQuote: {
+    fontSize: 15,
+    lineHeight: 1.45,
+    color: "rgba(27,22,48,.7)",
+    wordBreak: "keep-all",
+  },
+  confirmRow: {
+    display: "flex",
+    gap: 10,
+    marginTop: 6,
+  },
+  confirmBtn: {
+    minHeight: 44,
+    padding: "0 16px",
+    borderRadius: 14,
+    border: `3px solid ${INK}`,
+    background: "#FFFFFF",
+    boxShadow: `3px 3px 0 ${INK}`,
+    fontFamily: "'Jua', sans-serif",
+    fontSize: 16,
+    color: INK,
+    cursor: "pointer",
   },
   bubbleClose: {
     position: "absolute",
