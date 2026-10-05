@@ -25,8 +25,12 @@ export async function GET(request: Request) {
     const entries = (data ?? [])
       // STT 실패했거나 빈 발화는 기록에서 제외
       .filter((row) => row.transcript && row.transcript !== '(음성 변환 실패)')
-      // 무음 녹음에 Whisper가 지어낸 문장("시청해주셔서 감사합니다" 등)만 있는 예전 기록도 제외
-      .filter((row) => !looksLikeNoSpeech(row.transcript as string, undefined))
+      // 무음 녹음에 Whisper가 지어낸 문장("시청해주셔서 감사합니다" 등)만 있는 예전 기록도 제외.
+      // 단, 사용자가 "이렇게 말한 거 맞아?"에 [맞아]로 확인한 기록은 그대로 둔다.
+      .filter(
+        (row) =>
+          (row.response as any)?.speech_confirmed === true || !looksLikeNoSpeech(row.transcript as string, undefined)
+      )
       .map((row) => ({
         id: row.id,
         createdAt: row.created_at,
