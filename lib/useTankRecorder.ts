@@ -85,4 +85,130 @@ function speechMs(meter: InputMeter): { ms: number; floor: number; threshold: nu
   // (그래서 기준은 0.015~0.05 사이 — 보통 휴대폰 앞에서 말하는 소리는 이보다 크다).
   const floor = Math.min(MAX_NOISE_FLOOR, sorted.length ? sorted[Math.floor(sorted.length * 0.1)] : 0);
   const threshold = Math.max(INPUT_RMS_THRESHOLD, floor * NOISE_RATIO);
-  let n
+  let n = 0;
+  for (const v of meter.levels) if (v >= threshold) n++;
+  return { ms: n * METER_INTERVAL_MS, floor, threshold };
+}
+
+export type TankRecordResult =
+  | { kind: "audio"; blob: Blob; durationMs: number }
+  | { kind: "empty" } // 너무 짧거나 무음 — 서버로 보내지 않는다
+  | { kind: "failed" }; // 마이크를 못 잡음
+
+export type TankRecorderState = "idle" | "starting" | "recording";
+
+export function useTankRecorder(onAutoStop?: (r: TankRecordResult) => void) {
+  const [state, setState] = useState<TankRecorderState>("idle");
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const meterRef = useRef<InputMeter | null>(null);
+  const startedAtRef = useRef(0);
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const resolveRef = useRef<((r: TankRecordResult) => void) | null>(null);
+  const discardRef = useRef(false);
+  const autoStopRef = useRef(onAutoStop);
+  autoStopRef.current = onAutoStop;
+
+  const cleanupTimers = () => {
+    if (tickRef.current) clearInterval(tickRef.current);
+    tickRef.current = null;
+  };
+
+  // 화면을 떠나면 녹음 중이던 건 버린다. 마이크 트랙 자체는 lib/micStream.ts 소유라 끄지 않는다.
+  useEffect(() => {
+    return () => {
+      cleanupTimers();
+      stopInputMeter(meterRef.current);
+      meterRef.current = null;
+      const rec = recorderRef.current;
+      if (rec && rec.state !== "inactive") {
+        discardRef.current = true;
+        try { rec.stop(); } catch {}
+      }
+    };
+  }, []);
+
+  const finish = useCallback((): Promise<TankRecordResult> => {
+    const rec = recorderRef.current;
+    if (!rec || rec.state === "inactive") return Promise.resolve({ kind: "empty" });
+    // 중지 효과음이 측정에 섞이지 않도록 측정부터 멈춘다.
+    if (meterRef.current) clearInterval(meterRef.current.timer);
+    return new Promise<TankRecordResult>((resolve) => {
+      resolveRef.current = resolve;
+      try { rec.stop(); } catch { resolve({ kind: "empty" }); }
+    });
+  }, []);
+
+  const start = useCallback(async (): Promise<boolean> => {
+    if (state !== "idle") return false;
+    setState("starting");
+    try {
+      const stream = await acquireMicStream();
+      const recorder = new MediaRecorder(stream);
+      chunksRef.current = [];
+      discardRef.current = false;
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = () => {
+        cleanupTimers();
+        const meter = meterRef.current;
+        meterRef.current = null;
+        stopInputMeter(meter);
+        recorderRef.current = null;
+        setState("idle");
+        if (discardRef.current) return;
+        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+        const durationMs = Date.now() - startedAtRef.current;
+        const reliable = meterIsReliable(meter);
+        const speech = reliable ? speechMs(meter) : null;
+        const silent = !!speech && speech.ms < MIN_INPUT_MS;
+        console.log("[tank-recording] stop", {
+          durationMs,
+          bytes: blob.size,
+          meter: speech
+            ? {
+                speechMs: speech.ms,
+                floor: Number(speech.floor.toFixed(4)),
+                threshold: Number(speech.threshold.toFixed(4)),
+                maxRms: Number(meter!.maxRms.toFixed(4)),
+              }
+            : "unavailable",
+        });
+        const result: TankRecordResult =
+          durationMs < MIN_RECORDING_MS || blob.size === 0 || silent ? { kind: "empty" } : { kind: "audio", blob, durationMs };
+        const resolve = resolveRef.current;
+        resolveRef.current = null;
+        if (resolve) resolve(result);
+        else autoStopRef.current?.(result); // 3분 자동 정지 / 트랙이 먼저 끊긴 경우
+      };
+      stopInputMeter(meterRef.current);
+      meterRef.current = startInputMeter(stream);
+      startedAtRef.current = Date.now();
+      recorder.start();
+      recorderRef.current = recorder;
+      setElapsedMs(0);
+      setState("recording");
+      tickRef.current = setInterval(() => {
+        const ms = Date.now() - startedAtRef.current;
+        setElapsedMs(ms);
+        if (ms >= MAX_RECORDING_MS) {
+          const rec = recorderRef.current;
+          if (rec && rec.state !== "inactive") {
+            if (meterRef.current) clearInterval(meterRef.current.timer);
+            try { rec.stop(); } catch {}
+          }
+        }
+      }, 200);
+      return true;
+    } catch {
+      stopInputMeter(meterRef.current);
+      meterRef.current = null;
+      setState("idle");
+      return false;
+    }
+  }, [state]);
+
+  return { state, elapsedMs, start, finish };
+}
