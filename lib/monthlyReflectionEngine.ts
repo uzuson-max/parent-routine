@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { PERSONALITY_PROMPT } from '@/lib/responseEngine';
+import { createLetter } from '@/lib/letters';
 
 // ============================================================================
 // Monthly Reflection(월말정산) 레이어 — 파이프라인의 다음 단계.
@@ -15,11 +16,10 @@ import { PERSONALITY_PROMPT } from '@/lib/responseEngine';
 // 뜻이었지, 리플렉션이라는 새로운 산출물 자체를 위한 테이블을 금지한 게 아니다 — memory_insights를
 // memory_units 대신 새로 만들 때와 완전히 같은 논리다.)
 //
-// UI는 아직 만들지 않는다. 이 파일 + app/api/cron/generate-monthly-reflection 라우트까지가
-// 이번 단계의 범위 — insightEngine.ts/generate-insights 라우트가 만들어진 것과 정확히 같은 모양.
-// vercel.json에는 아직 등록하지 않는다 — 월간 스케줄은 하루 단위 배치와 리스크가 다르고
-// (한 번 잘못 돌면 그 달의 리플렉션을 통째로 그르칠 수 있음), 실제 스케줄링은 사용자 확인 후
-// 별도 단계에서 진행한다.
+// 결과는 두 곳에서 보인다: 지난 어항(app/api/user/archive가 monthly_reflections를 읽음)과
+// 편지 탭(생성 직후 createLetter로 "N월의 너" 편지를 하나 넣음).
+// 스케줄: vercel.json — 매달 1일 00:00 UTC(= KST 09:00). KST로 이미 새 달이 시작된 뒤라 "지난 달"이 정확히 잡힌다.
+// 한 번 잘못 돌아도 같은 달은 status='generated'면 건너뛰므로 두 번 만들어지지 않는다.
 //
 // 이 앱에 사용자별 timezone 컬럼이 전혀 없다(user_memory 포함, 스키마 전체 확인함) — 한국어
 // 서비스라 KST(UTC+9)를 암묵적으로 전제하고 있다고 보고, "그 달"의 경계도 KST 달력 기준으로
@@ -298,6 +298,23 @@ export async function generateMonthlyReflectionForUser(
     if (upsertErr || !upserted) {
       console.error('[monthlyReflectionEngine] monthly_reflections upsert 실패:', upsertErr?.message);
       return { action: 'error', reason: upsertErr?.message };
+    }
+
+    // 편지 탭으로도 보낸다 — "참견이가 나한테 뭘 발견했지?"에 회고도 같이 쌓이게.
+    // 지난 어항(/api/user/archive)은 monthly_reflections를 직접 읽으니 거기엔 이미 보인다.
+    // 리플렉션은 이미 저장됐으니 편지 저장이 실패해도 결과는 generated로 두고 기록만 남긴다
+    // (같은 달은 다음 실행 때 skipped_already_generated라 편지가 두 번 생기지 않는다).
+    try {
+      const month = Number(bounds.periodStartLabel.slice(5, 7));
+      await createLetter({
+        userId,
+        title: `${month}월의 너`,
+        content: synthesis.content,
+        sourceType: 'monthly_reflection',
+        metadata: { reflection_id: upserted.id, period_start: bounds.periodStartLabel },
+      });
+    } catch (letterErr: any) {
+      console.error('[monthlyReflectionEngine] 월말 편지 저장 실패 (리플렉션은 저장됨):', letterErr?.message);
     }
 
     return { action: 'generated', reflectionId: upserted.id, insightCount: insights.length };
