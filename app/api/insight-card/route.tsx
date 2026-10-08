@@ -4,6 +4,12 @@ import { ImageResponse } from 'next/og';
 import { supabase } from '@/lib/supabase';
 import { getUserIdFromRequest } from '@/lib/auth';
 import { markInsightsSurfaced } from '@/lib/insightEngine';
+import { readFile } from 'fs/promises';
+import path from 'path';
+
+// Node 런타임에서 돈다(supabase/insightEngine 때문). 아래 에셋 로딩도 Node 기준.
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 // ============================================================================
 // 발견(memory_insights) 한 건을 정사각 이미지 카드로 그려서 돌려주는 라우트 — "인사이트 공유
@@ -11,18 +17,31 @@ import { markInsightsSurfaced } from '@/lib/insightEngine';
 // 다듬어 저장해둔 content를 그대로 그림으로 옮기는 것뿐. Next.js에 내장된 next/og(satori)로
 // 서버에서 PNG를 직접 렌더링하므로 html2canvas 같은 별도 라이브러리도 필요 없다.
 //
-// 폰트/마스코트 이미지는 이 라우트 파일과 함께 다니는 정적 에셋으로 fetch(new URL(...,
-// import.meta.url))로 읽는다 — Next.js 공식 문서가 권장하는 방식(로컬 파일 fs 경로 트레이싱이
-// 안 될 수 있는 문제를 피함)이라 그대로 따름. 폰트는 시스템에 이미 설치돼 있던 Noto Sans CJK KR
-// (SIL OFL, 오픈소스) Bold 서체에서 한글/영문/기본 문장부호 범위만 추출한 서브셋(약 2MB)이다.
+// 폰트/마스코트 이미지는 디스크에서 직접 읽는다(fs). 예전엔 fetch(new URL(..., import.meta.url))로
+// 읽었는데, 그 방식은 Edge 런타임 전용이라 이 라우트(Node 런타임)에서는 URL이
+// "/_next/static/media/..." 같은 상대 경로로 바뀌어 "Failed to parse URL" 에러가 났다 —
+// 그래서 카드로 공유 버튼이 항상 실패했다. 배포 번들에 두 파일이 같이 들어가도록
+// next.config.js의 outputFileTracingIncludes에도 등록해 뒀다.
+// 폰트는 Noto Sans CJK KR(SIL OFL, 오픈소스) Bold에서 한글/영문/기본 문장부호만 추출한 서브셋(약 2MB).
 // ============================================================================
 
-const fontPromise = fetch(new URL('./NotoSansKR-Bold.otf', import.meta.url)).then((res) =>
-  res.arrayBuffer()
-);
-const mascotPromise = fetch(new URL('../../../public/mascot/04_remember.png', import.meta.url))
-  .then((res) => res.arrayBuffer())
-  .then((buf) => `data:image/png;base64,${Buffer.from(buf).toString('base64')}`);
+const FONT_PATH = path.join(process.cwd(), 'app', 'api', 'insight-card', 'NotoSansKR-Bold.otf');
+const MASCOT_PATH = path.join(process.cwd(), 'public', 'mascot', '04_remember.png');
+
+let assetsPromise: Promise<{ fontData: ArrayBuffer; mascotDataUri: string }> | null = null;
+function loadAssets() {
+  if (!assetsPromise) {
+    assetsPromise = Promise.all([readFile(FONT_PATH), readFile(MASCOT_PATH)]).then(([font, png]) => ({
+      fontData: font.buffer.slice(font.byteOffset, font.byteOffset + font.byteLength) as ArrayBuffer,
+      mascotDataUri: `data:image/png;base64,${png.toString('base64')}`,
+    }));
+    // 실패하면 다음 요청에서 다시 읽게 캐시를 비운다.
+    assetsPromise.catch(() => {
+      assetsPromise = null;
+    });
+  }
+  return assetsPromise;
+}
 
 // 내용이 길수록 폰트 크기를 줄여서 1080x1080 카드 안에 자연스럽게 들어가게 한다.
 function fontSizeFor(content: string): number {
@@ -69,7 +88,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: '해당 발견을 찾을 수 없습니다.' }, { status: 404 });
     }
 
-    const [fontData, mascotDataUri] = await Promise.all([fontPromise, mascotPromise]);
+    const { fontData, mascotDataUri } = await loadAssets();
     const content = insight.content as string;
 
     const image = new ImageResponse(
