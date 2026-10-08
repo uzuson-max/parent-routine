@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { Channel, InterventionType, channelRule } from '@/lib/intervention/interventionTypes';
 import { kstDate, kstParts, startOfKstDay } from '@/lib/intervention/kstTime';
+import { loadUserPrefs, type UserPrefs } from '@/lib/userPrefs';
 
 // ============================================================================
 // Global Push Gate — "개입하기로 했다면, 지금 앱 밖으로 보내도 되는가?"를 판단하는 단 하나의 관문.
@@ -43,23 +44,51 @@ export interface PushGateInput {
   expiresAt?: Date | null;
 }
 
+// MY에서 사용자가 정한 참견 받는 방법 (lib/userPrefs.ts). 넘기지 않으면 기존 정책 그대로.
+export type GatePrefs = Pick<UserPrefs, 'outreachEnabled' | 'interventionLevel' | 'quietStartHour' | 'quietEndHour'>;
+
+interface EffectivePolicy {
+  allowFromHour: number;
+  allowUntilHour: number;
+  cooldownHours: number;
+  dailyMax: number;
+}
+
+function policyFor(prefs?: GatePrefs): EffectivePolicy {
+  if (!prefs) {
+    return {
+      allowFromHour: QUIET_HOURS.allowFromHour,
+      allowUntilHour: QUIET_HOURS.allowUntilHour,
+      cooldownHours: GENERAL_PUSH_COOLDOWN_HOURS,
+      dailyMax: GENERAL_PUSH_DAILY_MAX,
+    };
+  }
+  const high = prefs.interventionLevel === 'high';
+  return {
+    allowFromHour: prefs.quietEndHour,
+    allowUntilHour: prefs.quietStartHour - 1, // 22시부터 조용하면 21:59까지 허용
+    cooldownHours: high ? 6 : GENERAL_PUSH_COOLDOWN_HOURS,
+    dailyMax: high ? 2 : GENERAL_PUSH_DAILY_MAX,
+  };
+}
+
 export type PushGateDecision =
   | { allowed: true; reason: string }
   | { allowed: false; reason: string; retryAt: Date | null }; // retryAt=null이면 재시도하지 말고 폐기
 
-function nextAllowedWindowStart(now: Date): Date {
+function nextAllowedWindowStart(now: Date, pol: EffectivePolicy = policyFor()): Date {
   const p = kstParts(now);
-  if (p.hour < QUIET_HOURS.allowFromHour) {
-    return kstDate(p.year, p.month, p.day, QUIET_HOURS.allowFromHour, 30);
+  if (p.hour < pol.allowFromHour) {
+    return kstDate(p.year, p.month, p.day, pol.allowFromHour, 30);
   }
   const tomorrow = new Date(startOfKstDay(now).getTime() + 24 * 60 * 60 * 1000);
   const t = kstParts(tomorrow);
-  return kstDate(t.year, t.month, t.day, QUIET_HOURS.allowFromHour, 30);
+  return kstDate(t.year, t.month, t.day, pol.allowFromHour, 30);
 }
 
-function withinQuietHours(now: Date): boolean {
+function withinQuietHours(now: Date, pol: EffectivePolicy = policyFor()): boolean {
   const h = kstParts(now).hour;
-  return h < QUIET_HOURS.allowFromHour || h > QUIET_HOURS.allowUntilHour;
+  return h < pol.allowFromHour || h > pol.allowUntilHour;
 }
 
 function laterOf(a: Date, b: Date): Date {
@@ -76,13 +105,16 @@ function hold(reason: string, retryAt: Date | null, expiresAt?: Date | null): Pu
 
 /**
  * 순수 함수 — DB를 읽지 않는다. 판단 순서:
- * 1) 채널 허용 여부  2) 만료  3) 사건 시각(기한 전 COMMITMENT_CHECK 금지)
- * 4) REMINDER면 여기서 통과(쿨다운 bypass)  5) 조용한 시간  6) 같은 topic/기억 중복
- * 7) 사용자 활동 중(RETURN_MEMORY)  8) 12시간 쿨다운  9) 하루 최대 횟수
+ * 1) 채널 허용 여부  2) 사용자가 문자 참견을 껐는가 / '살짝'인가  3) 만료
+ * 4) 사건 시각(기한 전 COMMITMENT_CHECK 금지)  5) REMINDER면 여기서 통과(쿨다운 bypass)
+ * 6) 조용한 시간  7) 같은 topic/기억 중복  8) 사용자 활동 중(RETURN_MEMORY)
+ * 9) 쿨다운(기본 12시간, '자주'는 6시간)  10) 하루 최대 횟수(기본 1, '자주'는 2)
+ * prefs를 넘기지 않으면 기존 정책과 완전히 같다.
  */
-export function evaluatePushGate(input: PushGateInput, history: PushHistory): PushGateDecision {
+export function evaluatePushGate(input: PushGateInput, history: PushHistory, prefs?: GatePrefs): PushGateDecision {
   const { type, channel, now, expiresAt, referencedEventAt } = input;
   const rule = channelRule(type, channel);
+  const pol = policyFor(prefs);
 
   if (rule === 'forbidden') {
     return { allowed: false, reason: `${type} + ${channel} 조합은 허용되지 않음`, retryAt: null };
@@ -90,6 +122,13 @@ export function evaluatePushGate(input: PushGateInput, history: PushHistory): Pu
   if (rule === 'immediate') {
     // screen 같은 즉시 채널은 push가 아니다 — 게이트를 부를 이유가 없지만, 불렸다면 통과시킨다.
     return { allowed: true, reason: 'immediate 채널 (push gate 대상 아님)' };
+  }
+
+  if (prefs && !prefs.outreachEnabled) {
+    return { allowed: false, reason: '사용자가 문자·전화 참견을 꺼둠', retryAt: null };
+  }
+  if (prefs && prefs.interventionLevel === 'low' && type !== 'REMINDER') {
+    return { allowed: false, reason: "참견 정도 '살짝' — 직접 부탁한 알림만 문자로 보냄", retryAt: null };
   }
 
   if (expiresAt && now.getTime() > expiresAt.getTime()) {
@@ -107,8 +146,8 @@ export function evaluatePushGate(input: PushGateInput, history: PushHistory): Pu
 
   // ---- 여기부터 일반(gated) push ----
 
-  if (withinQuietHours(now)) {
-    return hold('조용한 시간대', nextAllowedWindowStart(now), expiresAt);
+  if (withinQuietHours(now, pol)) {
+    return hold('조용한 시간대', nextAllowedWindowStart(now, pol), expiresAt);
   }
 
   const blockSince = now.getTime() - SAME_TOPIC_BLOCK_DAYS * 24 * 60 * 60 * 1000;
@@ -133,11 +172,11 @@ export function evaluatePushGate(input: PushGateInput, history: PushHistory): Pu
   // 쿨다운은 REMINDER 포함 "모든" push 기준 — REMINDER가 나가면 일반 push 쿨다운이 다시 시작된다.
   const lastPush = history.recentPushes[0];
   if (lastPush) {
-    const cooldownUntil = new Date(lastPush.created_at).getTime() + GENERAL_PUSH_COOLDOWN_HOURS * 60 * 60 * 1000;
+    const cooldownUntil = new Date(lastPush.created_at).getTime() + pol.cooldownHours * 60 * 60 * 1000;
     if (now.getTime() < cooldownUntil) {
       let retry = new Date(cooldownUntil);
-      if (withinQuietHours(retry)) retry = nextAllowedWindowStart(retry);
-      return hold('일반 push 쿨다운(12시간) 중', retry, expiresAt);
+      if (withinQuietHours(retry, pol)) retry = nextAllowedWindowStart(retry, pol);
+      return hold(`일반 push 쿨다운(${pol.cooldownHours}시간) 중`, retry, expiresAt);
     }
   }
 
@@ -146,9 +185,9 @@ export function evaluatePushGate(input: PushGateInput, history: PushHistory): Pu
   const todayGeneral = history.recentPushes.filter(
     (p) => new Date(p.created_at).getTime() >= todayStart && p.intervention_type !== 'REMINDER'
   ).length;
-  if (todayGeneral >= GENERAL_PUSH_DAILY_MAX) {
+  if (todayGeneral >= pol.dailyMax) {
     const tomorrow = new Date(todayStart + 24 * 60 * 60 * 1000);
-    const retry = laterOf(nextAllowedWindowStart(new Date(tomorrow.getTime() - 60 * 1000)), tomorrow);
+    const retry = laterOf(nextAllowedWindowStart(new Date(tomorrow.getTime() - 60 * 1000), pol), tomorrow);
     return hold('오늘 일반 push 상한 도달', retry, expiresAt);
   }
 
@@ -193,8 +232,10 @@ export async function checkPushGate(userId: string, input: PushGateInput): Promi
   const rule = channelRule(input.type, input.channel);
   if (rule === 'forbidden' || rule === 'immediate') return evaluatePushGate(input, { recentPushes: [], lastUserActivityAt: null });
   try {
-    const history = await loadPushHistory(userId, input.now);
-    return evaluatePushGate(input, history);
+    // 사용자 설정을 못 읽으면 loadUserPrefs가 던진다 → 아래 catch에서 안전하게 보류.
+    // (migration 전이라 컬럼이 없을 때만 기본값 = 기존 정책)
+    const [history, { prefs }] = await Promise.all([loadPushHistory(userId, input.now), loadUserPrefs(userId)]);
+    return evaluatePushGate(input, history, prefs);
   } catch (err: any) {
     console.error(err?.message ?? err);
     return hold('push 기록 조회 실패 — 안전하게 보류', new Date(input.now.getTime() + 60 * 60 * 1000), input.expiresAt);

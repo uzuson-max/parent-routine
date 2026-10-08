@@ -10,10 +10,14 @@ import { useEffect, useRef, useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
 import { BRAND, inkAlpha, pageBackground, tactile, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import Mascot from "@/components/Mascot";
+import PeekMascot from "@/components/PeekMascot";
+import InsightList from "@/components/InsightList";
+import { BottomNav, WorldTitle, worldPage, stickerCard, INK, WORLD_CSS, type WorldTab } from "@/components/WorldNav";
 import type { LetterSummary, LetterDetail } from "@/lib/letters";
 
 interface LettersScreenProps {
-  onBack: () => void;
+  // 하단 탭 이동 (어항 / 지난 어항 / 편지)
+  onNavigate: (tab: WorldTab) => void;
   // Home badge를 실제 DB 상태와 맞추기 위한 콜백. 목록을 불러왔을 때와 편지를 읽었을 때 호출한다.
   onUnreadCountChange?: (count: number) => void;
 }
@@ -39,7 +43,7 @@ function formatDetailDate(iso: string): string {
   return sameYear ? `${d.getMonth() + 1}월 ${d.getDate()}일` : `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`;
 }
 
-export default function LettersScreen({ onBack, onUnreadCountChange }: LettersScreenProps) {
+export default function LettersScreen({ onNavigate, onUnreadCountChange }: LettersScreenProps) {
   const [letters, setLetters] = useState<LetterSummary[] | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
@@ -83,26 +87,25 @@ export default function LettersScreen({ onBack, onUnreadCountChange }: LettersSc
     return <LetterDetailView letterId={openId} onBack={() => setOpenId(null)} onRead={handleRead} />;
   }
 
-  return (
-    <div style={styles.container}>
-      <button className={TACTILE_PRESS_CLASS} style={styles.backButton} onClick={onBack}>← 뒤로</button>
+  const unreadNow = letters ? letters.filter((l) => l.isUnread).length : 0;
 
-      <div style={styles.topSection}>
-        <Mascot pose="기본" size={56} />
-        <h1 style={styles.headline}>참견이의 편지</h1>
-      </div>
+  return (
+    <div style={worldPage}>
+      <style dangerouslySetInnerHTML={{ __html: WORLD_CSS }} />
+      <WorldTitle>편지</WorldTitle>
 
       {letters === null ? (
         <p style={styles.loadingText}>잠깐만.</p>
       ) : letters.length === 0 ? (
-        <div style={styles.emptyWrap}>
+        <div style={{ ...stickerCard, ...styles.emptyWrap }}>
+          <PeekMascot expression={loadFailed ? "tilt" : "base"} size={60} />
           <p style={styles.emptyTitle}>{loadFailed ? "편지함이 잘 안 열리네." : "아직 넣어둔 편지 없어."}</p>
           <p style={styles.emptySub}>
             {loadFailed ? "조금 있다 다시 열어볼래?" : "뭐 생각나면 여기다 슬쩍 넣어둘게."}
           </p>
         </div>
       ) : (
-        <div style={styles.list}>
+        <div style={{ ...stickerCard, ...styles.list }}>
           {letters.map((letter, i) => (
             <button
               key={letter.id}
@@ -123,6 +126,12 @@ export default function LettersScreen({ onBack, onUnreadCountChange }: LettersSc
           ))}
         </div>
       )}
+
+      {/* 예전 MEMORY 탭 — 참견이가 알아챈 거 */}
+      <p style={styles.sectionTitle}>참견이가 알아챈 거</p>
+      <InsightList />
+
+      <BottomNav active="letters" onNavigate={onNavigate} unreadLetterCount={unreadNow} />
     </div>
   );
 }
@@ -175,8 +184,9 @@ function LetterDetailView({
   }, [letterId]);
 
   return (
-    <div style={styles.container}>
-      <button className={TACTILE_PRESS_CLASS} style={styles.backButton} onClick={onBack}>← 뒤로</button>
+    <div style={{ ...worldPage, paddingBottom: "calc(40px + env(safe-area-inset-bottom, 0px))" }}>
+      <style dangerouslySetInnerHTML={{ __html: WORLD_CSS }} />
+      <WorldTitle onBack={onBack}>편지</WorldTitle>
 
       {failed ? (
         <div style={styles.emptyWrap}>
@@ -199,7 +209,7 @@ function LetterDetailView({
             <span style={styles.letterEyebrow}>참견이의 편지</span>
             <span style={styles.letterDate}>{formatDetailDate(letter.createdAt)}</span>
           </div>
-          <div style={styles.letterPaper}>
+          <div style={{ ...stickerCard, ...styles.letterPaper }}>
             <p style={styles.letterContent}>{letter.content}</p>
           </div>
           <div style={styles.letterFooter}>
@@ -237,12 +247,13 @@ const styles: { [key: string]: React.CSSProperties } = {
   loadingText: { fontSize: 14, color: inkAlpha.faint, fontWeight: 500, margin: "24px 0 0 0", textAlign: "center" },
 
   // 빈 상태 — 카드 없이 담백하게.
-  emptyWrap: { padding: "48px 12px", textAlign: "center" },
+  emptyWrap: { padding: "28px 16px", textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: 4 },
+  sectionTitle: { fontSize: 18, margin: "24px 2px 10px", fontFamily: "'Jua', sans-serif", color: INK },
   emptyTitle: { fontSize: 16, fontWeight: 700, color: inkAlpha.soft, margin: "0 0 8px 0" },
   emptySub: { fontSize: 13, fontWeight: 500, color: inkAlpha.faint, margin: 0, lineHeight: 1.5 },
 
   // 목록 — 카드를 여러 장 쌓지 않고, 표면 하나 안에 얇은 구분선으로만 나눈다.
-  list: { ...tactile.card, padding: "4px 0", overflow: "hidden" },
+  list: { padding: "4px 0", overflow: "hidden" },
   row: {
     width: "100%",
     display: "flex",
@@ -295,7 +306,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   letterMeta: { display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "0 4px" },
   letterEyebrow: { fontSize: 12, fontWeight: 700, color: BRAND.lavenderDeep, letterSpacing: "0.02em" },
   letterDate: { fontSize: 12, fontWeight: 600, color: inkAlpha.faint },
-  letterPaper: { ...tactile.card, padding: "26px 22px" },
+  letterPaper: { padding: "26px 22px" },
   letterContent: {
     fontSize: 16,
     fontWeight: 500,

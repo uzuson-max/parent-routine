@@ -110,5 +110,22 @@ const sat0900 = kstDate(2026, 9, 26, 9, 0);
   check('J4 헤더 없는 LMS 제목은 "참견이"', composeSms(longBody).subject === '참견이');
 }
 
+// K: MY > 참견 받는 방법 (lib/userPrefs.ts) — prefs를 넘기면 사용자 설정을 따른다
+{
+  const base = { outreachEnabled: true, interventionLevel: 'medium' as const, quietStartHour: 22, quietEndHour: 9 };
+  const at14 = kstDate(2026, 9, 25, 14, 0);
+  check('K1 문자·전화 끄면 RETURN_MEMORY 차단', !evaluatePushGate({ type: 'RETURN_MEMORY', channel: 'sms', now: at14 }, empty, { ...base, outreachEnabled: false }).allowed);
+  check('K2 문자·전화 끄면 REMINDER도 차단', !evaluatePushGate({ type: 'REMINDER', channel: 'sms', now: at14 }, empty, { ...base, outreachEnabled: false }).allowed);
+  check('K3 살짝: RETURN_MEMORY 차단', !evaluatePushGate({ type: 'RETURN_MEMORY', channel: 'sms', now: at14 }, empty, { ...base, interventionLevel: 'low' }).allowed);
+  check('K4 살짝: REMINDER는 발송', evaluatePushGate({ type: 'REMINDER', channel: 'sms', now: at14 }, empty, { ...base, interventionLevel: 'low' }).allowed);
+  const h7: PushHistory = { recentPushes: [{ created_at: kstDate(2026, 9, 25, 7, 0).toISOString(), intervention_type: 'RETURN_MEMORY', topic_key: 'a', chosen_memory_id: 1 }], lastUserActivityAt: null };
+  check('K5 적당히: 7시간 뒤 차단(12시간 쿨다운)', !evaluatePushGate({ type: 'RETURN_MEMORY', channel: 'sms', now: at14 }, h7, base).allowed);
+  check('K6 자주: 7시간 뒤 통과(6시간 쿨다운, 하루 2번)', evaluatePushGate({ type: 'RETURN_MEMORY', channel: 'sms', now: at14 }, h7, { ...base, interventionLevel: 'high' }).allowed);
+  check('K7 조용한 시간 21시부터면 21:30 차단', !evaluatePushGate({ type: 'RETURN_MEMORY', channel: 'sms', now: kstDate(2026, 9, 25, 21, 30) }, empty, { ...base, quietStartHour: 21 }).allowed);
+  check('K8 조용한 시간 자정부터면 23:30 통과', evaluatePushGate({ type: 'RETURN_MEMORY', channel: 'sms', now: kstDate(2026, 9, 25, 23, 30) }, empty, { ...base, quietStartHour: 24 }).allowed);
+  check('K9 아침 7시까지면 8시 통과', evaluatePushGate({ type: 'RETURN_MEMORY', channel: 'sms', now: kstDate(2026, 9, 25, 8, 0) }, empty, { ...base, quietEndHour: 7 }).allowed);
+  check('K10 prefs 없으면 기존 정책(21:30 허용)', evaluatePushGate({ type: 'RETURN_MEMORY', channel: 'sms', now: kstDate(2026, 9, 25, 21, 30) }, empty).allowed);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

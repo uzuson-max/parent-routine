@@ -19,6 +19,8 @@ import ThinkingScreen from "./screens/ThinkingScreen"; // 👈 1. 상단 import�
 import FirstTalkScreen from "./screens/FirstTalkScreen";
 import DiscoveryScreen from "./screens/DiscoveryScreen";
 import LettersScreen from "./screens/LettersScreen";
+import ArchiveScreen from "./screens/ArchiveScreen";
+import type { WorldTab } from "@/components/WorldNav";
 import TankRecordingScreen from "./screens/TankRecordingScreen";
 import { BRAND, pageBackground } from "@/lib/theme";
 import { acquireMicStream, releaseMicStream } from "@/lib/micStream";
@@ -43,6 +45,7 @@ type Step =
   | "nickname"
   | "mypage"
   | "calendar"
+  | "archive"
   | "insights"
   | "letters"
   | "uploading"
@@ -55,6 +58,8 @@ type Step =
 
 export default function Home() {
   const [step, setStep] = useState<Step>("landing");
+  // 하단 탭(어항 / 지난 어항 / 편지) 이동
+  const goTab = (tab: WorldTab) => setStep(tab === "home" ? "landing" : tab);
   const [audioBlob, setAudioBlob] = useState<Blob | string | null>(null); // 음성 Blob 또는 텍스트 입력 문자열
   const [selectedTopic, setSelectedTopic] = useState<string>("");
   const [phone, setPhone] = useState<string>("");
@@ -174,7 +179,7 @@ export default function Home() {
   useEffect(() => {
     if (step === "landing") fetchEntries();
     // 홈에서 녹음하던 마이크는 다른 탭으로 나가면 놓아준다(녹음 표시등이 계속 켜져 있지 않게).
-    if (step === "calendar" || step === "mypage" || step === "insights" || step === "letters") releaseMicStream();
+    if (step === "calendar" || step === "archive" || step === "mypage" || step === "insights" || step === "letters") releaseMicStream();
   }, [step]);
 
   // 홈 말풍선을 닫거나 안내만 띄울 때는 대화가 이어지지 않으니 마이크를 놓아준다.
@@ -387,10 +392,8 @@ export default function Home() {
         <TimelineScreen
           entries={entries}
           proactiveLine={proactiveLine}
-          onOpenCalendar={() => setStep("calendar")}
+          onNavigate={goTab}
           onOpenMyPage={() => setStep("mypage")}
-          onOpenInsights={() => setStep("insights")}
-          onOpenLetters={() => setStep("letters")}
           unreadLetterCount={unreadLetterCount}
           bubble={homeBubble}
           onBubbleChange={changeHomeBubble}
@@ -434,7 +437,7 @@ export default function Home() {
       )}
 
       {step === "mypage" && (
-        <MyPageScreen onBack={() => setStep("landing")} onOpenRecords={() => setStep("calendar")} />
+        <MyPageScreen onBack={() => setStep("landing")} onOpenRecords={() => setStep("archive")} />
       )}
 
       {step === "calendar" && (
@@ -449,7 +452,11 @@ export default function Home() {
       )}
 
       {step === "letters" && (
-        <LettersScreen onBack={() => setStep("landing")} onUnreadCountChange={setUnreadLetterCount} />
+        <LettersScreen onNavigate={goTab} onUnreadCountChange={setUnreadLetterCount} />
+      )}
+
+      {step === "archive" && (
+        <ArchiveScreen onNavigate={goTab} unreadLetterCount={unreadLetterCount} />
       )}
 
       {step === "raw_landing" && (

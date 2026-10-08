@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import FishTank from "@/components/FishTank";
-import { IconHome, IconRecord, IconMemory, IconGear, IconLetter } from "@/components/icons";
+import { BottomNav, MyButton, type WorldTab } from "@/components/WorldNav";
 import { acquireMicStream } from "@/lib/micStream";
 import { playFx } from "@/lib/fx";
 
@@ -42,12 +42,11 @@ interface TimelineScreenProps {
   onBubbleChange: (b: HomeBubble | null) => void;
   // confirm 말풍선의 [맞아](true) / [아니](false)
   onConfirmSpeech?: (yes: boolean) => void;
-  onOpenCalendar: () => void;
+  // 하단 탭(어항 / 지난 어항 / 편지)으로 이동
+  onNavigate: (tab: WorldTab) => void;
+  // 오른쪽 위 MY(설정) 아이콘
   onOpenMyPage: () => void;
-  onOpenInsights: () => void;
-  // 참견이의 편지 진입점. 넘기지 않으면 아이콘 자체를 그리지 않는다(기존 사용처 호환).
-  onOpenLetters?: () => void;
-  // 실제 DB의 안 읽은 편지 개수. 0이거나 없으면 badge를 그리지 않는다.
+  // 실제 DB의 안 읽은 편지 개수. 0이거나 없으면 편지 탭에 badge를 그리지 않는다.
   unreadLetterCount?: number;
   entries: RecordEntry[] | null;
   proactiveLine?: ProactiveLine | null;
@@ -70,10 +69,8 @@ export default function TimelineScreen({
   bubble,
   onBubbleChange,
   onConfirmSpeech,
-  onOpenCalendar,
+  onNavigate,
   onOpenMyPage,
-  onOpenInsights,
-  onOpenLetters,
   unreadLetterCount = 0,
   entries,
   proactiveLine,
@@ -114,27 +111,10 @@ export default function TimelineScreen({
     <div style={styles.container}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
 
-      {/* HEADER — 로고 + 편지 아이콘만 */}
+      {/* HEADER — 로고 + MY(설정) 아이콘만. 편지는 하단 탭으로 옮겼다. */}
       <div style={styles.header}>
         <span style={styles.logo}>참견이</span>
-        {onOpenLetters && (
-          <button
-            className="tl-sticker"
-            style={styles.letterButton}
-            onClick={() => {
-              playFx("buttonPress");
-              onOpenLetters();
-            }}
-            aria-label={unreadLetterCount > 0 ? `참견이의 편지, 안 읽은 편지 ${unreadLetterCount}통` : "참견이의 편지"}
-          >
-            <IconLetter style={{ width: 24, height: 24 }} />
-            {unreadLetterCount > 0 && (
-              <span style={styles.letterBadge} aria-hidden>
-                {unreadLetterCount > 9 ? "9+" : unreadLetterCount}
-              </span>
-            )}
-          </button>
-        )}
+        <MyButton onClick={onOpenMyPage} disabled={thinking} />
       </div>
 
       <div style={styles.core}>
@@ -218,25 +198,8 @@ export default function TimelineScreen({
         </button>
       </div>
 
-      {/* NAVIGATION — 어항 세계와 같은 스티커 톤으로 */}
-      <nav style={styles.bottomNav}>
-        <div className="tl-nav tl-nav-on" aria-current="page">
-          <IconHome style={{ width: 22, height: 22 }} />
-          <span>HOME</span>
-        </div>
-        <button className="tl-nav" onClick={() => { playFx("buttonPress"); onOpenCalendar(); }} disabled={thinking}>
-          <IconRecord style={{ width: 22, height: 22 }} />
-          <span>기록</span>
-        </button>
-        <button className="tl-nav" onClick={() => { playFx("buttonPress"); onOpenInsights(); }} disabled={thinking}>
-          <IconMemory style={{ width: 22, height: 22 }} />
-          <span>MEMORY</span>
-        </button>
-        <button className="tl-nav" onClick={() => { playFx("buttonPress"); onOpenMyPage(); }} disabled={thinking}>
-          <IconGear style={{ width: 22, height: 22 }} />
-          <span>MY</span>
-        </button>
-      </nav>
+      {/* NAVIGATION — 어항 / 지난 어항 / 편지 */}
+      <BottomNav active="home" onNavigate={onNavigate} unreadLetterCount={unreadLetterCount} disabled={thinking} />
     </div>
   );
 }
@@ -253,13 +216,8 @@ const CSS = `
 .tl-mic-idle { background: #FFD23F; animation: tlBreathe 2.8s ease-in-out infinite; }
 .tl-mic-busy { background: #FFD23F; opacity: .55; cursor: default; }
 .tl-mic:not(:disabled):active { animation: none; transform: translate(4px,4px); box-shadow: 1px 1px 0 ${INK}; }
-.tl-mic:focus-visible, .tl-sticker:focus-visible, .tl-close:focus-visible, .tl-nav:focus-visible { outline: 3px dashed ${INK}; outline-offset: 4px; }
-.tl-sticker:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 ${INK} !important; }
+.tl-mic:focus-visible, .tl-sticker:focus-visible, .tl-close:focus-visible, .tl-sticker:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 ${INK} !important; }
 .tl-bubble { animation: tlBubbleIn .4s ease-out both; }
-.tl-nav { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0 10px; border: 0; background: transparent; color: rgba(27,22,48,.5); font-family: 'Jua', sans-serif; font-size: 12px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.tl-nav:disabled { opacity: .4; cursor: default; }
-.tl-nav-on { color: ${INK}; }
-.tl-nav-on svg { background: #FFD23F; border: 2.5px solid ${INK}; border-radius: 12px; padding: 2px 10px; box-sizing: content-box; }
 @media (prefers-reduced-motion: reduce) { .tl-mic-idle, .tl-bubble { animation: none; } }
 `;
 
@@ -297,37 +255,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     display: "inline-block",
     textShadow: "3px 3px 0 #FFFFFF",
   },
-  letterButton: {
-    position: "relative",
-    width: 46,
-    height: 46,
-    borderRadius: "50%",
-    border: `3px solid ${INK}`,
-    background: "#FFFFFF",
-    boxShadow: `3px 3px 0 ${INK}`,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 0,
-    color: INK,
-    cursor: "pointer",
-  },
-  letterBadge: {
-    position: "absolute",
-    top: -6,
-    right: -6,
-    minWidth: 20,
-    height: 20,
-    padding: "0 5px",
-    boxSizing: "border-box",
-    borderRadius: 999,
-    background: "#FF5B4A",
-    border: `2px solid ${INK}`,
-    color: "#fff",
-    fontSize: 11,
-    lineHeight: "16px",
-    textAlign: "center",
-  },
+
+
   core: {
     flex: "1 1 auto",
     minHeight: 0,
@@ -422,17 +351,5 @@ const styles: { [key: string]: React.CSSProperties } = {
     width: "min(100%, clamp(230px, calc((100dvh - 400px) * 0.67), 340px))",
     flexShrink: 0,
   },
-  bottomNav: {
-    position: "fixed",
-    bottom: 0,
-    left: "50%",
-    transform: "translateX(-50%)",
-    width: "100%",
-    maxWidth: "480px",
-    background: "#FFFFFF",
-    borderTop: `3px solid ${INK}`,
-    display: "flex",
-    paddingBottom: "env(safe-area-inset-bottom, 0px)",
-    zIndex: 100,
-  },
+
 };

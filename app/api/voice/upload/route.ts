@@ -11,6 +11,7 @@ import { retrieveRelevantInsights, markInsightsSurfaced } from '@/lib/insightEng
 import { sendRoutineCall } from '@/lib/twilio';
 import OpenAI from 'openai';
 import { looksLikeNoSpeech } from '@/lib/noSpeech';
+import { loadUserPrefs, allowsCalls } from '@/lib/userPrefs';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -222,9 +223,18 @@ export async function POST(request: Request) {
 
     let currentCallState: string;
 
+    // MY > 참견 받는 방법: 문자·전화를 껐거나 '살짝'이면 전화하지 않는다(대답은 화면에 그대로 뜬다).
+    // 설정을 못 읽으면 전화하지 않는 쪽으로 — 사용자가 꺼둔 전화가 울리는 것보다 안전하다.
+    let callsAllowed = false;
+    try {
+      callsAllowed = allowsCalls((await loadUserPrefs(userId)).prefs);
+    } catch (prefErr: any) {
+      console.error('사용자 설정 조회 실패 — 이번엔 전화하지 않음:', prefErr?.message);
+    }
+
     if (!analysisResult) {
       currentCallState = 'saved_only';
-    } else if (responseResult?.channel === 'call') {
+    } else if (responseResult?.channel === 'call' && callsAllowed) {
       if (!effectivePhone) {
         // 전화가 필요한 순간인데 저장된 번호가 없음 — 여기서 발신 로직 자체는 건드리지 않고,
         // 프론트에서 번호를 받은 뒤 /api/user/phone이 같은 sendRoutineCall을 호출하게 넘긴다.

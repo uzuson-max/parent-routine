@@ -1,15 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { supabaseClient } from "@/lib/supabaseClient";
+import PeekMascot, { type PeekExpression } from "@/components/PeekMascot";
 
 // ============================================================================
-// 참견이 C안 — "생각이 금붕어가 되어 어항 안에 쌓인다"
+// 참견이 C안 — "내 관심사들이 살아 움직이는 어항"
 // ----------------------------------------------------------------------------
-// - 이번 달(로컬 시간 기준) voice_entries만 어항에 들어간다. 한 달 = 어항 하나.
-// - 짧게 던진 생각 = 치어(5마리씩 무리), 길게 말한 생각 = 금붕어.
-//   기준은 받아쓰기의 공백 제외 글자 수(한국어 말하기 기준 약 1초에 5~6자).
-// - 화면이 복잡해지지 않게 금붕어 최대 10마리, 치어 최대 25마리(5무리)까지만 그린다.
-// - 금붕어/치어 무리를 누르면 실제로 했던 말이 말풍선으로 잠깐 떠오른다.
+// - 물고기 하나 = 생각 하나가 아니라 "생각의 계보" 하나 (/api/user/tank).
+//   서로 이어진 생각(같은 대상, memory_links로 연결된 기억)이 한 마리로 모인다.
+// - 크기: 치어 → 금붕어 → 큰 금붕어 3단계. 최근에 자주 말할수록 크다.
+// - 위치: 요즘 말하는 계보는 헤엄치고, 조용해지면 바닥 쪽으로, 오래되면 수초 뒤에 숨는다.
+//   죽거나 사라지지 않는다. 다시 말하면 돌아온다 — 그때만 참견이가 고개를 내민다.
+// - 물고기를 누르면 그 계보에 쌓인 실제 발화들이 아래 카드로 뜬다(이름/숫자/날짜 없음).
+// - 아직 계보로 묶이지 않은 이번 달 생각은 잠깐 치어 무리로 보여준다.
 // - 새로 생긴 기록은 홈에 돌아왔을 때 "퐁당" 하고 들어오는 애니메이션으로 보여준다.
 // - 밤(21시~6시)에는 물이 어두워지고 다들 눈 감고 천천히 헤엄친다.
 // - 설명 문구는 하나도 넣지 않는다.
@@ -31,17 +35,49 @@ interface FishTankProps {
   onTankPress?: () => void;
 }
 
+interface Lineage {
+  id: string;
+  stage: 1 | 2 | 3;
+  state: "swim" | "deep" | "hidden";
+  label: string | null;
+  lastAt: string;
+  returned: boolean;
+  unitIds?: number[];
+  entryIds: string[];
+  quotes: { text: string; at: string }[];
+}
+
 // 공백 제외 글자 수 기준
 const NOISE_MAX = 5; // 이 이하는 잡음/테스트로 보고 어항에 넣지 않는다
-const FRY_MAX = 35; // 이 이하는 치어, 넘으면 금붕어 (약 6초)
-const MAX_FISH = 10;
-const MAX_FRY = 25;
+const MAX_LOOSE_FRY = 5; // 계보로 아직 안 묶인 생각은 치어 한 무리까지만
 const SEEN_KEY = "ganseobi_tank_seen_v1";
+const RETURN_SEEN_KEY = "ganseobi_tank_returned_v1";
+
+// 계보마다 고정된 몸 색 [몸, 배]. 같은 계보는 늘 같은 색.
+export const PALETTE: [string, string][] = [
+  ["#FF7A1A", "#FFC75A"],
+  ["#FF8FB3", "#FFD9E6"],
+  ["#FFC93C", "#FFF0A8"],
+  ["#A98BF0", "#E0D5FF"],
+  ["#3FCF9A", "#C8F5E1"],
+  ["#5AA9FF", "#D3E8FF"],
+];
+const STAGE_W = { 1: 30, 2: 56, 3: 82 } as const;
+
+// 정확한 날짜 대신 흐릿한 시간 표현
+function fuzzyAgo(iso: string): string {
+  const days = (Date.now() - new Date(iso).getTime()) / 86_400_000;
+  if (days < 1) return "오늘";
+  if (days < 7) return "며칠 전";
+  if (days < 30) return "몇 주 전";
+  if (days < 60) return "한 달 전쯤";
+  return "꽤 전에";
+}
 
 const TANK_W = 340; // 디자인 기준 폭(px). 실제 폭이 좁으면 비율대로 줄어든다.
 const TANK_H = 440;
 
-function hash(str: string, salt: number): number {
+export function hash(str: string, salt: number): number {
   let h = 2166136261 ^ salt;
   for (let i = 0; i < str.length; i++) {
     h ^= str.charCodeAt(i);
@@ -100,21 +136,93 @@ export default function FishTank({ entries, thinking, onTankPress }: FishTankPro
     if (thoughtTimer.current) clearTimeout(thoughtTimer.current);
   }, []);
 
-  const { fishes, schools } = useMemo(() => {
-    const now = new Date();
-    const list = (entries ?? [])
-            .filter((e) => e.transcript && !e.isReply && isThisMonth(e.createdAt, now) && charCount(e.transcript) > NOISE_MAX)
-      // 오래된 것 → 최신 순
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  // ---- 생각의 계보(물고기) — 녹음 목록이 바뀔 때마다 다시 불러온다 ----
+  const [lineages, setLineages] = useState<Lineage[] | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [peek, setPeek] = useState<{ text: string; expr: PeekExpression; key: number } | null>(null);
+  const [emerging, setEmerging] = useState<string | null>(null);
+  const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const longOnes = list.filter((e) => charCount(e.transcript) > FRY_MAX);
-    const shortOnes = list.filter((e) => charCount(e.transcript) <= FRY_MAX);
-
-    return {
-      fishes: longOnes.slice(-MAX_FISH),
-      schools: chunk(shortOnes.slice(-MAX_FRY), 5),
+  useEffect(() => {
+    if (!entries) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabaseClient.auth.getSession();
+        if (!session) return;
+        const res = await fetch("/api/user/tank", { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const body = await res.json();
+        if (!cancelled && body.success) setLineages(body.data as Lineage[]);
+      } catch (e) {
+        console.error("[FishTank] 계보 불러오기 실패:", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
   }, [entries]);
+
+  useEffect(() => () => {
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+  }, []);
+
+  const showPeek = (text: string, expr: PeekExpression, ms: number) => {
+    setPeek({ text, expr, key: Date.now() });
+    if (peekTimer.current) clearTimeout(peekTimer.current);
+    peekTimer.current = setTimeout(() => setPeek(null), ms);
+  };
+
+  // 아직 계보로 안 묶인 이번 달 생각(기억 추출 전/실패) — 치어 한 무리로만 잠깐 보여준다.
+  const schools = useMemo(() => {
+    if (!lineages) return [] as TankEntry[][];
+    const inLineage = new Set(lineages.flatMap((l) => l.entryIds));
+    const now = new Date();
+    const loose = (entries ?? [])
+      .filter(
+        (e) =>
+          e.transcript &&
+          !e.isReply &&
+          isThisMonth(e.createdAt, now) &&
+          charCount(e.transcript) > NOISE_MAX &&
+          !inLineage.has(String(e.id))
+      )
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    return chunk(loose.slice(-MAX_LOOSE_FRY), 5);
+  }, [entries, lineages]);
+
+  const hiddenOrder = useMemo(() => (lineages ?? []).filter((l) => l.state === "hidden").map((l) => l.id), [lineages]);
+  const openLineage = (lineages ?? []).find((l) => l.id === openId) ?? null;
+  // voice_entries id가 숫자로 올 수도 있어서 계보의 entryIds(문자열)와 맞춰 비교한다.
+  const freshStr = useMemo(() => new Set(Array.from(fresh).map(String)), [fresh]);
+
+  // 오래 숨어 있던 계보가 다시 말해졌으면 — 한 번만, 수초 쪽에서 헤엄쳐 나오고 참견이가 고개를 내민다.
+  useEffect(() => {
+    if (!lineages) return;
+    const back = lineages.find((l) => l.returned);
+    if (!back) return;
+    const key = `${back.id}:${back.lastAt}`;
+    let seen: string[] = [];
+    try {
+      seen = JSON.parse(localStorage.getItem(RETURN_SEEN_KEY) || "[]") as string[];
+    } catch {
+      seen = [];
+    }
+    if (seen.includes(key)) return;
+    try {
+      localStorage.setItem(RETURN_SEEN_KEY, JSON.stringify([key, ...seen].slice(0, 50)));
+    } catch {
+      /* 저장 못 하면 다음에 한 번 더 보일 뿐 */
+    }
+    setEmerging(back.id);
+    const t = setTimeout(
+      () => showPeek(back.label ? `어? ${back.label} 얘기 오랜만이네.` : "어? 그 얘기 오랜만이네.", "surprise", 6000),
+      1500
+    );
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineages]);
 
   // 새로 생긴 기록 찾기 — 처음 쓰는 기기에서는 전부 "본 것"으로 처리하고 애니메이션 없이 시작.
   useEffect(() => {
@@ -263,18 +371,53 @@ export default function FishTank({ entries, thinking, onTankPress }: FishTankPro
           );
         })}
 
-        {/* 금붕어 */}
-        {fishes.map((e) => {
-          const r = (k: number) => hash(e.id, k);
-          const w = Math.round(56 + r(1) * 14);
-          const dur = (13 + r(6) * 10) * slow;
-          const dx = 70 + r(2) * 120;
+        {/* 생각의 계보 — 계보 하나가 물고기 하나 */}
+        {(lineages ?? []).map((l) => {
+          const r = (k: number) => hash(l.id, k);
+          const [body, belly] = PALETTE[Math.floor(r(11) * PALETTE.length)];
+          const w = STAGE_W[l.stage] ?? 56;
+          const isFresh = l.entryIds.some((id) => freshStr.has(id));
+          const enterCls = isFresh ? "ft-arrive" : emerging === l.id ? "ft-emerge" : "";
+          const bob = {
+            animationDuration: `${1.6 + r(7)}s`,
+            animationDelay: `${-r(8) * 2}s`,
+            ["--wag" as any]: `${(0.32 + r(9) * 0.25) * (night ? 1.6 : 1)}s`,
+            ["--blink" as any]: `${3 + r(10) * 4}s`,
+          };
+          const btn = (
+            <button
+              className={`ft-fishbtn ${wigCls(l.id)}`}
+              aria-label="생각 물고기"
+              onClick={() => {
+                setWiggle((wg) => ({ id: l.id, n: (wg?.n ?? 0) + 1 }));
+                setPeek(null);
+                setOpenId(l.id);
+              }}
+            >
+              {goldfishSvg(body, belly, night, r(12) > 0.55)}
+            </button>
+          );
+
+          // 수초 뒤에 숨은 계보 — 헤엄치지 않고 오른쪽 수초 뒤에서 꼬리만 살짝 보인다.
+          if (l.state === "hidden") {
+            const hi = hiddenOrder.indexOf(l.id);
+            return (
+              <div key={l.id} className="ft-hide" style={{ right: 8 + hi * 8, bottom: 74 + hi * 26, width: w }}>
+                <div className="ft-bob" style={bob}>
+                  {btn}
+                </div>
+              </div>
+            );
+          }
+
+          const deep = l.state === "deep";
+          const dur = (13 + r(6) * 10) * slow * (deep ? 1.8 : 1);
+          const dx = deep ? 30 + r(2) * 60 : 70 + r(2) * 120;
           const leftPx = 14 + r(4) * Math.max(0, TANK_W - 28 - w - dx);
-          const topPx = 105 + r(3) * 170;
-          const color = ["#FF7A1A", "#FF8C2E", "#FF6B24"][Math.floor(r(11) * 3)];
+          const topPx = deep ? 292 + r(3) * 22 : 105 + r(3) * 170;
           return (
             <div
-              key={e.id}
+              key={l.id}
               className="ft-swim"
               style={{
                 left: `${(leftPx / TANK_W) * 100}%`,
@@ -283,43 +426,12 @@ export default function FishTank({ entries, thinking, onTankPress }: FishTankPro
                 ["--dx" as any]: `${dx}px`,
                 animationDuration: `${dur}s`,
                 animationDelay: `${-(r(5) * dur)}s`,
-                zIndex: 5,
+                zIndex: deep ? 4 : 5 + l.stage,
+                opacity: deep ? 0.72 : 1,
               }}
             >
-              <div
-                className="ft-bob"
-                style={{
-                  animationDuration: `${1.6 + r(7)}s`,
-                  animationDelay: `${-r(8) * 2}s`,
-                  ["--wag" as any]: `${(0.32 + r(9) * 0.25) * (night ? 1.6 : 1)}s`,
-                  ["--blink" as any]: `${3 + r(10) * 4}s`,
-                }}
-              >
-                <div className={fresh.has(e.id) ? "ft-arrive" : ""}>
-                  <button className={`ft-fishbtn ${wigCls(e.id)}`} aria-label="금붕어" onClick={() => showThought(e.id, e.transcript)}>
-                    <svg viewBox="0 0 80 56" aria-hidden>
-                      <g className="ft-tail">
-                        <path className="ft-ol" d="M24 28 C14 17 8 11 3 12 C7 21 7 35 3 44 C8 45 14 39 24 28 Z" fill={color} />
-                      </g>
-                      <path className="ft-ol" d="M34 13 C37 3 49 1 56 10" fill={color} />
-                      <ellipse className="ft-ol" cx="47" cy="29" rx="26" ry="19.5" fill={color} />
-                      <ellipse cx="49" cy="37" rx="15" ry="6.5" fill="#FFC75A" />
-                      {r(12) > 0.55 && <ellipse cx="37" cy="20" rx="5.5" ry="3.8" fill="#FFE6C9" />}
-                      <path className="ft-ol2" d="M42 31 C37 36 39 41 46 39" fill="#FFB04A" />
-                      {night ? (
-                        <path className="ft-ol2" d="M51 22 Q58 28 65 22" fill="none" />
-                      ) : (
-                        <g className="ft-eye">
-                          <circle className="ft-ol" cx="58" cy="22" r="8.5" fill="#FFFFFF" />
-                          <circle cx="60.5" cy="22.5" r="3.9" fill="#1B1630" />
-                          <circle cx="59.2" cy="21" r="1.3" fill="#FFFFFF" />
-                        </g>
-                      )}
-                      <path className="ft-ol2" d="M70 32 Q73.5 34.5 70.5 37" fill="none" />
-                      <ellipse cx="63" cy="33" rx="3.6" ry="2.2" fill="#FF5E7E" opacity={0.55} />
-                    </svg>
-                  </button>
-                </div>
+              <div className="ft-bob" style={bob}>
+                <div className={enterCls}>{btn}</div>
               </div>
             </div>
           );
@@ -351,6 +463,35 @@ export default function FishTank({ entries, thinking, onTankPress }: FishTankPro
           </div>
         )}
 
+        {/* 참견이 — 할 말이 있을 때만 오른쪽 유리 가장자리에서 고개를 내민다 */}
+        {peek && !thinking && (
+          <div key={peek.key} className="ft-peek" aria-live="polite">
+            <div className="ft-peek-say">{peek.text}</div>
+            <PeekMascot expression={peek.expr} size={84} className="ft-peek-face" />
+          </div>
+        )}
+
+        {/* 물고기 속 생각 */}
+        {openLineage && !thinking && (
+          <div className="ft-sheet" role="dialog" aria-label="이 물고기 속 생각">
+            <button className="ft-sheet-x" aria-label="닫기" onClick={() => setOpenId(null)}>
+              ×
+            </button>
+            <ul className="ft-quotes">
+              {openLineage.quotes.map((q, i) => (
+                <li key={i}>
+                  <span className="ft-when">{fuzzyAgo(q.at)}</span>
+                  <span className="ft-q">&ldquo;{q.text}&rdquo;</span>
+                </li>
+              ))}
+            </ul>
+            <div className="ft-ask">
+              <PeekMascot expression="base" size={44} />
+              <span>근데 그거 어떻게 됐어?</span>
+            </div>
+          </div>
+        )}
+
         {/* 유리 반사 */}
         <svg className="ft-deco" width="40" height="300" viewBox="0 0 40 300" style={{ left: 14, top: 40, zIndex: 8 }} aria-hidden>
           <path d="M24 20 C10 70 8 150 16 230" fill="none" stroke="#FFFFFF" strokeWidth={9} strokeLinecap="round" opacity={0.7} />
@@ -360,6 +501,32 @@ export default function FishTank({ entries, thinking, onTankPress }: FishTankPro
 
       <div className="ft-table" style={{ background: night ? "#C27434" : "#F2A65A" }} aria-hidden />
     </div>
+  );
+}
+
+export function goldfishSvg(color: string, belly: string, night: boolean, spot: boolean) {
+  return (
+    <svg viewBox="0 0 80 56" aria-hidden>
+      <g className="ft-tail">
+        <path className="ft-ol" d="M24 28 C14 17 8 11 3 12 C7 21 7 35 3 44 C8 45 14 39 24 28 Z" fill={color} />
+      </g>
+      <path className="ft-ol" d="M34 13 C37 3 49 1 56 10" fill={color} />
+      <ellipse className="ft-ol" cx="47" cy="29" rx="26" ry="19.5" fill={color} />
+      <ellipse cx="49" cy="37" rx="15" ry="6.5" fill={belly} />
+      {spot && <ellipse cx="37" cy="20" rx="5.5" ry="3.8" fill="#FFFFFF" opacity={0.55} />}
+      <path className="ft-ol2" d="M42 31 C37 36 39 41 46 39" fill={belly} />
+      {night ? (
+        <path className="ft-ol2" d="M51 22 Q58 28 65 22" fill="none" />
+      ) : (
+        <g className="ft-eye">
+          <circle className="ft-ol" cx="58" cy="22" r="8.5" fill="#FFFFFF" />
+          <circle cx="60.5" cy="22.5" r="3.9" fill="#1B1630" />
+          <circle cx="59.2" cy="21" r="1.3" fill="#FFFFFF" />
+        </g>
+      )}
+      <path className="ft-ol2" d="M70 32 Q73.5 34.5 70.5 37" fill="none" />
+      <ellipse cx="63" cy="33" rx="3.6" ry="2.2" fill="#FF5E7E" opacity={0.55} />
+    </svg>
   );
 }
 
@@ -444,7 +611,23 @@ const CSS = `
 .ft-dot{width:10px;height:10px;border-radius:50%;background:#1B1630;animation:ft-dot 1s ease-in-out infinite}
 @keyframes ft-wobble{0%,100%{transform:scale(1,1) translateY(0)}25%{transform:scale(1.06,.94) translateY(3px)}50%{transform:scale(.95,1.05) translateY(-6px)}75%{transform:scale(1.03,.97) translateY(0)}}
 @keyframes ft-dot{0%,100%{transform:translateY(0);opacity:.35}50%{transform:translateY(-6px);opacity:1}}
+.ft-hide{position:absolute;z-index:6;pointer-events:none}
+.ft-emerge{animation:ft-emerge 2.2s cubic-bezier(.3,1.2,.5,1) .3s both}
+@keyframes ft-emerge{0%{transform:translateX(240px) scale(.7);opacity:0}25%{opacity:1}100%{transform:none;opacity:1}}
+.ft-peek{position:absolute;right:0;top:34%;z-index:12;pointer-events:none;display:flex;align-items:flex-end;gap:2px}
+.ft-peek-face{display:block;margin-right:-22px;animation:ft-peek .6s cubic-bezier(.3,1.5,.5,1) both}
+@keyframes ft-peek{from{transform:translateX(110%) rotate(0)}to{transform:translateX(0) rotate(-10deg)}}
+.ft-peek-say{max-width:190px;margin-bottom:58px;padding:8px 14px;background:#fff;border:3px solid #1B1630;border-radius:20px;box-shadow:3px 3px 0 #1B1630;font-size:16px;line-height:1.3;word-break:keep-all;animation:ft-say .35s ease .35s both}
+@keyframes ft-say{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
+.ft-sheet{position:absolute;left:10px;right:10px;bottom:10px;z-index:14;max-height:62%;overflow:auto;padding:14px 16px 12px;box-sizing:border-box;background:#FFFDF8;border:3px solid #1B1630;border-radius:24px;box-shadow:4px 4px 0 #1B1630;animation:ft-sheet .35s cubic-bezier(.2,1.2,.4,1) both}
+@keyframes ft-sheet{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
+.ft-sheet-x{position:absolute;right:10px;top:8px;width:30px;height:30px;border-radius:50%;border:2.5px solid #1B1630;background:#fff;font-family:'Jua',sans-serif;font-size:18px;line-height:1;color:#1B1630;cursor:pointer;padding:0}
+.ft-quotes{list-style:none;margin:0;padding:0 30px 0 0;display:flex;flex-direction:column;gap:8px}
+.ft-quotes li{display:flex;flex-direction:column}
+.ft-when{font-size:12px;opacity:.55}
+.ft-q{font-size:15px;line-height:1.35;word-break:keep-all}
+.ft-ask{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:2px dashed rgba(27,22,48,.25);font-size:16px;color:#4D3F73}
 @media (prefers-reduced-motion: reduce){
-  .ft-swim,.ft-bob,.ft-tail,.ft-eye,.ft-sway,.ft-wave,.ft-bubble,.ft-ray,.ft-zz{animation:none}
+  .ft-swim,.ft-bob,.ft-tail,.ft-eye,.ft-sway,.ft-wave,.ft-bubble,.ft-ray,.ft-zz,.ft-emerge,.ft-peek-face{animation:none}
 }
 `;
