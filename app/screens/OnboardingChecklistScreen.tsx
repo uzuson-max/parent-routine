@@ -1,29 +1,28 @@
-
+// app/screens/OnboardingChecklistScreen.tsx
 //
-// 마이크 권한 + 전화번호 인증을 한 화면에서 체크리스트 형태로 끝내는 화면.
-// 원래는 마이크 권한(MicPermissionScreen)과 전화번호 인증(PhoneVerifyScreen)이 서로 다른
-// 시점에 따로 떠서, "저장공간이 리셋되며 새 익명 계정이 생기는" 바로 그 상황(홈 화면 아이콘
-// 등)에서는 전화번호 인증 화면 자체가 뜨지 않는 문제가 있었다 — 그 상황은 앱 입장에서
-// "첫 실행"으로 보이는데, 첫 실행 흐름은 마찰을 줄이려고 전화번호 질문을 두 번째 기록 이후로
-// 미루게 짜여 있었기 때문. 전화번호 인증을 여기로 옮기고 필수로 만들어서, 어떤 경로로 들어와도
-// (진짜 첫 실행이든, 저장공간 리셋으로 다시 첫 실행처럼 보이는 경우든) 반드시 지나가게 한다.
+// 어항 들어가기 전 마지막 단계 — 숨비의 로그인 시트처럼, 아직 비어 있는 어항 위로 시트가 올라온다.
+// 시트 안에서: 마이크(선택) → 번호로 계정 지키기(필수) → 약관·개인정보 동의(필수) → 어항으로 들어가기.
 //
-// 마이크 권한은 기존처럼 거부해도 진행 가능(체크만 되고 넘어감). 전화번호 인증만 필수 —
-// 완료해야 "다음" 버튼이 활성화된다.
+// 동작은 예전 체크리스트 그대로다:
+// - 전화번호 인증을 필수로 둔 이유: 저장공간이 리셋되며 새 익명 계정이 생기는 상황(홈 화면 아이콘 등)에서도
+//   반드시 이 단계를 지나가게 해서 기록을 번호로 지키기 위해. 진짜 첫 실행이든 리셋이든 여기로 온다.
+// - 마이크는 거부해도 진행 가능(타이핑으로도 대화할 수 있어서). 여기서 얻은 스트림은 끄지 않고 두어
+//   바로 이어지는 첫 녹음이 재사용한다(iOS에서 권한 팝업이 두 번 뜨지 않게).
+// - 전화번호·음성을 받고 해외 서비스(OpenAI 등)로 처리하므로 시작 전에 동의를 받는다.
 "use client";
 
 import { useState } from "react";
-import { BRAND, inkAlpha, pageBackground, tactile, typography, TACTILE_PRESS_CLASS } from "@/lib/theme";
 import { requestPhoneLink, confirmPhoneCode, syncVerifiedPhoneToBackend, type PhoneLinkVerifyType } from "@/lib/phoneAuthClient";
-import Mascot from "@/components/Mascot";
 import { acquireMicStream } from "@/lib/micStream";
+import PeekMascot from "@/components/PeekMascot";
+import { worldPage, INK, YELLOW, WORLD_CSS } from "@/components/WorldNav";
 
 type PhoneStage = "idle" | "code";
 
 export default function OnboardingChecklistScreen({ onDone }: { onDone: () => void }) {
   const [micDone, setMicDone] = useState(false);
-  const [agreed, setAgreed] = useState(false);
   const [micBusy, setMicBusy] = useState(false);
+  const [agreed, setAgreed] = useState(false);
 
   const [phoneStage, setPhoneStage] = useState<PhoneStage>("idle");
   const [phone, setPhone] = useState("");
@@ -36,8 +35,6 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
   const requestMic = async () => {
     setMicBusy(true);
     try {
-      // getUserMedia는 lib/micStream.ts 한 곳에서만 부른다. 여기서 얻은 스트림을 끄지 않고 두면
-      // 바로 이어지는 첫 대화 녹음이 같은 스트림을 재사용해서, iOS에서 권한 팝업이 두 번 뜨지 않는다.
       await acquireMicStream();
     } catch {
       // 거부해도 앱은 계속 진행 — 텍스트 입력으로도 대화할 수 있어서.
@@ -75,140 +72,211 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
     syncVerifiedPhoneToBackend(phone);
   };
 
+  const ready = phoneDone && agreed;
+
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <Mascot pose="기본" size={72} />
-        <h1 style={styles.headline}>시작하기 전에{"\n"}딱 두 가지만</h1>
-      </div>
+    <div style={{ ...worldPage, paddingBottom: 0, display: "flex", flexDirection: "column", minHeight: "100dvh" }}>
+      <style dangerouslySetInnerHTML={{ __html: WORLD_CSS + CSS }} />
 
-      {/* 항목 1: 마이크 권한 (선택) */}
-      <div style={styles.item}>
-        <div style={styles.itemTop}>
-          <span style={{ ...styles.checkbox, ...(micDone ? styles.checkboxDone : {}) }}>{micDone ? "✓" : ""}</span>
-          <span style={styles.itemTitle}>마이크 권한</span>
+      {/* 뒤에 보이는, 아직 비어 있는 어항 */}
+      <div style={s.scene} aria-hidden>
+        <div style={s.tank}>
+          <div style={s.water}>
+            <span className="oc-bub" style={{ ...s.bub, left: "30%", width: 12, height: 12 }} />
+            <span className="oc-bub" style={{ ...s.bub, left: "62%", width: 9, height: 9, animationDelay: "-1.2s" }} />
+            <span className="oc-bub" style={{ ...s.bub, left: "48%", width: 14, height: 14, animationDelay: "-2.1s" }} />
+            <div style={s.sand} />
+          </div>
         </div>
-        <p style={styles.itemDesc}>말할 때만 사용할 거야. 거부해도 타이핑으로 계속할 수 있어.</p>
-        {!micDone && (
-          <button className={TACTILE_PRESS_CLASS} style={styles.smallButton} onClick={requestMic} disabled={micBusy}>
-            {micBusy ? "물어보는 중..." : "허용하기"}
-          </button>
-        )}
+        <div style={s.peek}>
+          <PeekMascot expression="base" size={70} />
+        </div>
       </div>
 
-      {/* 항목 2: 전화번호 인증 (필수) */}
-      <div style={styles.item}>
-        <div style={styles.itemTop}>
-          <span style={{ ...styles.checkbox, ...(phoneDone ? styles.checkboxDone : {}) }}>{phoneDone ? "✓" : ""}</span>
-          <span style={styles.itemTitle}>
-            번호로 계정 지키기 <span style={styles.required}>*필수</span>
+      {/* 시트 */}
+      <div className="oc-sheet" style={s.sheet}>
+        <span style={s.grabber} aria-hidden />
+        <h1 style={s.title}>아직 텅 빈 니 어항</h1>
+        <p style={s.lead}>들어가기 전에 두 가지만.</p>
+
+        {/* 마이크 (선택) */}
+        <div style={s.row}>
+          <span style={{ ...s.check, ...(micDone ? s.checkOn : null) }} aria-hidden>
+            {micDone ? "✓" : ""}
           </span>
+          <div style={s.rowMain}>
+            <span style={s.rowTitle}>마이크</span>
+            <span style={s.rowSub}>말할 때만 써. 거부해도 글로 남길 수 있어.</span>
+          </div>
+          {!micDone && (
+            <button className="wn-sticker" style={s.smallBtn} onClick={requestMic} disabled={micBusy}>
+              {micBusy ? "묻는 중..." : "허용"}
+            </button>
+          )}
         </div>
-        <p style={styles.itemDesc}>
-          번호를 인증해두면 기기를 바꾸거나 홈 화면에 추가해도{"\n"}기록이 안전하게 보관돼.
-        </p>
 
-        {!phoneDone && phoneStage === "idle" && (
-          <div style={styles.inlineRow}>
-            <input
-              style={styles.input}
-              type="tel"
-              placeholder="010-0000-0000"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-            />
-            <button className={TACTILE_PRESS_CLASS} style={styles.smallButton} onClick={sendCode} disabled={!phone || phoneBusy}>
-              {phoneBusy ? "보내는 중..." : "인증번호 받기"}
-            </button>
+        {/* 번호로 계정 지키기 (필수) */}
+        <div style={{ ...s.row, alignItems: "flex-start" }}>
+          <span style={{ ...s.check, ...(phoneDone ? s.checkOn : null) }} aria-hidden>
+            {phoneDone ? "✓" : ""}
+          </span>
+          <div style={{ ...s.rowMain, flex: 1 }}>
+            <span style={s.rowTitle}>번호로 내 어항 지키기</span>
+            <span style={s.rowSub}>폰을 바꾸거나 홈 화면에 추가해도 기록이 그대로 남아.</span>
+            {!phoneDone && (
+              <div style={s.inputRow}>
+                {phoneStage === "idle" ? (
+                  <input
+                    id="ob-phone"
+                    style={s.input}
+                    type="tel"
+                    placeholder="010-0000-0000"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                  />
+                ) : (
+                  <input
+                    id="ob-code"
+                    style={s.input}
+                    type="tel"
+                    inputMode="numeric"
+                    placeholder="인증번호 6자리"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                  />
+                )}
+                <button
+                  className="wn-sticker"
+                  style={s.smallBtn}
+                  onClick={phoneStage === "idle" ? sendCode : verifyCode}
+                  disabled={phoneBusy || (phoneStage === "idle" ? !phone : !code)}
+                >
+                  {phoneBusy ? "잠깐만..." : phoneStage === "idle" ? "인증번호 받기" : "확인"}
+                </button>
+              </div>
+            )}
+            {phoneError && <span style={s.error}>{phoneError}</span>}
           </div>
-        )}
+        </div>
 
-        {!phoneDone && phoneStage === "code" && (
-          <div style={styles.inlineRow}>
-            <input
-              style={styles.input}
-              type="tel"
-              inputMode="numeric"
-              placeholder="000000"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-            />
-            <button className={TACTILE_PRESS_CLASS} style={styles.smallButton} onClick={verifyCode} disabled={!code || phoneBusy}>
-              {phoneBusy ? "확인 중..." : "확인"}
-            </button>
-          </div>
-        )}
-        {phoneError && <p style={styles.error}>{phoneError}</p>}
+        {/* 동의 (필수) */}
+        <label style={s.consent}>
+          <input id="ob-agree" type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} style={s.consentBox} />
+          <span>
+            <a href="/terms" target="_blank" rel="noreferrer" style={s.link}>
+              이용약관
+            </a>
+            과{" "}
+            <a href="/privacy" target="_blank" rel="noreferrer" style={s.link}>
+              개인정보처리방침
+            </a>
+            (국외 이전 포함)에 동의해. 만 14세 이상이야.
+          </span>
+        </label>
+
+        <button className="wn-sticker" style={{ ...s.cta, ...(ready ? null : s.ctaOff) }} disabled={!ready} onClick={onDone}>
+          어항으로 들어가기
+        </button>
       </div>
-
-      {/* 전화번호·음성을 받고 해외 서비스(OpenAI 등)로 처리하므로 시작 전에 동의를 받는다. */}
-      <label style={styles.consent}>
-        <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} style={styles.consentBox} />
-        <span>
-          <a href="/terms" target="_blank" rel="noreferrer" style={styles.consentLink}>이용약관</a>과{" "}
-          <a href="/privacy" target="_blank" rel="noreferrer" style={styles.consentLink}>개인정보처리방침</a>(국외 이전 포함)에 동의해. 만 14세 이상이야.
-        </span>
-      </label>
-
-      <button
-        className={TACTILE_PRESS_CLASS}
-        style={{ ...styles.mainButton, ...(phoneDone && agreed ? {} : styles.mainButtonDisabled) }}
-        disabled={!phoneDone || !agreed}
-        onClick={onDone}
-      >
-        다음
-      </button>
     </div>
   );
 }
 
-const styles: { [key: string]: React.CSSProperties } = {
-  container: {
-    minHeight: "100vh",
-    ...pageBackground,
+const CSS = `
+.oc-sheet { animation: ocUp .45s cubic-bezier(.2,1.05,.4,1); }
+@keyframes ocUp { from { translate: 0 100%; } to { translate: 0 0; } }
+.oc-bub { animation: ocRise 4s linear infinite; }
+@keyframes ocRise { 0% { bottom: 30px; opacity: 0; } 15% { opacity: 1; } 100% { bottom: 85%; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .oc-sheet, .oc-bub { animation: none; } }
+`;
+
+const s: { [k: string]: React.CSSProperties } = {
+  scene: { position: "relative", flex: "1 0 200px", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px 0 28px" },
+  tank: {
+    width: "min(78%, 280px)",
+    aspectRatio: "280 / 200",
+    border: `4px solid ${INK}`,
+    borderRadius: 30,
+    boxShadow: "6px 6px 0 rgba(27,22,48,.22)",
+    background: "#EAF9FF",
+    padding: "14px 0 0",
+    boxSizing: "border-box",
+    overflow: "hidden",
+  },
+  water: { position: "relative", width: "100%", height: "100%", background: "#45BFEC", borderTop: "3px solid #FFFFFF" },
+  sand: { position: "absolute", left: 0, right: 0, bottom: 0, height: 28, background: "#F6D589", borderTop: `3px solid ${INK}` },
+  bub: { position: "absolute", bottom: 30, borderRadius: "50%", border: "2px solid rgba(255,255,255,.95)", background: "rgba(255,255,255,.25)" },
+  peek: { position: "absolute", right: "max(4%, calc(50% - 190px))", top: "30%", transform: "rotate(-10deg)" },
+  sheet: {
+    position: "relative",
+    margin: "0 -20px",
+    padding: "12px 22px max(24px, calc(env(safe-area-inset-bottom, 0px) + 18px))",
+    background: "#FFF9E8",
+    borderTop: `3px solid ${INK}`,
+    borderRadius: "28px 28px 0 0",
     display: "flex",
     flexDirection: "column",
-    padding: "40px 24px 32px",
-    boxSizing: "border-box",
-    gap: 20,
+    gap: 14,
   },
-  header: { display: "flex", flexDirection: "column", alignItems: "center", gap: 10, marginBottom: 8 },
-  headline: { ...typography.headline, color: BRAND.ink, textAlign: "center", margin: 0, whiteSpace: "pre-line", lineHeight: 1.35 },
-  item: { ...tactile.card, padding: "16px 18px" },
-  itemTop: { display: "flex", alignItems: "center", gap: 10, marginBottom: 6 },
-  checkbox: {
-    width: 22,
-    height: 22,
-    minWidth: 22,
+  grabber: { alignSelf: "center", width: 44, height: 5, borderRadius: 3, background: "rgba(27,22,48,.2)" },
+  title: { margin: "4px 0 0", fontSize: 24, fontWeight: 400, textAlign: "center" },
+  lead: { margin: "-8px 0 2px", fontSize: 15, color: "rgba(27,22,48,.6)", textAlign: "center" },
+  row: { display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", background: "#FFFFFF", border: `3px solid ${INK}`, borderRadius: 20, boxShadow: `3px 3px 0 ${INK}` },
+  check: {
+    flexShrink: 0,
+    width: 26,
+    height: 26,
     borderRadius: "50%",
-    border: `1px solid ${inkAlpha.hairline}`,
+    border: `2.5px solid ${INK}`,
+    background: "#FFFFFF",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontSize: 13,
-    fontWeight: 700,
-    color: "#fff",
-    background: inkAlpha.hairline,
+    fontSize: 14,
+    color: INK,
   },
-  checkboxDone: { background: BRAND.mint, borderColor: BRAND.mint },
-  itemTitle: { fontSize: 16, fontWeight: 700, color: BRAND.ink },
-  required: { fontSize: 11, fontWeight: 700, color: BRAND.lavenderDeep, marginLeft: 4 },
-  itemDesc: { fontSize: 13, color: inkAlpha.muted, margin: "0 0 12px 0", lineHeight: 1.5, fontWeight: 500, whiteSpace: "pre-line" },
-  inlineRow: { display: "flex", gap: 8 },
-  input: { flex: 1, minWidth: 0, padding: "12px 14px", ...tactile.input, borderRadius: 14, fontSize: 15 },
-  smallButton: { padding: "12px 16px", ...tactile.primaryButton, borderRadius: 14, fontSize: 14, fontWeight: 700, whiteSpace: "nowrap" },
-  error: { color: "#D14343", fontSize: 12, fontWeight: 500, marginTop: 8 },
-  mainButton: {
-    marginTop: 4,
-    width: "100%",
-    padding: "16px",
-    borderRadius: 18,
-    ...tactile.primaryButton,
+  checkOn: { background: YELLOW },
+  rowMain: { minWidth: 0, flex: 1, display: "flex", flexDirection: "column", gap: 2 },
+  rowTitle: { fontSize: 17 },
+  rowSub: { fontSize: 13, lineHeight: 1.4, color: "rgba(27,22,48,.6)", wordBreak: "keep-all" },
+  inputRow: { display: "flex", gap: 8, marginTop: 8 },
+  input: {
+    flex: 1,
+    minWidth: 0,
+    padding: "10px 12px",
+    borderRadius: 14,
+    border: `2.5px solid ${INK}`,
+    background: "#FFFFFF",
     fontSize: 16,
-    fontWeight: 700,
+    fontFamily: "'Jua', sans-serif",
+    color: INK,
   },
-  mainButtonDisabled: { opacity: 0.4, cursor: "not-allowed", boxShadow: "none" },
-  consent: { display: "flex", alignItems: "flex-start", gap: 10, marginTop: "auto", fontSize: 13, lineHeight: 1.5, color: BRAND.ink, cursor: "pointer" },
-  consentBox: { width: 20, height: 20, marginTop: 1, flexShrink: 0, accentColor: BRAND.lavender },
-  consentLink: { color: BRAND.lavenderDeep, fontWeight: 700 },
+  smallBtn: {
+    flexShrink: 0,
+    minHeight: 42,
+    padding: "0 14px",
+    borderRadius: 14,
+    border: `2.5px solid ${INK}`,
+    background: YELLOW,
+    boxShadow: `3px 3px 0 ${INK}`,
+    fontSize: 15,
+    color: INK,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  error: { marginTop: 6, fontSize: 13, color: "#C24444" },
+  consent: { display: "flex", alignItems: "flex-start", gap: 10, fontSize: 13.5, lineHeight: 1.5, cursor: "pointer", padding: "0 2px" },
+  consentBox: { width: 20, height: 20, marginTop: 1, flexShrink: 0, accentColor: INK },
+  link: { color: "#4D3F73", textDecoration: "underline" },
+  cta: {
+    minHeight: 56,
+    borderRadius: 999,
+    border: `3px solid ${INK}`,
+    background: YELLOW,
+    boxShadow: `4px 4px 0 ${INK}`,
+    fontSize: 19,
+    color: INK,
+    cursor: "pointer",
+  },
+  ctaOff: { opacity: 0.45, cursor: "not-allowed", boxShadow: "none" },
 };
