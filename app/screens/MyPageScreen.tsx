@@ -17,7 +17,7 @@ import { supabaseClient } from "@/lib/supabaseClient";
 import { requestPhoneLink, confirmPhoneCode, syncVerifiedPhoneToBackend, type PhoneLinkVerifyType } from "@/lib/phoneAuthClient";
 import { fetchMe, saveNickname } from "@/lib/userClient";
 import PeekMascot from "@/components/PeekMascot";
-import { WorldTitle, worldPage, stickerCard, INK, YELLOW, WORLD_CSS } from "@/components/WorldNav";
+import { WorldTitle, worldPage, stickerCard, INK, YELLOW, WALL, WORLD_CSS } from "@/components/WorldNav";
 
 type InterventionLevel = "low" | "medium" | "high";
 interface Prefs {
@@ -62,7 +62,16 @@ async function authed(path: string, init?: RequestInit): Promise<Response | null
 type PhoneMode = "view" | "edit_phone" | "edit_code";
 type Sheet = "level" | "quiet" | "feedback" | "logout" | "delete" | null;
 
-export default function MyPageScreen({ onBack, onOpenRecords }: { onBack: () => void; onOpenRecords: () => void }) {
+export default function MyPageScreen({
+  onBack,
+  onOpenRecords,
+  asSheet = false,
+}: {
+  onBack: () => void;
+  onOpenRecords: () => void;
+  // true면 화면 전체가 아니라 어항 위로 올라오는 시트로 뜬다(뒤에 어항이 그대로 보임).
+  asSheet?: boolean;
+}) {
   // --- 나 ---
   const [nickname, setNickname] = useState<string | null>(null);
   const [nickEdit, setNickEdit] = useState<string | null>(null); // null = 보기 모드
@@ -280,10 +289,22 @@ export default function MyPageScreen({ onBack, onOpenRecords }: { onBack: () => 
   const level = LEVELS.find((l) => l.level === prefs?.interventionLevel) ?? LEVELS[1];
   const outreachOff = prefs ? !prefs.outreachEnabled : false;
 
-  return (
-    <div style={{ ...worldPage, paddingBottom: "calc(40px + env(safe-area-inset-bottom, 0px))" }}>
-      <style dangerouslySetInnerHTML={{ __html: WORLD_CSS }} />
-      <WorldTitle onBack={onBack}>MY</WorldTitle>
+  const body = (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: WORLD_CSS + MY_SHEET_CSS }} />
+      {asSheet ? (
+        <div style={s.sheetHead}>
+          <span style={s.grabber} aria-hidden />
+          <h1 style={s.sheetH1}>MY</h1>
+          <button className="wn-sticker" style={s.closeBtn} onClick={onBack} aria-label="닫기">
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
+              <path d="M3.5 3.5 L12.5 12.5 M12.5 3.5 L3.5 12.5" stroke={INK} strokeWidth={2.6} strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      ) : (
+        <WorldTitle onBack={onBack}>MY</WorldTitle>
+      )}
 
       {/* 나 */}
       <div style={s.profile}>
@@ -533,9 +554,29 @@ export default function MyPageScreen({ onBack, onOpenRecords }: { onBack: () => 
           {toast}
         </div>
       )}
-    </div>
+    </>
   );
+
+  if (asSheet) {
+    return (
+      <div className="my-backdrop" style={s.myBackdrop} onClick={onBack}>
+        <div className="my-sheet" style={s.mySheet} onClick={(e) => e.stopPropagation()} role="dialog" aria-label="MY">
+          {body}
+        </div>
+      </div>
+    );
+  }
+  return <div style={{ ...worldPage, paddingBottom: "calc(40px + env(safe-area-inset-bottom, 0px))" }}>{body}</div>;
 }
+
+// 시트가 올라오는 움직임. 끝난 뒤엔 transform이 남지 않게(fill 없음) — 안쪽의 고정 위치 시트/토스트가 화면 기준으로 뜨도록.
+const MY_SHEET_CSS = `
+.my-backdrop { animation: myFade .25s ease-out; }
+.my-sheet { animation: mySheetUp .38s cubic-bezier(.2,1.1,.4,1); }
+@keyframes myFade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes mySheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .my-backdrop, .my-sheet { animation: none; } }
+`;
 
 function Row({
   label,
@@ -608,6 +649,41 @@ function Divider() {
 }
 
 const s: { [k: string]: React.CSSProperties } = {
+  myBackdrop: { position: "fixed", inset: 0, zIndex: 900, background: "rgba(27,22,48,.35)", display: "flex", alignItems: "flex-end", justifyContent: "center" },
+  mySheet: {
+    width: "100%",
+    maxWidth: 480,
+    maxHeight: "92dvh",
+    overflowY: "auto",
+    boxSizing: "border-box",
+    padding: "8px 20px calc(32px + env(safe-area-inset-bottom, 0px))",
+    background: WALL,
+    backgroundImage: "radial-gradient(#FFDA78 17%, transparent 18%)",
+    backgroundSize: "34px 34px",
+    borderTop: `3px solid ${INK}`,
+    borderRadius: "28px 28px 0 0",
+    fontFamily: "'Jua', sans-serif",
+    color: INK,
+  },
+  sheetHead: { position: "relative", display: "flex", alignItems: "center", justifyContent: "center", height: 56, marginBottom: 6 },
+  grabber: { position: "absolute", top: 4, left: "50%", width: 44, height: 5, marginLeft: -22, borderRadius: 3, background: "rgba(27,22,48,.25)" },
+  sheetH1: { margin: "10px 0 0", fontSize: 22, fontWeight: 400 },
+  closeBtn: {
+    position: "absolute",
+    right: 0,
+    top: 12,
+    width: 38,
+    height: 38,
+    borderRadius: "50%",
+    border: `3px solid ${INK}`,
+    background: "#FFFFFF",
+    boxShadow: `2px 2px 0 ${INK}`,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 0,
+    cursor: "pointer",
+  },
   muted: { margin: 0, fontSize: 14, color: "rgba(27,22,48,.6)" },
   profile: { display: "flex", alignItems: "center", gap: 12, margin: "0 2px 14px" },
   nameBtn: { display: "flex", alignItems: "baseline", gap: 8, border: 0, background: "transparent", padding: "6px 0", cursor: "pointer", color: INK },

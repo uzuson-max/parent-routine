@@ -485,10 +485,6 @@ export default function FishTank({ entries, thinking, onTankPress }: FishTankPro
                 </li>
               ))}
             </ul>
-            <div className="ft-ask">
-              <PeekMascot expression="base" size={44} />
-              <span>근데 그거 어떻게 됐어?</span>
-            </div>
           </div>
         )}
 
@@ -626,7 +622,6 @@ const CSS = `
 .ft-quotes li{display:flex;flex-direction:column}
 .ft-when{font-size:12px;opacity:.55}
 .ft-q{font-size:15px;line-height:1.35;word-break:keep-all}
-.ft-ask{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:2px dashed rgba(27,22,48,.25);font-size:16px;color:#4D3F73}
 @media (prefers-reduced-motion: reduce){
   .ft-swim,.ft-bob,.ft-tail,.ft-eye,.ft-sway,.ft-wave,.ft-bubble,.ft-ray,.ft-zz,.ft-emerge,.ft-peek-face{animation:none}
 }

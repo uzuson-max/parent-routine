@@ -42,6 +42,12 @@ export default function InsightList() {
         const res = await fetch("/api/user/insights", { headers: { Authorization: `Bearer ${session.access_token}` } });
         const body = await res.json();
         setInsights(body.success ? body.data : []);
+        // 편지 탭에서 봤으니 홈 배지에서 뺀다 (app/page.tsx INSIGHTS_SEEN_KEY)
+        try {
+          localStorage.setItem("ganseobi_insights_seen_at", String(Date.now()));
+        } catch {
+          /* 저장 못 하면 배지가 한 번 더 보일 뿐 */
+        }
       } catch (e) {
         console.error("[InsightList] 불러오기 실패:", e);
         setInsights([]);

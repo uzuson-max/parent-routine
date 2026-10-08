@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import FishTank from "@/components/FishTank";
 import { BottomNav, MyButton, type WorldTab } from "@/components/WorldNav";
 import { acquireMicStream } from "@/lib/micStream";
@@ -107,8 +107,40 @@ export default function TimelineScreen({
     : null;
   const replying = !!bubble ? bubble.kind === "reply" : hasCallback;
 
+  // 숨비의 "내 바다 보기"처럼 — 어항에서 위로 쓸어올리면(= 아래로 내려가면) 지난 어항으로 내려간다.
+  // 탭은 그대로 두고, 같은 세계 안에서 "더 깊이 = 더 지난 시간"으로 이어지는 길을 하나 더 낸다.
+  const touch = useRef<{ x: number; y: number } | null>(null);
+  const wheelLock = useRef(0);
+  const goDeeper = () => {
+    if (thinking || bubble?.kind === "confirm") return;
+    playFx("buttonPress");
+    onNavigate("archive");
+  };
+
   return (
-    <div style={styles.container}>
+    <div
+      style={styles.container}
+      onTouchStart={(e) => {
+        const t = e.touches[0];
+        touch.current = { x: t.clientX, y: t.clientY };
+      }}
+      onTouchEnd={(e) => {
+        const start = touch.current;
+        touch.current = null;
+        if (!start) return;
+        const t = e.changedTouches[0];
+        const dy = t.clientY - start.y;
+        const dx = t.clientX - start.x;
+        if (dy < -80 && Math.abs(dx) < 60) goDeeper();
+      }}
+      onWheel={(e) => {
+        const now = Date.now();
+        if (e.deltaY > 60 && now - wheelLock.current > 1200) {
+          wheelLock.current = now;
+          goDeeper();
+        }
+      }}
+    >
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
 
       {/* HEADER — 로고 + MY(설정) 아이콘만. 편지는 하단 탭으로 옮겼다. */}
@@ -176,7 +208,7 @@ export default function TimelineScreen({
             ...styles.tankBox,
             // 확인 말풍선은 버튼까지 있어서 키가 크다 — 그동안은 어항을 조금 줄여 마이크가 메뉴 뒤로 밀리지 않게.
             ...(bubble?.kind === "confirm" && !thinking
-              ? { width: "min(100%, clamp(200px, calc((100dvh - 540px) * 0.67), 340px))" }
+              ? { width: "min(100%, clamp(200px, calc((100dvh - 570px) * 0.67), 340px))" }
               : null),
           }}
         >
@@ -195,6 +227,14 @@ export default function TimelineScreen({
             <path d="M5.5 11.5 C5.5 15.5 8.5 18 12 18 C15.5 18 18.5 15.5 18.5 11.5" fill="none" stroke={INK} strokeWidth={2.2} strokeLinecap="round" />
             <path d="M12 18 V21.5" fill="none" stroke={INK} strokeWidth={2.2} strokeLinecap="round" />
           </svg>
+        </button>
+
+        {/* 지난 어항으로 내려가는 길 */}
+        <button className="tl-deeper" onClick={goDeeper} disabled={thinking} aria-label="지난 어항으로 내려가기">
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
+            <path d="M3 3 L8 7.5 L13 3 M3 8.5 L8 13 L13 8.5" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          지난 어항
         </button>
       </div>
 
@@ -218,7 +258,12 @@ const CSS = `
 .tl-mic:not(:disabled):active { animation: none; transform: translate(4px,4px); box-shadow: 1px 1px 0 ${INK}; }
 .tl-mic:focus-visible, .tl-sticker:focus-visible, .tl-close:focus-visible, .tl-sticker:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 ${INK} !important; }
 .tl-bubble { animation: tlBubbleIn .4s ease-out both; }
-@media (prefers-reduced-motion: reduce) { .tl-mic-idle, .tl-bubble { animation: none; } }
+.tl-deeper { display: flex; align-items: center; gap: 4px; margin-top: -4px; padding: 6px 12px; border: 0; background: transparent; color: rgba(27,22,48,.55); font-family: 'Jua', sans-serif; font-size: 14px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.tl-deeper svg { animation: tlNudge 1.8s ease-in-out infinite; }
+.tl-deeper:disabled { opacity: .35; cursor: default; }
+.tl-deeper:focus-visible { outline: 3px dashed ${INK}; outline-offset: 2px; border-radius: 10px; }
+@keyframes tlNudge { 0%,100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
+@media (prefers-reduced-motion: reduce) { .tl-mic-idle, .tl-bubble, .tl-deeper svg { animation: none; } }
 `;
 
 const styles: { [key: string]: React.CSSProperties } = {
@@ -348,7 +393,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   // 화면 높이가 낮은 기기에서도 마이크가 내비 뒤로 밀리지 않게 어항 폭을 화면 높이에 맞춰 줄인다.
   tankBox: {
-    width: "min(100%, clamp(230px, calc((100dvh - 400px) * 0.67), 340px))",
+    width: "min(100%, clamp(230px, calc((100dvh - 430px) * 0.67), 340px))",
     flexShrink: 0,
   },
 

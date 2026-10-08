@@ -52,9 +52,11 @@ export async function GET(request: Request) {
       };
     });
 
+    // 방금(48시간 안) 말한 계보는 점수가 낮아도 먼저 자리를 준다 — 말했는데 어항이 그대로면 흐름이 끊긴다.
+    const fresh = (l: (typeof lineages)[number]) => now - new Date(l.lastAt).getTime() <= 2 * DAY;
     const visible = lineages
       .filter((l) => l.state !== 'hidden')
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => Number(fresh(b)) - Number(fresh(a)) || b.score - a.score)
       .slice(0, MAX_VISIBLE);
     const hidden = lineages
       .filter((l) => l.state === 'hidden')

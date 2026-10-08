@@ -22,6 +22,7 @@ type PhoneStage = "idle" | "code";
 
 export default function OnboardingChecklistScreen({ onDone }: { onDone: () => void }) {
   const [micDone, setMicDone] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const [micBusy, setMicBusy] = useState(false);
 
   const [phoneStage, setPhoneStage] = useState<PhoneStage>("idle");
@@ -140,10 +141,19 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
         {phoneError && <p style={styles.error}>{phoneError}</p>}
       </div>
 
+      {/* 전화번호·음성을 받고 해외 서비스(OpenAI 등)로 처리하므로 시작 전에 동의를 받는다. */}
+      <label style={styles.consent}>
+        <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} style={styles.consentBox} />
+        <span>
+          <a href="/terms" target="_blank" rel="noreferrer" style={styles.consentLink}>이용약관</a>과{" "}
+          <a href="/privacy" target="_blank" rel="noreferrer" style={styles.consentLink}>개인정보처리방침</a>(국외 이전 포함)에 동의해. 만 14세 이상이야.
+        </span>
+      </label>
+
       <button
         className={TACTILE_PRESS_CLASS}
-        style={{ ...styles.mainButton, ...(phoneDone ? {} : styles.mainButtonDisabled) }}
-        disabled={!phoneDone}
+        style={{ ...styles.mainButton, ...(phoneDone && agreed ? {} : styles.mainButtonDisabled) }}
+        disabled={!phoneDone || !agreed}
         onClick={onDone}
       >
         다음
@@ -189,7 +199,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   smallButton: { padding: "12px 16px", ...tactile.primaryButton, borderRadius: 14, fontSize: 14, fontWeight: 700, whiteSpace: "nowrap" },
   error: { color: "#D14343", fontSize: 12, fontWeight: 500, marginTop: 8 },
   mainButton: {
-    marginTop: "auto",
+    marginTop: 4,
     width: "100%",
     padding: "16px",
     borderRadius: 18,
@@ -198,4 +208,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 700,
   },
   mainButtonDisabled: { opacity: 0.4, cursor: "not-allowed", boxShadow: "none" },
+  consent: { display: "flex", alignItems: "flex-start", gap: 10, marginTop: "auto", fontSize: 13, lineHeight: 1.5, color: BRAND.ink, cursor: "pointer" },
+  consentBox: { width: 20, height: 20, marginTop: 1, flexShrink: 0, accentColor: BRAND.lavender },
+  consentLink: { color: BRAND.lavenderDeep, fontWeight: 700 },
 };

@@ -1,7 +1,7 @@
 // app/screens/ArchiveScreen.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
 import { goldfishSvg, hash, PALETTE } from "@/components/FishTank";
 import PeekMascot from "@/components/PeekMascot";
@@ -61,6 +61,7 @@ export default function ArchiveScreen({
   const [openFish, setOpenFish] = useState<string | null>(null);
   const [openEntry, setOpenEntry] = useState<string | null>(null);
   const [shown, setShown] = useState(ENTRY_PAGE);
+  const pull = useRef<number | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -107,8 +108,25 @@ export default function ArchiveScreen({
   };
 
   return (
-    <div style={worldPage}>
+    <div
+      style={worldPage}
+      onTouchStart={(e) => {
+        // 맨 위에서 아래로 끌어내리면 지금 어항으로 올라간다(홈에서 위로 쓸어 내려온 길의 반대).
+        pull.current = window.scrollY <= 0 ? e.touches[0].clientY : null;
+      }}
+      onTouchEnd={(e) => {
+        const start = pull.current;
+        pull.current = null;
+        if (start !== null && e.changedTouches[0].clientY - start > 90) onNavigate("home");
+      }}
+    >
       <style dangerouslySetInnerHTML={{ __html: WORLD_CSS + CSS }} />
+      <button className="ar-surface" onClick={() => onNavigate("home")} aria-label="지금 어항으로 올라가기">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
+          <path d="M3 8 L8 3.5 L13 8 M3 13 L8 8.5 L13 13" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        지금 어항
+      </button>
       <WorldTitle>지난 어항</WorldTitle>
 
       {months === null ? (
@@ -248,6 +266,8 @@ const CSS = `
 .ar-fish .ft-ol { stroke: ${INK}; stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
 .ar-fish .ft-ol2 { stroke: ${INK}; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
 @keyframes ar-bob { from { translate: 0 -4px; } to { translate: 0 4px; } }
+.ar-surface { display: flex; align-items: center; gap: 4px; margin: 0 auto -6px; padding: 4px 12px; border: 0; background: transparent; color: rgba(27,22,48,.5); font-family: 'Jua', sans-serif; font-size: 13px; cursor: pointer; }
+.ar-surface:focus-visible { outline: 3px dashed ${INK}; outline-offset: 2px; border-radius: 10px; }
 @media (prefers-reduced-motion: reduce) { .ar-fish { animation: none; } }
 `;
 

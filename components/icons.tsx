@@ -79,16 +79,16 @@ export function IconPhone(props: IconProps) {
   );
 }
 
+// 설정 톱니. 예전 그림(가는 선 8개 + 작은 원)은 해처럼 보여서 "낮/밤 전환"으로 오해받았다 —
+// 톱니를 두껍고 몸통에 붙은 사각형으로 그려서 한눈에 톱니바퀴로 읽히게 한다.
 export function IconGear(props: IconProps) {
   return (
     <svg viewBox="0 0 48 48" fill="none" {...props}>
-      <circle cx="24" cy="24" r="7" stroke="currentColor" strokeWidth="3.2" />
-      <path
-        d="M24 8 v6 M24 34 v6 M8 24 h6 M34 24 h6 M12 12 l4 4 M32 32 l4 4 M36 12 l-4 4 M16 32 l-4 4"
-        stroke="currentColor"
-        strokeWidth="3.2"
-        strokeLinecap="round"
-      />
+      {[0, 45, 90, 135, 180, 225, 270, 315].map((deg) => (
+        <rect key={deg} x="20" y="5" width="8" height="10" rx="2" fill="currentColor" transform={`rotate(${deg} 24 24)`} />
+      ))}
+      <circle cx="24" cy="24" r="12.5" fill="currentColor" />
+      <circle cx="24" cy="24" r="5" fill="#FFFFFF" />
     </svg>
   );
 }

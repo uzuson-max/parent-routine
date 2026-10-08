@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { sendRoutineCall } from '@/lib/twilio';
 import { expireOldCommitments } from '@/lib/analysis';
+import { loadUserPrefs, allowsCalls } from '@/lib/userPrefs';
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
@@ -22,8 +23,20 @@ export async function GET(request: Request) {
   if (error) return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   if (!dueEntries?.length) return NextResponse.json({ message: 'no calls due' });
 
-  const results = [];
+  const results: any[] = [];
   for (const entry of dueEntries) {
+    // MY > 참견 받는 방법: 문자·전화를 껐거나 '살짝'이면 걸지 않는다. 설정을 못 읽어도 걸지 않는다.
+    let callsAllowed = false;
+    try {
+      callsAllowed = allowsCalls((await loadUserPrefs(entry.user_id)).prefs);
+    } catch (prefErr: any) {
+      console.error('[check-voice-calls] 사용자 설정 조회 실패 — 걸지 않음:', prefErr?.message);
+    }
+    if (!callsAllowed) {
+      await supabase.from('voice_entries').update({ call_state: 'no_action' }).eq('id', entry.id);
+      results.push({ id: entry.id, skipped: 'user_prefs' });
+      continue;
+    }
     const callResult = await sendRoutineCall({
       routineId: entry.id,
       phoneNumber: entry.user_phone,

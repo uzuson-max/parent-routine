@@ -26,7 +26,28 @@ import { BRAND, pageBackground } from "@/lib/theme";
 import { acquireMicStream, releaseMicStream } from "@/lib/micStream";
   import { playFx } from "@/lib/fx";
 
+// 어항 ↔ 지난 어항 사이 물결 막, 편지 탭 페이드. transform은 막(별도 fixed 요소)에만 써서
+// 화면 안의 고정 탭바(position:fixed)가 같이 흔들리지 않게 한다.
+const WORLD_CURTAIN_CSS = `
+.world-curtain { position: fixed; inset: -10vh 0; z-index: 2000; pointer-events: none;
+  background:
+    radial-gradient(circle at 22% 30%, rgba(255,255,255,.55) 0 7px, transparent 8px),
+    radial-gradient(circle at 70% 55%, rgba(255,255,255,.5) 0 5px, transparent 6px),
+    radial-gradient(circle at 40% 78%, rgba(255,255,255,.45) 0 9px, transparent 10px),
+    linear-gradient(#7AD3F2, #45BFEC 45%, #2C9BD0);
+  border-top: 4px solid #1B1630; border-bottom: 4px solid #1B1630; }
+.world-curtain-down { animation: worldDive .7s cubic-bezier(.6,0,.3,1) both; }
+.world-curtain-up { animation: worldSurface .7s cubic-bezier(.6,0,.3,1) both; }
+@keyframes worldDive { 0% { transform: translateY(110%); } 40%, 55% { transform: translateY(0); } 100% { transform: translateY(-110%); } }
+@keyframes worldSurface { 0% { transform: translateY(-110%); } 40%, 55% { transform: translateY(0); } 100% { transform: translateY(110%); } }
+.world-fade { animation: worldFade .28s ease-out; }
+@keyframes worldFade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .world-curtain { display: none; } .world-fade { animation: none; } }
+`;
+
 const ONBOARDING_KEY = "ganseobi_onboarding_completed";
+// 편지 탭을 마지막으로 연 시각 — 그 뒤에 생긴 "참견이가 알아챈 거"만 배지에 센다(components/InsightList).
+const INSIGHTS_SEEN_KEY = "ganseobi_insights_seen_at";
 // 첫 실행 사용자가 "첫 녹음 → 첫 기록"까지 마쳤는지 표시. 한 번 true가 되면 그 세션에서만
 // 닉네임/전화번호 같은 부가 입력을 건너뛰기 위한 용도로만 쓰고, 이후에는 기존 플로우를 그대로 탄다.
 const FIRST_ENTRY_DONE_KEY = "ganseobi_first_entry_done";
@@ -58,8 +79,36 @@ type Step =
 
 export default function Home() {
   const [step, setStep] = useState<Step>("landing");
+  // MY는 화면을 바꾸지 않고 어항 위로 올라오는 시트로 연다(숨비의 바텀시트처럼 — 어항에서 안 떠난 느낌).
+  const [myOpen, setMyOpen] = useState(false);
+  // 어항 ↔ 지난 어항은 "물속으로 내려가기 / 올라오기"로 이어 보이게 물결 막을 한 번 지나간다.
+  const [curtain, setCurtain] = useState<{ dir: "down" | "up"; key: number } | null>(null);
   // 하단 탭(어항 / 지난 어항 / 편지) 이동
-  const goTab = (tab: WorldTab) => setStep(tab === "home" ? "landing" : tab);
+  const goTab = (tab: WorldTab) => {
+    const target: Step = tab === "home" ? "landing" : tab;
+    if (target === step) return;
+    setMyOpen(false);
+    const dive = step === "landing" && target === "archive";
+    const surface = step === "archive" && target === "landing";
+    let reduce = false;
+    try {
+      reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch {
+      /* 못 읽으면 애니메이션 그대로 */
+    }
+    if ((dive || surface) && !reduce) {
+      setCurtain({ dir: dive ? "down" : "up", key: Date.now() });
+      // 물결 막이 화면을 다 덮었을 때 화면을 바꾼다
+      setTimeout(() => {
+        setStep(target);
+        window.scrollTo(0, 0);
+      }, 280);
+      setTimeout(() => setCurtain(null), 700);
+    } else {
+      setStep(target);
+      window.scrollTo(0, 0);
+    }
+  };
   const [audioBlob, setAudioBlob] = useState<Blob | string | null>(null); // 음성 Blob 또는 텍스트 입력 문자열
   const [selectedTopic, setSelectedTopic] = useState<string>("");
   const [phone, setPhone] = useState<string>("");
@@ -136,7 +185,18 @@ export default function Home() {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       const body = await res.json();
-      if (body.success && typeof body.data?.count === "number") setUnreadLetterCount(body.data.count);
+      const letterCount = body.success && typeof body.data?.count === "number" ? body.data.count : 0;
+      // 참견이가 새로 알아챈 것도 편지 탭에 돌아온 것 — 편지 탭을 마지막으로 연 뒤에 생긴 것만 센다.
+      let insightCount = 0;
+      try {
+        const seenAt = Number(localStorage.getItem(INSIGHTS_SEEN_KEY) || 0);
+        const ir = await fetch("/api/user/insights", { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const ib = await ir.json();
+        if (ib.success) insightCount = (ib.data as { createdAt: string }[]).filter((i) => new Date(i.createdAt).getTime() > seenAt).length;
+      } catch {
+        /* 못 세면 편지 개수만 */
+      }
+      setUnreadLetterCount(letterCount + insightCount);
     } catch (e) {
       console.error("[Home] fetch unread letter count failed:", e);
     }
@@ -393,7 +453,10 @@ export default function Home() {
           entries={entries}
           proactiveLine={proactiveLine}
           onNavigate={goTab}
-          onOpenMyPage={() => setStep("mypage")}
+          onOpenMyPage={() => {
+            releaseMicStream();
+            setMyOpen(true);
+          }}
           unreadLetterCount={unreadLetterCount}
           bubble={homeBubble}
           onBubbleChange={changeHomeBubble}
@@ -404,6 +467,20 @@ export default function Home() {
             setStep("tank_recording");
           }}
         />
+      )}
+
+      {step === "landing" && myOpen && (
+        <MyPageScreen
+          asSheet
+          onBack={() => setMyOpen(false)}
+          onOpenRecords={() => goTab("archive")}
+        />
+      )}
+
+      {curtain && (
+        <div key={curtain.key} className={`world-curtain world-curtain-${curtain.dir}`} aria-hidden>
+          <style>{WORLD_CURTAIN_CSS}</style>
+        </div>
       )}
 
       {step === "tank_recording" && (
@@ -452,7 +529,10 @@ export default function Home() {
       )}
 
       {step === "letters" && (
-        <LettersScreen onNavigate={goTab} onUnreadCountChange={setUnreadLetterCount} />
+        <div className="world-fade">
+          <style>{WORLD_CURTAIN_CSS}</style>
+          <LettersScreen onNavigate={goTab} onUnreadCountChange={setUnreadLetterCount} />
+        </div>
       )}
 
       {step === "archive" && (

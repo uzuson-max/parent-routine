@@ -138,7 +138,7 @@ export function MyButton({ onClick, disabled }: { onClick: () => void; disabled?
       }}
       aria-label="MY 설정"
     >
-      <IconGear style={{ width: 24, height: 24 }} />
+      <IconGear style={{ width: 30, height: 30 }} />
     </button>
   );
 }
