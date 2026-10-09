@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
 import TimelineScreen, { type RecordEntry, type HomeBubble } from "./screens/TimelineScreen";
 import LandingScreen from "./screens/LandingScreen";
@@ -236,8 +236,12 @@ export default function Home() {
     ensureSession();
   }, []);
 
+   // 첫 화면의 녹음 목록은 위 ensureSession이 이미 불러온다 — 여기서 또 부르면 같은 요청이 두 번 나간다.
+  const firstStepRun = useRef(true);
   useEffect(() => {
-    if (step === "landing") fetchEntries();
+    const isFirst = firstStepRun.current;
+    firstStepRun.current = false;
+    if (step === "landing" && !isFirst) fetchEntries();
     // 홈에서 녹음하던 마이크는 다른 탭으로 나가면 놓아준다(녹음 표시등이 계속 켜져 있지 않게).
     if (step === "calendar" || step === "archive" || step === "mypage" || step === "insights" || step === "letters") releaseMicStream();
   }, [step]);
