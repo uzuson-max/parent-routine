@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { supabaseClient } from "@/lib/supabaseClient";
+import { loadFresh, peekMemory, peekStored } from "@/lib/worldCache";
 import { goldfishSvg, hash, PALETTE } from "@/components/FishTank";
 import PeekMascot from "@/components/PeekMascot";
 import { BottomNav, WorldTitle, worldPage, stickerCard, INK, YELLOW, WORLD_CSS, type WorldTab } from "@/components/WorldNav";
@@ -55,33 +55,42 @@ export default function ArchiveScreen({
   onNavigate: (tab: WorldTab) => void;
   unreadLetterCount?: number;
 }) {
-  const [months, setMonths] = useState<ArchiveMonth[] | null>(null);
+  // 홈에서 미리 받아뒀거나 한 번 열어봤으면 바로 그 자리 그대로 보인다.
+  const [months, setMonths] = useState<ArchiveMonth[] | null>(() => peekMemory<ArchiveMonth[]>("archive"));
   const [failed, setFailed] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => peekMemory<ArchiveMonth[]>("archive")?.[0]?.month ?? null);
   const [openFish, setOpenFish] = useState<string | null>(null);
   const [openEntry, setOpenEntry] = useState<string | null>(null);
   const [shown, setShown] = useState(ENTRY_PAGE);
   const pull = useRef<number | null>(null);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const {
-          data: { session },
-        } = await supabaseClient.auth.getSession();
-        if (!session) return;
-        const res = await fetch("/api/user/archive", { headers: { Authorization: `Bearer ${session.access_token}` } });
-        const body = await res.json();
-        if (!body.success) throw new Error(body.error);
-        const list = body.data as ArchiveMonth[];
+    let alive = true;
+    // 새로 켠 앱이면 지난번 지난 어항을 먼저 띄운다.
+    const stored = peekStored<ArchiveMonth[]>("archive");
+    if (stored) {
+      setMonths((cur) => cur ?? stored);
+      setSelected((cur) => cur ?? stored[0]?.month ?? null);
+    }
+    // 뒤에서 최신으로 맞춘다. 보고 있던 달은 그대로 두고, 없어진 달일 때만 맨 앞 달로.
+    loadFresh<ArchiveMonth[]>("archive")
+      .then((list) => {
+        if (!alive || !list) return;
+        setFailed(false);
         setMonths(list);
-        if (list.length) setSelected(list[0].month);
-      } catch (e) {
+        setSelected((cur) => (cur && list.some((m) => m.month === cur) ? cur : list[0]?.month ?? null));
+      })
+      .catch((e) => {
         console.error("[ArchiveScreen] 불러오기 실패:", e);
+        if (!alive) return;
+        // 이미 보여줄 게 있으면 그대로 두고, 아무것도 없을 때만 실패 화면.
+        if (peekMemory("archive")) return;
         setFailed(true);
         setMonths([]);
-      }
-    })();
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const month = useMemo(() => months?.find((m) => m.month === selected) ?? null, [months, selected]);
