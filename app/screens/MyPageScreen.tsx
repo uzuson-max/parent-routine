@@ -12,7 +12,7 @@
 //   - 전화번호 인증/변경 로직(requestPhoneLink/confirmPhoneCode/syncVerifiedPhoneToBackend)은 기존 그대로.
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
 import { requestPhoneLink, confirmPhoneCode, syncVerifiedPhoneToBackend, type PhoneLinkVerifyType } from "@/lib/phoneAuthClient";
 import { fetchMe, saveNickname } from "@/lib/userClient";
@@ -58,7 +58,47 @@ async function authed(path: string, init?: RequestInit): Promise<Response | null
   if (!session) return null;
   return fetch(path, { ...init, headers: { ...(init?.headers || {}), Authorization: `Bearer ${session.access_token}` } });
 }
+// 설정 시트를 열 때마다 서버를 기다리지 않게, 한 번 받은 값은 앱을 켜둔 동안 기억해둔다.
+// 홈에 들어오면 page.tsx가 prefetchMyPage()로 미리 채워둔다. 시트가 열리면 뒤에서 다시 최신으로 맞춘다.
+const myCache: { prefs?: Prefs; nickname?: string | null; phone?: string | null } = {};
+let myInflight: Promise<void> | null = null;
 
+async function loadMyPage(): Promise<void> {
+  const {
+    data: { session },
+  } = await supabaseClient.auth.getSession();
+  if (!session) return;
+  await Promise.all([
+    supabaseClient.auth.getUser().then(({ data: { user } }) => {
+      myCache.phone = user?.phone ?? null;
+    }),
+    fetchMe(session.access_token).then((p) => {
+      if (p) myCache.nickname = p.nickname;
+    }),
+    authed("/api/user/settings")
+      .then((res) => (res ? res.json() : null))
+      .then((body) => {
+        if (body?.success) myCache.prefs = body.data;
+      }),
+  ]);
+}
+
+// 같은 요청이 겹치면 하나로 묶는다.
+function refreshMyPage(): Promise<void> {
+  if (!myInflight) {
+    myInflight = loadMyPage()
+      .catch((e) => console.error("[MyPage] 설정 불러오기 실패:", e))
+      .finally(() => {
+        myInflight = null;
+      });
+  }
+  return myInflight;
+}
+
+export function prefetchMyPage() {
+  if (myCache.prefs) return;
+  refreshMyPage();
+}
 type PhoneMode = "view" | "edit_phone" | "edit_code";
 type Sheet = "level" | "quiet" | "feedback" | "logout" | "delete" | null;
 
@@ -73,9 +113,9 @@ export default function MyPageScreen({
   asSheet?: boolean;
 }) {
   // --- 나 ---
-  const [nickname, setNickname] = useState<string | null>(null);
+    const [nickname, setNickname] = useState<string | null>(() => myCache.nickname ?? null);
   const [nickEdit, setNickEdit] = useState<string | null>(null); // null = 보기 모드
-  const [currentPhone, setCurrentPhone] = useState<string | null>(null);
+    const [currentPhone, setCurrentPhone] = useState<string | null>(() => myCache.phone ?? null);
 
   // --- 전화번호 인증(기존 로직 그대로) ---
   const [phoneMode, setPhoneMode] = useState<PhoneMode>("view");
@@ -86,9 +126,9 @@ export default function MyPageScreen({
   const [phoneError, setPhoneError] = useState<string | null>(null);
 
   // --- 참견 받는 방법(서버) ---
-  const [prefs, setPrefs] = useState<Prefs | null>(null);
+    const [prefs, setPrefs] = useState<Prefs | null>(() => myCache.prefs ?? null);
   const [prefsBusy, setPrefsBusy] = useState(false);
-
+  const prefsTouched = useRef(false);
   // --- 기타 ---
   const [soundOn, setSoundOn] = useState(true);
   const [sheet, setSheet] = useState<Sheet>(null);
@@ -103,21 +143,30 @@ export default function MyPageScreen({
     } catch {
       /* 저장소를 못 읽으면 기본(켜짐) */
     }
-    supabaseClient.auth.getUser().then(({ data: { user } }) => setCurrentPhone(user?.phone ?? null));
-    supabaseClient.auth.getSession().then(({ data: { session } }) => {
-      if (!session) return;
-      fetchMe(session.access_token).then((p) => p && setNickname(p.nickname));
+      // 미리 받아둔 값으로 이미 그려져 있고, 여기선 뒤에서 최신으로만 맞춘다.
+    let alive = true;
+    refreshMyPage().then(() => {
+      if (!alive) return;
+      if (myCache.phone !== undefined) setCurrentPhone(myCache.phone);
+      if (myCache.nickname !== undefined) setNickname(myCache.nickname);
+      // 그새 사용자가 설정을 바꿨으면 옛 값으로 덮지 않는다.
+      if (myCache.prefs && !prefsTouched.current) setPrefs(myCache.prefs);
     });
-    (async () => {
-      try {
-        const res = await authed("/api/user/settings");
-        const body = res ? await res.json() : null;
-        if (body?.success) setPrefs(body.data);
-      } catch (e) {
-        console.error("[MyPage] 설정 불러오기 실패:", e);
-      }
-    })();
+    return () => {
+      alive = false;
+    };
   }, []);
+
+  // 화면에서 바꾼 값(닉네임/전화번호/설정 저장)도 캐시에 반영 — 다음에 열 때 옛날 값이 잠깐 보이지 않게.
+  useEffect(() => {
+    if (prefs) myCache.prefs = prefs;
+  }, [prefs]);
+  useEffect(() => {
+    if (nickname !== null) myCache.nickname = nickname;
+  }, [nickname]);
+  useEffect(() => {
+    if (currentPhone !== null) myCache.phone = currentPhone;
+  }, [currentPhone]);
 
   useEffect(() => {
     if (!toast) return;
@@ -129,6 +178,7 @@ export default function MyPageScreen({
   const savePrefs = async (patch: Partial<Prefs>) => {
     if (!prefs) return;
     const before = prefs;
+        prefsTouched.current = true;
     setPrefs({ ...prefs, ...patch });
     setPrefsBusy(true);
     try {
