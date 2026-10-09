@@ -12,7 +12,7 @@ import CallingScreen from "./screens/CallingScreen";
 import ResultScreen from "./screens/ResultScreen";
 import NicknameScreen from "./screens/NicknameScreen";
 import OnboardingChecklistScreen from "./screens/OnboardingChecklistScreen";
-import MyPageScreen from "./screens/MyPageScreen";
+import MyPageScreen, { prefetchMyPage } from "./screens/MyPageScreen";
 import CalendarScreen from "./screens/CalendarScreen";
 import OnboardingScreen from "./screens/OnboardingScreen";
 import ThinkingScreen from "./screens/ThinkingScreen"; // 👈 1. 상단 import에 추가 완료!
@@ -81,33 +81,13 @@ export default function Home() {
   const [step, setStep] = useState<Step>("landing");
   // MY는 화면을 바꾸지 않고 어항 위로 올라오는 시트로 연다(숨비의 바텀시트처럼 — 어항에서 안 떠난 느낌).
   const [myOpen, setMyOpen] = useState(false);
-  // 어항 ↔ 지난 어항은 "물속으로 내려가기 / 올라오기"로 이어 보이게 물결 막을 한 번 지나간다.
-  const [curtain, setCurtain] = useState<{ dir: "down" | "up"; key: number } | null>(null);
-  // 하단 탭(어항 / 지난 어항 / 편지) 이동
+  // 하단 탭(어항 / 지난 어항 / 편지) 이동 — 화면 데이터는 캐시에서 바로 그려지니 막(바다 화면) 없이 바로 바꾼다.
   const goTab = (tab: WorldTab) => {
     const target: Step = tab === "home" ? "landing" : tab;
     if (target === step) return;
     setMyOpen(false);
-    const dive = step === "landing" && target === "archive";
-    const surface = step === "archive" && target === "landing";
-    let reduce = false;
-    try {
-      reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    } catch {
-      /* 못 읽으면 애니메이션 그대로 */
-    }
-    if ((dive || surface) && !reduce) {
-      setCurtain({ dir: dive ? "down" : "up", key: Date.now() });
-      // 물결 막이 화면을 다 덮었을 때 화면을 바꾼다
-      setTimeout(() => {
-        setStep(target);
-        window.scrollTo(0, 0);
-      }, 280);
-      setTimeout(() => setCurtain(null), 700);
-    } else {
-      setStep(target);
-      window.scrollTo(0, 0);
-    }
+    setStep(target);
+    window.scrollTo(0, 0);
   };
   const [audioBlob, setAudioBlob] = useState<Blob | string | null>(null); // 음성 Blob 또는 텍스트 입력 문자열
   const [selectedTopic, setSelectedTopic] = useState<string>("");
@@ -220,7 +200,8 @@ export default function Home() {
       fetchEntries();
       fetchProactiveLine();
       fetchUnreadLetterCount();
-
+      // 톱니바퀴(설정)를 눌렀을 때 "잠깐만." 없이 바로 보이게 미리 받아둔다.
+      setTimeout(prefetchMyPage, 2000);
       // 온보딩 완료 여부(로컬 저장) + 지금 계정에 인증된 전화번호가 있는지(서버)를 같이 봐서
       // 어디로 보낼지 정한다. 온보딩을 아예 처음 하는 사람은 인트로부터, 온보딩은 끝냈지만
       // (저장공간이 리셋되는 등으로) 지금 계정에 인증된 번호가 없는 사람은 인트로는 건너뛰고
@@ -479,12 +460,6 @@ export default function Home() {
           onBack={() => setMyOpen(false)}
           onOpenRecords={() => goTab("archive")}
         />
-      )}
-
-      {curtain && (
-        <div key={curtain.key} className={`world-curtain world-curtain-${curtain.dir}`} aria-hidden>
-          <style>{WORLD_CURTAIN_CSS}</style>
-        </div>
       )}
 
       {step === "tank_recording" && (
