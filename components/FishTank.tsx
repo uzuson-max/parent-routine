@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { supabaseClient } from "@/lib/supabaseClient";
+import { loadFresh, peekMemory, peekStored, prefetchWorld } from "@/lib/worldCache";
 import PeekMascot, { type PeekExpression } from "@/components/PeekMascot";
 
 // ============================================================================
@@ -137,32 +137,52 @@ export default function FishTank({ entries, thinking, onTankPress }: FishTankPro
   }, []);
 
   // ---- 생각의 계보(물고기) — 녹음 목록이 바뀔 때마다 다시 불러온다 ----
-  const [lineages, setLineages] = useState<Lineage[] | null>(null);
+   // 앱을 켜둔 동안 본 어항은 메모리에 남아 있어서, 탭을 갔다 와도 첫 그림부터 물고기가 그대로 있다.
+  const [lineages, setLineages] = useState<Lineage[] | null>(() => peekMemory<Lineage[]>("tank"));
   const [openId, setOpenId] = useState<string | null>(null);
   const [peek, setPeek] = useState<{ text: string; expr: PeekExpression; key: number } | null>(null);
   const [emerging, setEmerging] = useState<string | null>(null);
   const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // 앱을 새로 켰을 때는 지난번 어항을 먼저 띄운다(서버가 계보를 묶는 2~3초 동안 빈 어항이 안 보이게).
   useEffect(() => {
-    if (!entries) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const {
-          data: { session },
-        } = await supabaseClient.auth.getSession();
-        if (!session) return;
-        const res = await fetch("/api/user/tank", { headers: { Authorization: `Bearer ${session.access_token}` } });
-        const body = await res.json();
-        if (!cancelled && body.success) setLineages(body.data as Lineage[]);
-      } catch (e) {
-        console.error("[FishTank] 계보 불러오기 실패:", e);
-      }
-    })();
+    if (lineages) return;
+    const stored = peekStored<Lineage[]>("tank");
+    if (stored) setLineages(stored);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 뒤에서 조용히 최신으로 맞춘다 — 마운트할 때 한 번, 녹음 목록이 "실제로" 바뀌었을 때 다시.
+  // (같은 목록이 다시 내려와도 id가 같으면 안 부른다. 동시에 겹친 요청은 worldCache가 하나로 묶는다)
+  const entriesKey = entries === null ? null : entries.map((e) => e.id).join(",");
+  const alive = useRef(true);
+  const reqSeq = useRef(0);
+  useEffect(() => {
+    alive.current = true;
+    // 홈에 있는 동안 지난 어항도 미리 받아둔다.
+    const t = setTimeout(() => prefetchWorld("archive"), 1500);
     return () => {
-      cancelled = true;
+      alive.current = false;
+      clearTimeout(t);
     };
-  }, [entries]);
+  }, []);
+  useEffect(() => {
+    const seq = ++reqSeq.current;
+    loadFresh<Lineage[]>("tank")
+      .then((data) => {
+        if (data && alive.current && seq === reqSeq.current) setLineages(data);
+      })
+      .catch((e) => console.error("[FishTank] 계보 불러오기 실패:", e));
+  }, [entriesKey]);
+
+  // 물고기가 처음 생길 때만 다 같이 스르륵 나타난다. 메모리에서 바로 그린 경우(탭 왕복)엔 페이드 없이 그대로.
+  const [appear, setAppear] = useState(() => peekMemory("tank") !== null);
+  useEffect(() => {
+    if (!lineages || appear) return;
+    const t = setTimeout(() => setAppear(true), 30);
+    return () => clearTimeout(t);
+  }, [lineages, appear]);
+  const fade = (base: number): React.CSSProperties => ({ opacity: appear ? base : 0, transition: "opacity .7s ease" });
 
   useEffect(() => () => {
     if (peekTimer.current) clearTimeout(peekTimer.current);
