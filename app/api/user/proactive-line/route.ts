@@ -5,6 +5,7 @@ import { getUserIdFromRequest } from '@/lib/auth';
 import { markInsightsSurfaced } from '@/lib/insightEngine';
 import { PERSONALITY_PROMPT } from '@/lib/responseEngine';
 import { filterConfirmedCommitments, markMemoriesReferenced } from '@/lib/memoryRetrieval';
+import { createLetter } from '@/lib/letters';
 
 // 홈 화면에서 "참견이가 나를 찾아왔다"고 보여줄 수 있는 진짜 참견 한 건을 골라주는 읽기 엔드포인트.
 // 우선순위: 1) 단일 memory_unit 콜백(memoryCallbackEngine.ts와 같은 후보/판단 로직) →
@@ -200,6 +201,20 @@ export async function GET(request: Request) {
           await markMemoriesReferenced([memCandidate.id]);
         } catch (markErr: any) {
           console.error('[api/user/proactive-line] memory_unit referenced 처리 실패(무시):', markErr?.message);
+        }
+        // 홈에서 한 번 보여주고 끝나지 않게 편지 탭에도 남긴다(편지 = 참견이가 먼저 꺼낸 말).
+        // 2순위(insight)는 이미 편지 탭의 "알아챈 거"로 보이니 따로 남기지 않는다.
+        try {
+          await createLetter({
+            userId,
+            title: '어항에서 꺼낸 말',
+            content: message,
+            sourceType: 'memory_callback',
+            relatedMemoryUnitId: memCandidate.id,
+            metadata: { channel: 'screen' },
+          });
+        } catch (letterErr: any) {
+          console.error('[api/user/proactive-line] 편지 저장 실패(무시):', letterErr?.message);
         }
         return NextResponse.json({
           success: true,

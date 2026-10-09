@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { sendSolapiSms } from '@/lib/solapi';
 import { fitInterventionSms } from '@/lib/intervention/smsFit';
 import { Channel, InterventionType, channelRule } from '@/lib/intervention/interventionTypes';
+import { createLetter } from '@/lib/letters';
 
 // ============================================================================
 // Delivery 계층 — 이미 "보내기로 결정되고 push gate까지 통과한" 개입을 실제로 발송하고 기록한다.
@@ -22,6 +23,7 @@ export interface PushDelivery {
   topicKey?: string | null;
   memoryId?: number | null;
   triggerEntryId?: string | null; // voice_entries.id (uuid)
+  relatedInsightId?: number | null; // insight 콜백이면 그 insight id — 편지 탭에서 같은 발견이 두 번 보이지 않게
 }
 
 export async function deliverPush(d: PushDelivery): Promise<{ text: string; subject?: string }> {
@@ -54,6 +56,22 @@ export async function deliverPush(d: PushDelivery): Promise<{ text: string; subj
   if (error) {
     // 이미 발송은 됐다. 기록 실패는 쿨다운이 안 걸리는 문제로 이어지므로 크게 남긴다.
     console.error('[dispatch] intervention_log 기록 실패 (발송은 완료됨):', error.message);
+  }
+
+  // 편지 = 참견이가 먼저 꺼낸 말. 실제로 보낸 문장을 편지 탭에 남겨서 문자를 지워도 다시 볼 수 있게 한다.
+  // 발송은 이미 끝났으니 편지 저장이 실패해도 발송 결과는 그대로 둔다.
+  try {
+    await createLetter({
+      userId: d.userId,
+      title: '문자로 보낸 참견',
+      content: fitted.body,
+      sourceType: d.relatedInsightId ? 'insight' : d.type === 'RETURN_MEMORY' ? 'memory_callback' : 'system',
+      relatedInsightId: d.relatedInsightId ?? null,
+      relatedMemoryUnitId: d.memoryId ?? null,
+      metadata: { channel: d.channel, intervention_type: d.type, topic_key: d.topicKey ?? null },
+    });
+  } catch (letterErr: any) {
+    console.error('[dispatch] 편지 저장 실패 (발송은 완료됨):', letterErr?.message);
   }
 
   return { text: composed.text, subject: composed.subject };

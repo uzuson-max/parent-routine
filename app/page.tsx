@@ -46,7 +46,7 @@ const WORLD_CURTAIN_CSS = `
 `;
 
 const ONBOARDING_KEY = "ganseobi_onboarding_completed";
-// 편지 탭을 마지막으로 연 시각 — 그 뒤에 생긴 "참견이가 알아챈 거"만 배지에 센다(components/InsightList).
+// 편지 탭을 마지막으로 연 시각 — 그 뒤에 생긴 "참견이가 알아챈 거"만 배지에 센다(app/screens/LettersScreen).
 const INSIGHTS_SEEN_KEY = "ganseobi_insights_seen_at";
 // 첫 실행 사용자가 "첫 녹음 → 첫 기록"까지 마쳤는지 표시. 한 번 true가 되면 그 세션에서만
 // 닉네임/전화번호 같은 부가 입력을 건너뛰기 위한 용도로만 쓰고, 이후에는 기존 플로우를 그대로 탄다.
@@ -531,7 +531,14 @@ export default function Home() {
       {step === "letters" && (
         <div className="world-fade">
           <style>{WORLD_CURTAIN_CSS}</style>
-          <LettersScreen onNavigate={goTab} onUnreadCountChange={setUnreadLetterCount} />
+          <LettersScreen
+            onNavigate={goTab}
+            onUnreadCountChange={setUnreadLetterCount}
+            onReply={(text) => {
+              setTankReplyTo(text);
+              setStep("tank_recording");
+            }}
+          />
         </div>
       )}
 

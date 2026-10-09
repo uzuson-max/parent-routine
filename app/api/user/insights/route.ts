@@ -27,7 +27,21 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
-    const insights = (data ?? []).map((row) => ({
+    // 같은 발견이 이미 편지로 전달됐으면(문자로 보낸 insight 콜백) 그 편지 하나만 보이게 여기선 뺀다.
+    const ids = (data ?? []).map((r) => r.id);
+    let sentAsLetter = new Set<number>();
+    if (ids.length) {
+      const { data: lettered, error: letErr } = await supabase
+        .from('letters')
+        .select('related_insight_id')
+        .eq('user_id', userId)
+        .eq('status', 'delivered')
+        .in('related_insight_id', ids);
+      if (letErr) console.error('[api/user/insights] 편지 연결 조회 실패 (중복 제거 없이 계속):', letErr.message);
+      sentAsLetter = new Set((lettered ?? []).map((l) => Number(l.related_insight_id)));
+    }
+
+    const insights = (data ?? []).filter((row) => !sentAsLetter.has(Number(row.id))).map((row) => ({
       id: row.id,
       content: row.content as string,
       confidence: row.confidence as number,

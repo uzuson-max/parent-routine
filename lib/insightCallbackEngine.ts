@@ -135,6 +135,7 @@ export async function sendDueInsightCallbacks(dryRun: boolean = false): Promise<
           body: c.content,
           reason: `insight_callback: insight#${c.id}`,
           topicKey: `insight:${c.id}`,
+          relatedInsightId: c.id,
         });
         // 발송 성공 시에만 surfaced 처리 — 실패하면 다음 배치에서 재시도되도록 그대로 둔다.
         await markInsightsSurfaced([c.id]);
