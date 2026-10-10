@@ -2,7 +2,7 @@
 // ============================================================================
 // 어항(바다) 홈의 물속 소리 — 파일 없이 브라우저 안에서 직접 만든다.
 // ----------------------------------------------------------------------------
-//   - 바닥: 낮게 웅웅거리는 물속 소리(갈색 잡음 → 저역 필터, 아주 천천히 밀려왔다 빠지는 너울)
+//   - 바닥: 아주 작게 깔리는 물속 웅웅 소리(갈색 잡음 → 저역 필터, 아주 천천히 밀려왔다 빠지는 너울)
 //   - 위: 가끔 보글. 한 방울씩, 가끔은 서너 방울이 줄줄이.
 //   - 밤(21시~6시)에는 더 작고, 보글도 드물게.
 // 기본은 꺼짐. 홈의 소라를 눌러야 켜진다(아이폰은 사용자가 화면을 건드리기 전엔 소리를 못 낸다).
@@ -84,7 +84,7 @@ function bubble(c: AudioContext, at: number, size: number) {
   osc.type = "sine";
   osc.frequency.setValueAtTime(f0, at);
   osc.frequency.exponentialRampToValueAtTime(f0 * (2 + Math.random() * 0.8), at + dur);
-  const vol = (0.05 + Math.random() * 0.07) * (night ? 0.6 : 1);
+ const vol = (0.08 + Math.random() * 0.08) * (night ? 0.6 : 1);
   g.gain.setValueAtTime(0.0001, at);
   g.gain.exponentialRampToValueAtTime(vol, at + 0.006);
   g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
@@ -141,10 +141,10 @@ export function startSea(isNight: boolean) {
   // 웅웅 — 갈색 잡음을 낮게 거른다
   const low = c.createBiquadFilter();
   low.type = "lowpass";
-  low.frequency.value = night ? 260 : 360;
+  low.frequency.value = night ? 150 : 190;
   low.Q.value = 0.7;
   const bedGain = c.createGain();
-  bedGain.gain.value = 0.5;
+  bedGain.gain.value = 0.12; // 바닥 소리는 아주 작게 — 보글이 주인공
   noise = c.createBufferSource();
   noise.buffer = brownNoise(c, 6);
   noise.loop = true;
@@ -157,7 +157,7 @@ export function startSea(isNight: boolean) {
   lfo = c.createOscillator();
   lfo.frequency.value = 0.06;
   const lfoDepth = c.createGain();
-  lfoDepth.gain.value = 110;
+  lfoDepth.gain.value = 35;
   lfo.connect(lfoDepth);
   lfoDepth.connect(low.frequency);
   lfo.start();
