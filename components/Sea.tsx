@@ -104,6 +104,9 @@ function isThisMonth(iso: string, now: Date): boolean {
   return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
 }
 
+// 대답을 기다리는 동안 참견이 혼잣말 — 명령형/공손체 없이, 초딩 같은 혼잣말만.
+const MURMURS = ["음…", "잠깐만.", "니 말 곱씹는 중.", "근데 이거…", "아 뭐였더라.", "거의 다 됐어."];
+
 const FRY_OFFSETS: [number, number][] = [
   [2, 14],
   [20, 2],
@@ -160,11 +163,22 @@ export default function Sea({ entries, thinking, night, recallUnitId = null }: S
   }, []);
   useEffect(() => {
     const seq = ++reqSeq.current;
-    loadFresh<Lineage[]>("tank")
-      .then((data) => {
-        if (data && alive.current && seq === reqSeq.current) setLineages(data);
-      })
-      .catch((e) => console.error("[Sea] 계보 불러오기 실패:", e));
+    const pull = () =>
+      loadFresh<Lineage[]>("tank")
+        .then((data) => {
+          if (data && alive.current && seq === reqSeq.current) setLineages(data);
+        })
+        .catch((e) => console.error("[Sea] 계보 불러오기 실패:", e));
+    pull();
+    // 새 녹음의 기억 정리는 대답이 나간 뒤 서버 뒤편에서 마저 끝난다 — 조금 있다 두 번 더 불러와서
+    // 치어로 먼저 들어온 생각이 제 물고기(계보)로 자리 잡게 한다.
+    if (entriesKey === null) return;
+    const t1 = setTimeout(pull, 8000);
+    const t2 = setTimeout(pull, 20000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [entriesKey]);
 
   // ---- 지난달 층 — 지난 어항 데이터(이번 달은 첫 화면이 맡으니 뺀다) ----
@@ -259,6 +273,15 @@ export default function Sea({ entries, thinking, night, recallUnitId = null }: S
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineages]);
+
+  // ---- 기다리는 동안 혼잣말 ----
+  const [murmurIdx, setMurmurIdx] = useState(0);
+  useEffect(() => {
+    if (!thinking) return;
+    setMurmurIdx(0);
+    const t = setInterval(() => setMurmurIdx((i) => i + 1), 2300);
+    return () => clearInterval(t);
+  }, [thinking]);
 
   // ---- 누르기 ----
   const [sheet, setSheet] = useState<Sheet>(null);
@@ -608,6 +631,16 @@ export default function Sea({ entries, thinking, night, recallUnitId = null }: S
             <span className="sea-dot" />
             <span className="sea-dot" style={{ animationDelay: ".15s" }} />
             <span className="sea-dot" style={{ animationDelay: ".3s" }} />
+          </div>
+        )}
+
+        {/* 기다리는 동안 참견이가 옆에서 혼잣말 — 멍하니 점만 보고 있지 않게 */}
+        {thinking && (
+          <div className="sea-murmur" aria-hidden>
+            <PeekMascot expression={murmurIdx % 2 ? "base" : "tilt"} size={52} />
+            <span key={murmurIdx} className="sea-murmur-say">
+              {MURMURS[murmurIdx % MURMURS.length]}
+            </span>
           </div>
         )}
 
@@ -1025,6 +1058,9 @@ const CSS = `
 .sea-thinking::after{content:"";position:absolute;left:20px;top:14px;width:18px;height:11px;border-radius:50%;background:#fff;transform:rotate(-30deg)}
 .sea-dot{width:10px;height:10px;border-radius:50%;background:#1B1630;animation:sea-dot 1s ease-in-out infinite}
 @keyframes sea-wobble{0%,100%{transform:scale(1,1) translateY(0)}25%{transform:scale(1.06,.94) translateY(3px)}50%{transform:scale(.95,1.05) translateY(-6px)}75%{transform:scale(1.03,.97) translateY(0)}}
+.sea-murmur{position:absolute;left:50%;top:calc(46% + 62px);transform:translateX(-50%);z-index:11;display:flex;align-items:center;gap:6px;pointer-events:none;animation:sea-murmur-in .4s ease both}
+@keyframes sea-murmur-in{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translateX(-50%)}}
+.sea-murmur-say{white-space:nowrap;padding:6px 12px;background:#fff;border:2.5px solid #1B1630;border-radius:16px;box-shadow:2px 2px 0 #1B1630;font-size:15px;animation:sea-say .3s ease both}
 @keyframes sea-dot{0%,100%{transform:translateY(0);opacity:.35}50%{transform:translateY(-6px);opacity:1}}
 .sea-peek{position:fixed;right:max(0px,calc(50% - 240px));top:38%;z-index:60;pointer-events:none;display:flex;align-items:flex-end;gap:2px}
 .sea-peek-face{display:block;margin-right:-22px;animation:sea-peek .6s cubic-bezier(.3,1.5,.5,1) both}
