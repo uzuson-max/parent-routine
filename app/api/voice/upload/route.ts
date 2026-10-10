@@ -9,6 +9,7 @@ import { runMemoryPipeline } from '@/lib/memoryPipeline';
 import { retrieveRelevantMemoriesWithTrace, markMemoriesReferenced, RetrievalTrace } from '@/lib/memoryRetrieval';
 import { retrieveRelevantInsights, markInsightsSurfaced } from '@/lib/insightEngine';
 import { sendRoutineCall } from '@/lib/twilio';
+import { loadRecall, type Recall } from '@/lib/recall';
 import OpenAI from 'openai';
 import { looksLikeNoSpeech } from '@/lib/noSpeech';
 import { loadUserPrefs, allowsCalls } from '@/lib/userPrefs';
@@ -133,6 +134,8 @@ export async function POST(request: Request) {
     let responseResult: any = null;
     // P0 — 이번 발화에서 과거 기억 검색이 실제로 무엇을 했는지. voice_entries.response.retrieval_trace로 함께 저장된다.
     let retrievalTrace: RetrievalTrace | null = null;
+        // 대답이 실제로 쓴 과거 기억(원문+시각) — 홈이 "기억 소환" 순간을 크게 보여준다. 없으면 null.
+    let recalled: Recall | null = null;
     let memoryCandidates: { memory_type: string; content: string }[] = [];
     let existingCommitments: { id: string; commitment: string }[] = [];
 
@@ -188,6 +191,7 @@ export async function POST(request: Request) {
 
       // responseEngine이 실제로 특정 memory_unit을 답변에 썼다면 last_referenced_at/reference_count 갱신.
       if (responseResult?.memory_unit_id_used) {
+                recalled = await loadRecall(responseResult.memory_unit_id_used);
         try {
           await markMemoriesReferenced([responseResult.memory_unit_id_used]);
         } catch (refErr: any) {
@@ -279,6 +283,8 @@ export async function POST(request: Request) {
               ? {
             ...responseResult,
             retrieval_trace: retrievalTrace,
+                            // 꺼낸 기억 — 홈 기억 소환 연출 + 나중에 물고기 대화 기록에서도 쓴다(스키마 변경 없음, response jsonb 안).
+            ...(recalled ? { recalled } : {}),
             reply_to: topicFromForm ?? null,
             // 환각 의심이었지만 사용자가 "맞아"라고 확인한 녹음 — 목록에서 걸러지지 않게 표시한다.
             ...(speechConfirmed ? { speech_confirmed: true } : {}),
