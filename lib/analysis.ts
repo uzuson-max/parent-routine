@@ -595,10 +595,13 @@ export async function confirmCommitment(
 }
 
 export async function analyzeAndSchedule(entryId: string, transcript: string, userId: string, persona: string) {
-  const activeCommitments = await fetchActiveCommitments(userId, entryId);
-  const unfulfilledMemories = await fetchUnfulfilledCommitmentMemories(userId);
-  const topPatterns = await fetchTopPatterns(userId);
-  const memoryCandidates = await fetchMemoryCandidates(userId);
+  // 분석 전에 필요한 조회 4개는 서로 상관없어서 동시에 한다(예전엔 하나씩 차례로 기다렸다).
+  const [activeCommitments, unfulfilledMemories, topPatterns, memoryCandidates] = await Promise.all([
+    fetchActiveCommitments(userId, entryId),
+    fetchUnfulfilledCommitmentMemories(userId),
+    fetchTopPatterns(userId),
+    fetchMemoryCandidates(userId),
+  ]);
 
   const analysis = await callGPT(transcript, persona, activeCommitments, unfulfilledMemories, topPatterns, memoryCandidates);
 
