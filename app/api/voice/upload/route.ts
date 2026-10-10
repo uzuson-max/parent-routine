@@ -46,7 +46,52 @@ function later(label: string, work: () => Promise<unknown>) {
   }
 }
 
+// ============================================================================
+// 2단계 응답 — 홈 녹음은 "x-upload-stream: 1" 헤더를 붙여 보낸다. 그러면 요청 하나에서 한 줄씩(NDJSON) 받는다:
+//   {"stage":"transcript","transcript":"…","entry_id":"…"}   ← 받아쓰기가 끝나고 기록이 만들어진 즉시
+//   {"stage":"final","status":200,"body":{…예전 응답 그대로…}} ← 분석/기억 검색/대답이 끝난 뒤
+// 녹음 파일 업로드·Whisper는 한 번뿐이고, 분석 → 기억 검색 → 대답의 순서/의존 관계도 그대로다.
+// 헤더가 없으면(예전 녹음 화면 등) 지금까지처럼 마지막 결과만 한 번에 JSON으로 돌려준다.
+// ============================================================================
+type TranscriptReady = { transcript: string; entry_id: string };
+
 export async function POST(request: Request) {
+  if (request.headers.get('x-upload-stream') !== '1') return handleUpload(request);
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const send = (obj: unknown) => {
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'));
+        } catch {
+          /* 클라이언트가 이미 끊었으면 그냥 버린다 — 서버 처리는 끝까지 간다 */
+        }
+      };
+      try {
+        const res = await handleUpload(request, (t) => send({ stage: 'transcript', ...t }));
+        const body = await res.json().catch(() => ({ success: false, error: '응답을 읽지 못했어.' }));
+        send({ stage: 'final', status: res.status, body });
+      } catch (e: any) {
+        send({ stage: 'final', status: 500, body: { success: false, error: e?.message ?? '서버 에러' } });
+      }
+      try {
+        controller.close();
+      } catch {
+        /* 이미 닫힘 */
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'application/x-ndjson; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'X-Accel-Buffering': 'no',
+    },
+  });
+}
+
+async function handleUpload(request: Request, onTranscript?: (t: TranscriptReady) => void): Promise<Response> {
   const timer = makeTimer();
   try {
     const userId = await getUserIdFromRequest(request);
@@ -167,6 +212,12 @@ export async function POST(request: Request) {
     if (insertError || !entry) {
       console.error('DB 생성 실패:', insertError?.message);
       return NextResponse.json({ success: false, error: insertError?.message }, { status: 500 });
+    }
+
+    // 받아쓰기 결과를 먼저 화면에 — 홈은 이 문장을 바로 바다에 띄우고, 대답은 아래 처리가 끝나면 따라온다.
+    if (onTranscript && transcript !== '(음성 변환 실패)') {
+      onTranscript({ transcript, entry_id: String(entry.id) });
+      timer.mark('transcript_sent');
     }
 
     // 전화 여부 판단에만 쓰는 설정 — 미리 읽기 시작해두고 마지막에 받는다.
