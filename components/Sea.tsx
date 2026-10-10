@@ -49,6 +49,10 @@ interface SeaProps {
   // 참견이가 지금 꺼내 온 기억(memory_unit id). 있으면 그 기억이 사는 물고기가 깨어나 위로 떠오르고,
   // 다른 물고기는 흐려지고 바다가 살짝 어두워진다 — 앱에서 가장 도드라지는 순간.
   recallUnitId?: number | null;
+  // 대답 기다리는 단계 — listening: 받아쓰는 중 / chewing: 내 말은 도착했고 대답을 만드는 중
+  thinkingPhase?: "listening" | "chewing" | null;
+  // 받아쓰기가 도착한 순간(키) — 그 말이 치어로 퐁당 들어오는 연출
+  heardKey?: number | null;
 }
 
 const NOISE_MAX = 5;
@@ -105,7 +109,10 @@ function isThisMonth(iso: string, now: Date): boolean {
 }
 
 // 대답을 기다리는 동안 참견이 혼잣말 — 명령형/공손체 없이, 초딩 같은 혼잣말만.
-const MURMURS = ["음…", "잠깐만.", "니 말 곱씹는 중.", "근데 이거…", "아 뭐였더라.", "거의 다 됐어."];
+// 실제 처리 단계와 맞춘다 — 받아쓰기 중엔 "듣는 중", 내 말이 도착한 뒤엔 곱씹는 말 몇 마디를 한 번씩만(반복 X, 마지막 말에서 멈춤).
+// 기억을 찾았다거나 거의 끝났다는 식으로 실제와 다를 수 있는 말은 넣지 않는다.
+const MURMUR_LISTENING = "듣는 중.";
+const MURMURS_CHEWING = ["음…", "니 말 곱씹는 중.", "흠…"];
 
 const FRY_OFFSETS: [number, number][] = [
   [2, 14],
@@ -130,7 +137,7 @@ type Sheet =
   | { kind: "past"; month: string; id: string }
   | null;
 
-export default function Sea({ entries, thinking, night, recallUnitId = null }: SeaProps) {
+export default function Sea({ entries, thinking, night, recallUnitId = null, thinkingPhase = null, heardKey = null }: SeaProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(375);
   useEffect(() => {
@@ -277,11 +284,16 @@ export default function Sea({ entries, thinking, night, recallUnitId = null }: S
   // ---- 기다리는 동안 혼잣말 ----
   const [murmurIdx, setMurmurIdx] = useState(0);
   useEffect(() => {
-    if (!thinking) return;
     setMurmurIdx(0);
-    const t = setInterval(() => setMurmurIdx((i) => i + 1), 2300);
+    if (thinkingPhase !== "chewing") return;
+    const t = setInterval(
+      () => setMurmurIdx((i) => Math.min(i + 1, MURMURS_CHEWING.length - 1)),
+      2600
+    );
     return () => clearInterval(t);
-  }, [thinking]);
+  }, [thinkingPhase]);
+  const murmurText =
+    thinkingPhase === "listening" ? MURMUR_LISTENING : thinkingPhase === "chewing" ? MURMURS_CHEWING[murmurIdx] : null;
 
   // ---- 누르기 ----
   const [sheet, setSheet] = useState<Sheet>(null);
@@ -635,12 +647,37 @@ export default function Sea({ entries, thinking, night, recallUnitId = null }: S
         )}
 
         {/* 기다리는 동안 참견이가 옆에서 혼잣말 — 멍하니 점만 보고 있지 않게 */}
-        {thinking && (
+        {thinking && murmurText && (
           <div className="sea-murmur" aria-hidden>
-            <PeekMascot expression={murmurIdx % 2 ? "base" : "tilt"} size={52} />
-            <span key={murmurIdx} className="sea-murmur-say">
-              {MURMURS[murmurIdx % MURMURS.length]}
+            <PeekMascot expression={thinkingPhase === "listening" ? "base" : murmurIdx % 2 ? "base" : "tilt"} size={52} />
+            <span key={murmurText} className="sea-murmur-say">
+              {murmurText}
             </span>
+          </div>
+        )}
+
+        {/* 방금 한 말이 치어가 되어 퐁당 — 받아쓰기가 도착한 순간(대답 전). 대답이 오면 진짜 기록의 치어로 바뀐다. */}
+        {thinking && heardKey !== null && (
+          <div
+            key={"incoming-" + heardKey}
+            className="sea-swim"
+            style={{
+              left: Math.max(16, width * 0.22),
+              top: "30%",
+              width: 26,
+              ["--dx" as any]: `${Math.min(140, width * 0.35)}px`,
+              animationDuration: `${16 * slow}s`,
+              zIndex: 10,
+            }}
+            aria-hidden
+          >
+            <div className="sea-arrive">
+              <div className="sea-bob" style={{ animationDuration: "1.1s", ["--wag" as any]: "0.2s" }}>
+                <div className="sea-fry" style={{ position: "relative", width: 26 }}>
+                  {frySvg("#FFA45C", false)}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
