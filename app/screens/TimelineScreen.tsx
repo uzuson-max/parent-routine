@@ -102,7 +102,10 @@ export default function TimelineScreen({
   }, []);
 
   // 밤(21시~6시) — 물이 어두워지고 다들 눈 감고 천천히, 소리도 작게. 시간대는 클라이언트에서만 판단.
-  const [night, setNight] = useState(false);
+  // null = 아직 모름(서버에서 그린 첫 화면). 낮 바다를 그렸다가 밤 바다로 바뀌며 "다른 그림이 번쩍" 하던 문제 —
+  // 시간대를 확인하기 전에는 바다를 그리지 않고 깊은 물색만 보여주다가, 확인되면 맞는 바다를 스르륵 띄운다.
+  const [nightState, setNight] = useState<boolean | null>(null);
+  const night = nightState ?? false;
   useEffect(() => {
     const check = () => {
       const h = new Date().getHours();
@@ -181,7 +184,11 @@ export default function TimelineScreen({
     <div style={styles.container}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
 
-      <Sea entries={entries} thinking={thinking} night={night} onOpenMonth={onOpenMonth} recallUnitId={recall?.memory_unit_id ?? null} />
+      {nightState !== null && (
+        <div className="tl-sea-in">
+          <Sea entries={entries} thinking={thinking} night={night} onOpenMonth={onOpenMonth} recallUnitId={recall?.memory_unit_id ?? null} />
+        </div>
+      )}
 
       {/* HEADER — 소라(물속 소리) · 로고 · MY. 바다 위에 떠 있다. */}
       <div style={styles.header}>
@@ -337,6 +344,8 @@ const CSS = `
 .tl-mic:not(:disabled):active { animation: none; transform: translate(calc(-50% + 4px), 4px); box-shadow: 1px 1px 0 ${INK}; }
 .tl-mic:focus-visible { outline: 3px dashed #fff; outline-offset: 4px; }
 .tl-sticker:focus-visible, .tl-close:focus-visible, .tl-sticker:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 ${INK} !important; }
+.tl-sea-in { animation: tlSeaIn .35s ease-out both; }
+@keyframes tlSeaIn { from { opacity: 0; } to { opacity: 1; } }
 .tl-bubble { animation: tlBubbleIn .4s ease-out both; }
 .tl-bubble-late { animation-delay: 1.1s; }
 .tl-recall { display: flex; flex-direction: column; align-items: center; animation: tlRecallIn .7s cubic-bezier(.3,1.5,.5,1) both; }
@@ -354,7 +363,7 @@ const CSS = `
 .tl-wave1 { animation: tlWave 1.6s ease-in-out infinite; }
 .tl-wave2 { animation: tlWave 1.6s ease-in-out .3s infinite; }
 @keyframes tlWave { 0%,100% { opacity: .25; } 50% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .tl-mic-idle, .tl-bubble, .tl-wave1, .tl-wave2, .tl-recall, .tl-recall-cap, .tl-recall-link span { animation: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tl-sea-in, .tl-mic-idle, .tl-bubble, .tl-wave1, .tl-wave2, .tl-recall, .tl-recall-cap, .tl-recall-link span { animation: none; opacity: 1; } }
 `;
 
 const styles: { [key: string]: React.CSSProperties } = {
