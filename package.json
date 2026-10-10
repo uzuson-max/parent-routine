@@ -11,6 +11,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "@supabase/supabase-js": "^2.0.0",
+        "@vercel/functions": "1.6.0",
     "next": "14.1.0",
     "openai": "^4.0.0",
     "react": "^18",
