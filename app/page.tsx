@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
-import TimelineScreen, { type RecordEntry, type HomeBubble } from "./screens/TimelineScreen";
+import TimelineScreen, { type RecordEntry, type HomeBubble, type ProactiveLine } from "./screens/TimelineScreen";
 import LandingScreen from "./screens/LandingScreen";
 import RecordingScreen from "./screens/RecordingScreen";
 import PhoneInputScreen from "./screens/PhoneInputScreen";
@@ -104,7 +104,7 @@ export default function Home() {
   // 객체 = 아직 아무 데도 안 꺼낸 진짜 proactive callback(memory_insight) 하나.
   // 홈을 다시 방문할 때마다 새로 불러오지 않는다 — 한 번 화면에 뜬 참견은 사용자가
   // 실제로 답하러 가기 전까지(onOpenRecording에서 비움) 그대로 남아 있어야 하기 때문.
-  const [proactiveLine, setProactiveLine] = useState<{ id: number; content: string } | null | undefined>(undefined);
+  const [proactiveLine, setProactiveLine] = useState<ProactiveLine | null | undefined>(undefined);
   // 온보딩을 막 끝낸 사용자의 "첫 녹음 → 첫 기록" 여정 동안만 true.
   // 이 값이 true인 동안에는 전화번호/닉네임 같은 부가 입력을 요구하지 않고 바로 홈까지 보낸다.
   const [isFirstRun, setIsFirstRun] = useState(false);
@@ -297,7 +297,7 @@ export default function Home() {
 
       const state = body.data.call_state;
       if (state === "no_action" || state === "saved_only") {
-        setHomeBubble({ kind: "reply", text: body.data.response?.response || "일단 들어뒀어." });
+               setHomeBubble({ kind: "reply", text: body.data.response?.response || "일단 들어뒀어.", recall: body.data.response?.recalled ?? null });
         return;
       }
 
