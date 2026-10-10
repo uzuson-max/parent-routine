@@ -212,3 +212,32 @@ export function plop() {
   bubble(c, c.currentTime + 0.01, 0.9);
   bubble(c, c.currentTime + 0.09, 0.3);
 }
+
+/** 참견이가 기억을 꺼내 올 때 — 맑은 종소리 세 개가 위로. 물속 소리가 켜져 있을 때만. */
+export function recallChime() {
+  if (!playing || !ctx || !master) return;
+  const c = ctx;
+  const out = master;
+  [659, 784, 1047].forEach((f, i) => {
+    const at = c.currentTime + 0.02 + i * 0.13;
+    const osc = c.createOscillator();
+    const g = c.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(f, at);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(0.09, at + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.9);
+    osc.connect(g);
+    g.connect(out);
+    osc.start(at);
+    osc.stop(at + 1);
+    osc.onended = () => {
+      try {
+        g.disconnect();
+      } catch {
+        /* 이미 끊김 */
+      }
+    };
+  });
+  bubble(c, c.currentTime + 0.45, 0.4);
+}
