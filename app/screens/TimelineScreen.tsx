@@ -38,8 +38,9 @@ export interface Recall {
 //   notice — "아직 아무 말도 안 했는데?" 같은 짧은 안내. 대답 대상이 아니다.
 //   confirm — 받아쓴 내용이 무음 환각("시청해주셔서 감사합니다" 등)처럼 보일 때. text는 받아쓴 내용이고,
 //             [맞아]를 누르면 그대로 저장, [아니]를 누르면 버린다(onConfirmSpeech).
+//   retry  — 녹음을 보내다 서버에 닿기 전에 실패. 녹음은 그대로 있고 [다시 보내기]로 같은 녹음을 다시 보낸다(onRetrySpeech).
 export interface HomeBubble {
-  kind: "reply" | "notice" | "confirm";
+  kind: "reply" | "notice" | "confirm" | "retry";
   text: string;
   // reply가 과거 기억을 꺼내 온 대답이면 그 기억(voice/upload → response.recalled)
   recall?: Recall | null;
@@ -55,6 +56,10 @@ interface TimelineScreenProps {
   onBubbleChange: (b: HomeBubble | null) => void;
   // confirm 말풍선의 [맞아](true) / [아니](false)
   onConfirmSpeech?: (yes: boolean) => void;
+  // retry 말풍선의 [다시 보내기]
+  onRetrySpeech?: () => void;
+  // 2단계 응답 — 서버가 받아쓰기를 끝내자마자 보내준 "방금 니가 한 말"(대답을 기다리는 동안만 있다)
+  heard?: { text: string; key: number } | null;
   // 하단 탭(어항 / 지난 어항 / 편지)으로 이동
   onNavigate: (tab: WorldTab) => void;
   // 오른쪽 위 MY(설정) 아이콘
@@ -85,6 +90,8 @@ export default function TimelineScreen({
   bubble,
   onBubbleChange,
   onConfirmSpeech,
+  onRetrySpeech,
+  heard = null,
   onNavigate,
   onOpenMyPage,
   unreadLetterCount = 0,
@@ -149,7 +156,7 @@ export default function TimelineScreen({
     const replyTo =
       bubble?.kind === "reply" ? bubble.text : hasCallback && proactiveLine ? proactiveLine.content : undefined;
     // 안내/확인 말풍선은 새로 말하기 시작하면 내려놓는다(확인 대기 중이던 녹음은 버려진다).
-    if (bubble?.kind === "notice" || bubble?.kind === "confirm") onBubbleChange(null);
+    if (bubble?.kind === "notice" || bubble?.kind === "confirm" || bubble?.kind === "retry") onBubbleChange(null);
     playFx("micStart");
     // 사용자 제스처 안에서 마이크 요청을 먼저 시작해둔다(iOS Safari 대비) — 녹음 화면이 같은 스트림을 이어받는다.
     acquireMicStream().catch(() => {});
@@ -163,7 +170,7 @@ export default function TimelineScreen({
     ? { stamp: "참견이 등장.", text: proactiveLine.content, closable: false, recall: proactiveLine.recall ?? null }
     : null;
   // 지금 화면에 떠 있는 "기억 소환" — 말풍선 위 기억 캡슐 + 바다에서 그 물고기가 깨어나 떠오른다.
-  const recall = shown && !thinking && bubble?.kind !== "confirm" ? shown.recall : null;
+  const recall = shown && !thinking && bubble?.kind !== "confirm" && bubble?.kind !== "retry" ? shown.recall : null;
   const recallKey = recall ? `${recall.memory_unit_id}:${shown?.text}` : null;
   useEffect(() => {
     if (!recallKey) return;
@@ -186,7 +193,15 @@ export default function TimelineScreen({
 
       {nightState !== null && (
         <div className="tl-sea-in">
-          <Sea entries={entries} thinking={thinking} night={night} onOpenMonth={onOpenMonth} recallUnitId={recall?.memory_unit_id ?? null} />
+          <Sea
+            entries={entries}
+            thinking={thinking}
+            thinkingPhase={thinking ? (heard ? "chewing" : "listening") : null}
+            heardKey={thinking && heard ? heard.key : null}
+            night={night}
+            onOpenMonth={onOpenMonth}
+            recallUnitId={recall?.memory_unit_id ?? null}
+          />
         </div>
       )}
 
@@ -208,7 +223,48 @@ export default function TimelineScreen({
 
       {/* 말풍선 — 참견이의 대답 / 먼저 꺼낸 말 / 짧은 안내 */}
       <div style={styles.bubbleSlot}>
-        {bubble?.kind === "confirm" && !thinking ? (
+        {/* 대답을 기다리는 동안 — 받아쓴 내 말을 먼저 보여준다(참견이 대답처럼 보이지 않게 내 말 모양으로) */}
+        {thinking && heard && (
+          <div key={"heard:" + heard.key} className="tl-heard" style={styles.heard} role="status">
+            <span style={styles.heardLabel}>
+              <svg width="20" height="14" viewBox="0 0 40 26" aria-hidden>
+                <path d="M12 13 C7 7 4 6 1 7 C3 11 3 15 1 19 C4 20 7 19 12 13 Z" fill="#FFD3A1" stroke={INK} strokeWidth={2.5} strokeLinejoin="round" />
+                <ellipse cx="23" cy="13" rx="12" ry="8.5" fill="#FFA45C" stroke={INK} strokeWidth={2.5} />
+                <circle cx="28" cy="10.5" r="3" fill={INK} />
+              </svg>
+              방금 니가 한 말
+            </span>
+            <span style={styles.heardText}>“{heard.text.length > 90 ? heard.text.slice(0, 90) + "…" : heard.text}”</span>
+          </div>
+        )}
+        {bubble?.kind === "retry" && !thinking ? (
+          <div key={"retry:" + bubble.text} className="tl-bubble" style={styles.bubble} role="alert">
+            <span style={styles.bubbleStamp}>참견이</span>
+            <span style={styles.confirmAsk}>{bubble.text}</span>
+            <div style={styles.confirmRow}>
+              <button
+                className="tl-sticker"
+                style={{ ...styles.confirmBtn, background: "#FFD23F" }}
+                onClick={() => {
+                  playFx("buttonPress");
+                  onRetrySpeech?.();
+                }}
+              >
+                다시 보내기
+              </button>
+              <button
+                className="tl-sticker"
+                style={styles.confirmBtn}
+                onClick={() => {
+                  playFx("buttonPress");
+                  onBubbleChange(null);
+                }}
+              >
+                괜찮아
+              </button>
+            </div>
+          </div>
+        ) : bubble?.kind === "confirm" && !thinking ? (
           <div key={"confirm:" + bubble.text} className="tl-bubble" style={styles.bubble} role="status">
             <span style={styles.bubbleStamp}>참견이</span>
             <span style={styles.confirmAsk}>잘 못 들었어. 이렇게 말한 거 맞아?</span>
@@ -347,6 +403,8 @@ const CSS = `
 .tl-sea-in { animation: tlSeaIn .35s ease-out both; }
 @keyframes tlSeaIn { from { opacity: 0; } to { opacity: 1; } }
 .tl-bubble { animation: tlBubbleIn .4s ease-out both; }
+.tl-heard { animation: tlHeardIn .45s cubic-bezier(.3,1.4,.5,1) both; }
+@keyframes tlHeardIn { from { opacity: 0; transform: translateY(-14px) scale(.92) rotate(1.5deg); } to { opacity: 1; transform: rotate(1.5deg); } }
 .tl-bubble-late { animation-delay: 1.1s; }
 .tl-recall { display: flex; flex-direction: column; align-items: center; animation: tlRecallIn .7s cubic-bezier(.3,1.5,.5,1) both; }
 @keyframes tlRecallIn { 0% { opacity: 0; transform: translateY(40px) scale(.6); } 60% { opacity: 1; transform: translateY(-4px) scale(1.04); } 100% { opacity: 1; transform: none; } }
@@ -363,7 +421,7 @@ const CSS = `
 .tl-wave1 { animation: tlWave 1.6s ease-in-out infinite; }
 .tl-wave2 { animation: tlWave 1.6s ease-in-out .3s infinite; }
 @keyframes tlWave { 0%,100% { opacity: .25; } 50% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .tl-sea-in, .tl-mic-idle, .tl-bubble, .tl-wave1, .tl-wave2, .tl-recall, .tl-recall-cap, .tl-recall-link span { animation: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tl-heard, .tl-sea-in, .tl-mic-idle, .tl-bubble, .tl-wave1, .tl-wave2, .tl-recall, .tl-recall-cap, .tl-recall-link span { animation: none; opacity: 1; } }
 `;
 
 const styles: { [key: string]: React.CSSProperties } = {
@@ -416,6 +474,35 @@ const styles: { [key: string]: React.CSSProperties } = {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
+  },
+  // 방금 니가 한 말 — 대답을 기다리는 동안 보이는 내 말. 참견이 말풍선(흰색, 스탬프)과 헷갈리지 않게 반투명 물방울 모양.
+  heard: {
+    width: "100%",
+    maxWidth: 320,
+    boxSizing: "border-box",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 6,
+    padding: "10px 18px 12px",
+    background: "rgba(255,255,255,.78)",
+    border: `2.5px dashed ${INK}`,
+    borderRadius: 22,
+    textAlign: "center",
+  },
+  heardLabel: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 13,
+    color: "rgba(27,22,48,.6)",
+  },
+  heardText: {
+    fontSize: 17,
+    lineHeight: 1.45,
+    wordBreak: "keep-all",
+    maxHeight: "6em",
+    overflowY: "auto",
   },
   // 기억 캡슐 — 참견이가 꺼내 온 "그때 니가 한 말". 노란 빛을 내며 말풍선보다 먼저 떠오른다.
   recallWrap: {
