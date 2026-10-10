@@ -119,7 +119,20 @@ export type ValidationFailureReason =
   | 'NEGATIVE_STANCE_AS_INTEREST' // 사용자가 싫다고 한 대상을 원하는 것처럼 물음
   | 'ANCHOR_NOT_IN_TRANSCRIPT' // anchor_quote가 사용자 원문에 없음
   | 'SPECIFIC_CURRENT_TURN_WITHOUT_OPPORTUNITY' // 구체적 디테일이 있는 발화인데 opportunity를 none으로 냄
-  | 'ANCHOR_TRUNCATED_HEAD'; // 숫자로 시작하는 anchor가 앞 대상(을/를)을 잘랐고 response에서도 그 대상이 사라짐
+  | 'ANCHOR_TRUNCATED_HEAD' // 숫자로 시작하는 anchor가 앞 대상(을/를)을 잘랐고 response에서도 그 대상이 사라짐
+  // 2026-10-11 — 기억 선택 실패 (SOFT: 재생성 1회는 유도하지만, 재생성 후에도 남아 있으면 fallback으로 떨어뜨리지 않는다)
+  | 'MEMORY_RELEVANCE_SKIPPED' // 기억 후보가 있는데 memory_relevance를 아예 비워서 냄(판단 자체를 건너뜀)
+  | 'SELECTED_MEMORY_NOT_USED' // opportunity로 기억을 골라놓고(source=memory, STRONG) 정작 response에는 안 씀
+  | 'FEELING_TARGET_OVER_MEMORY'; // 꺼낼 가치가 있는 기억(worthy relation)이 있는데 말하지 않은 기분/생각을 묻는 쪽을 고름
+
+// 2026-10-11 — SOFT 사유. 재생성 1회의 계기는 되지만, 재생성 결과에 이 사유만 남았다면 그 결과를 그대로 내보낸다
+// (fallback 템플릿보다 GPT 문장이 낫다). 첫 생성이 이 사유만으로 실패했는데 재생성이 다른(HARD) 이유로 망가지면
+// 첫 생성 결과를 쓴다. 기존 HARD 규칙(질문 개수·질문 무시·부정 뒤집기 등)의 동작은 바뀌지 않는다.
+export const SOFT_VALIDATION_REASONS: ReadonlySet<ValidationFailureReason> = new Set<ValidationFailureReason>([
+  'MEMORY_RELEVANCE_SKIPPED',
+  'SELECTED_MEMORY_NOT_USED',
+  'FEELING_TARGET_OVER_MEMORY',
+]);
 
 export interface ValidationResult {
   passed: boolean;

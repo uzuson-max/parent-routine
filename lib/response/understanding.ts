@@ -101,6 +101,40 @@ function heuristicIntent(transcript: string): UtteranceIntent {
   return 'statement';
 }
 
+// 참견이에게 직접 의견을 묻는 문장(명백한 경우만). "어떻게 생각해?" 바로 앞 질문까지 함께 돌려준다.
+// 다른 사람이 한 말을 옮기는 경우("…어떻게 생각해 이렇게 말을 했어", "…할까 말까 고민된다 이렇게")는 제외한다.
+// "할까 말까 / 나을까 / 괜찮을까"는 혼잣말 고민에도 흔해서 여기서는 쓰지 않는다(heuristicIntent에는 그대로 있다).
+const DIRECT_OPINION_RE = /(너라면|니가\s*보기엔|네가\s*보기엔|참견이라면|어떻게\s*생각해|어떤\s*것\s*같아|어떨\s*것\s*같아)/g;
+const REPORTED_SPEECH_RE = /^\s*[?？.!~]*\s*(이렇게|라고|하고|하면|했어|했더니|말을|물어보)/;
+
+export function findDirectOpinionRequest(transcript: string): string | null {
+  if (!transcript) return null;
+  const re = new RegExp(DIRECT_OPINION_RE.source, 'g');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(transcript)) !== null) {
+    const matchEnd = m.index + m[0].length;
+    if (REPORTED_SPEECH_RE.test(transcript.slice(matchEnd, matchEnd + 14))) continue;
+    // 매치가 든 문장 끝까지("너라면" → "너라면 어떻게 생각해")
+    const rest = transcript.slice(matchEnd).search(/[.!?？~]/);
+    const end = rest === -1 ? transcript.length : matchEnd + rest;
+    // 바로 앞 문장(질문)까지 포함: "수달로 메인 캐릭터를 바꿀까? 어떻게 생각해"
+    const before = transcript.slice(0, m.index);
+    const boundaries: number[] = [];
+    const bre = /[.!?？~]\s*/g;
+    let b: RegExpExecArray | null;
+    while ((b = bre.exec(before)) !== null) boundaries.push(b.index + b[0].length);
+    // 매치 바로 앞이 문장 끝이면(…바꿀까? 어떻게 생각해) 그 앞 문장부터, 아니면 매치가 든 문장 처음부터.
+    const back = /[.!?？~]\s*$/.test(before) ? 2 : 1;
+    const start = boundaries.length >= back ? boundaries[boundaries.length - back] : 0;
+    let quote = transcript.slice(start, end).trim();
+    // 앞 문장이 길게 이어진 말이면 뒤쪽만(질문 바로 앞 부분) 남긴다 — 원문 그대로의 연속 구간이다.
+    if (quote.length > 70) quote = quote.slice(quote.length - 70).replace(/^\S*\s/, '');
+    const tail = transcript.slice(end).match(/^\s*[?？]/);
+    return tail ? `${quote}?` : quote;
+  }
+  return null;
+}
+
 function cleanText(v: unknown, max = 200): string | null {
   if (typeof v !== 'string') return null;
   const s = v.trim().replace(/^["'“”‘’「」]+|["'“”‘’「」]+$/g, '').trim();
@@ -116,10 +150,20 @@ function cleanText(v: unknown, max = 200): string | null {
  */
 export function normalizeUnderstanding(parsed: any, transcript: string): Understanding {
   const rawIntent = parsed?.utterance_intent;
-  const utterance_intent: UtteranceIntent = UTTERANCE_INTENTS.includes(rawIntent) ? rawIntent : heuristicIntent(transcript);
+  let utterance_intent: UtteranceIntent = UTTERANCE_INTENTS.includes(rawIntent) ? rawIntent : heuristicIntent(transcript);
 
   const q = cleanText(parsed?.user_question);
-  const user_question = q && isGroundedIn(q, transcript) ? q : null;
+  let user_question = q && isGroundedIn(q, transcript) ? q : null;
+
+  // 2026-10-11 — 참견이에게 직접 의견을 물었는데("수달로 메인 캐릭터 바꿀까? 어떻게 생각해?") 분석이
+  // statement/vent로 분류하면, 응답이 의견 없이 "왜 바꾸고 싶어?"로 되묻는다. 명백한 직접 의견 요청만 보정한다.
+  if (utterance_intent === 'statement' || utterance_intent === 'vent') {
+    const asked = findDirectOpinionRequest(transcript);
+    if (asked) {
+      utterance_intent = 'opinion_request';
+      if (!user_question) user_question = asked;
+    }
+  }
 
   const stances: StanceItem[] = [];
   const rawStances = Array.isArray(parsed?.stances) ? parsed.stances : [];

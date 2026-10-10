@@ -17,6 +17,7 @@ import type {
   ValidationFailureReason,
 } from '@/lib/response/responsetypes';
 import { validateResponse } from '@/lib/response/responsevalidator';
+import { SOFT_VALIDATION_REASONS } from '@/lib/response/responsetypes';
 import { intentNeedsAnswer, isGroundedIn, negativeTargets, normalizeLoose, StanceItem } from '@/lib/response/understanding';
 
 type OmittedFields = 'validation_passed' | 'validation_failure_reason' | 'regeneration_count' | 'closes_conversation' | 'repeated_memory_detected' | 'fallback_used';
@@ -77,6 +78,10 @@ export function tryRepair(
 
   let opp: ConversationOpportunity = c.result.conversation_opportunity;
   let anchorDiscarded = false;
+  // 2026-10-11 — 기억을 근거로 한 opportunity인데 anchor(오늘 발화 중 그 기억과 이어지는 구간)가 원문에 없으면,
+  // "오늘 말과 이 기억이 이어진다"는 근거 자체가 없는 것이다. anchor만 지우고 그 기억 문장을 내보내면
+  // ("이제 할 거는 식물샵+참견이+스튜디오" → "사운드 이펙트 작업은 어떻게 돼?") 엉뚱한 소환이 그대로 나간다 → 수정하지 않고 재생성.
+  if (c.reasons.includes('ANCHOR_NOT_IN_TRANSCRIPT') && opp.source === 'memory') return null;
   if (c.reasons.includes('ANCHOR_NOT_IN_TRANSCRIPT')) {
     opp = { ...opp, anchor_quote: null, anchor_fact: null };
     anchorDiscarded = true;
@@ -88,8 +93,10 @@ export function tryRepair(
     conversation_opportunity: opp,
     question_present: /[?？]/.test(response),
   };
-  // 수정본도 validator를 그대로 통과해야 한다 (규칙 완화 없음).
-  return validateResponse(repaired, ctx).passed ? { result: repaired, anchorDiscarded } : null;
+  // 수정본도 validator를 그대로 통과해야 한다 (규칙 완화 없음). 단 SOFT 사유는 수정 대상이 아니므로
+  // 여기서도 통과/실패 판정에서 뺀다 — 엔진이 SOFT 사유를 따로 다룬다(lib/responseEngine.ts).
+  const after = validateResponse(repaired, ctx).reasons.filter((r) => !SOFT_VALIDATION_REASONS.has(r));
+  return after.length === 0 ? { result: repaired, anchorDiscarded } : null;
 }
 
 // ---- 의도 기반 안전 문장 --------------------------------------------------------------------

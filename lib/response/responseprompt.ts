@@ -192,6 +192,9 @@ anchor는 "문장에서 눈에 띄는 단어"가 아니라, 사용자가 실제�
 - question_target: 이번 응답에서 참견이가 묻거나 반응하는 것 한 가지를 짧은 명사구로. 사용자가 질문을 했다면 "그 질문에 대한 답"이 먼저다.
   question_target은 anchor와 별개의 넓은 주제를 새로 만드는 자리가 아니다 — 고른 anchor 자체에서 사용자가 아직 말하지 않은 부분을 이어간다.
   "anchor → 넓은 주제(방법·팁·계획·추천·상황 설명)"로 옮겨가지 말고 "anchor → 그 anchor에 남아 있는 빈 부분"을 찾는다.
+  question_target의 기본값을 "그때 기분 / 어떤 느낌 / ~에 대한 생각"으로 두지 마라. 사용자가 꺼내지 않은 감정을 캐묻기보다
+  사건·결정·행동·다음 한 걸음 중 빈 부분을 묻는다. 감정을 묻는 건 사용자가 감정을 먼저 꺼냈고 다른 붙잡을 게 없을 때만이다.
+  규칙 3(c-2)에 해당하는 기억이 있으면 감정 질문 대신 그 기억과 오늘 말의 연결을 붙잡는다.
   사용자가 이미 말한 내용(시간, 먹은 음식 이름, 상황)을 다시 묻는 것도 이탈이다.
 - 추론 금지: anchor에 없는 사실을 question_target이나 response에서 전제하지 마라. 사용자가 "봤다 / 들었다 / 먹었다"라고만 했으면
   그걸 곧바로 계획·의도·감정("가고 싶다", "살 예정이다", "계획 중이다")으로 확장하지 않는다. 남에게 들은 일이면 그 사람의 이유를 지어내지 않는다.
@@ -569,6 +572,12 @@ const REASON_HINT: Partial<Record<ValidationFailureReason, string>> = {
   · 예) "백스테이지 클럽을 4학기까지 갔는데 그 이후에 접었어." → 좋은 선택: "4학기까지 갔다", "그 이후에 접었다", "잡음이 들렸다".
   · 긴 발화면 전부 짚지 말고 그중 딱 하나만. anchor_quote는 그 부분을 원문에서 짧게(한 구절) 글자 그대로 복사한다. anchor_fact와 question_target도 채우고, response는 그 anchor를 바탕으로 쓴다.
   · opportunity가 있다고 반드시 질문할 필요는 없다(짧은 반응도 된다). 무거운 토로면 장난은 줄인다.`,
+  MEMORY_RELEVANCE_SKIPPED:
+    '기억 후보가 있었는데 memory_relevance를 비워서 냈다 → 후보 하나하나에 relevance와 relation을 판정해라. 그중 same_problem / past_want_relevant_now / past_plan_relevant_now / contradiction / continuation이 있으면 규칙 3(c-2)대로 그 기억 하나를 오늘 말과 연결해라. 전부 same_topic_only / no_relation이면 오늘 발화에 반응해라.',
+  SELECTED_MEMORY_NOT_USED:
+    'conversation_opportunity로 기억(source="memory", STRONG)을 골라놓고 response에서는 그 기억을 쓰지 않았다(위로·공감으로 빠짐) → 그 기억을 실제로 response에 녹이고 memory_unit_id_used에 같은 id를 적어라. 쓸 이유가 약하면 source를 "current_turn"으로 바꾸고 오늘 발화의 구체적인 부분에 반응해라.',
+  FEELING_TARGET_OVER_MEMORY:
+    '꺼낼 가치가 있는 관계로 판정한 기억이 있는데, 사용자가 말하지 않은 기분/생각을 묻는 쪽(question_target)을 골랐다 → 그 기억과 오늘 말의 연결을 붙잡아라(규칙 3(c-2)). "저번에 ~라고 했잖아" + 지금 상황과의 연결 + 답하기 쉬운 질문 하나.',
   ANCHOR_TRUNCATED_HEAD:
     '숫자/수량으로 시작하는 anchor가 원문에서 바로 앞의 구체적인 대상(예: "제주도 항공권을", "발표를")을 잘라냈고, response에서도 그 대상이 사라졌다 → 원문에 있는 그 대상 어절을 response에 다시 살려라("17만원" 대신 "17만원짜리 항공권", "3번" 대신 "발표를 3번"). anchor를 억지로 길게 만들라는 게 아니라 response가 원문의 핵심 대상을 놓치지 않게 하라는 것이다. 원문에 없는 사실(계획·의도·이유)은 새로 더하지 마라.',
 };
@@ -582,8 +591,15 @@ export function buildRegenerationPrompt(
   const hints = reasons.map((r) => `- ${r}: ${REASON_HINT[r] ?? '규칙 위반 — 해당 규칙을 다시 확인해라.'}`).join('\n');
   // opportunity가 none이라서 실패한 경우엔 "Opportunity 판단 유지" 지시가 none을 그대로 붙잡게 만든다 —
   // 그때만 opportunity는 다시 판단하게 하고, 나머지(맥락/기억 판단)는 그대로 유지시킨다.
-  const reselectOpportunity = reasons.includes('SPECIFIC_CURRENT_TURN_WITHOUT_OPPORTUNITY');
-  const keepLine = reselectOpportunity
+  const reselectOpportunity =
+    reasons.includes('SPECIFIC_CURRENT_TURN_WITHOUT_OPPORTUNITY') ||
+    // 2026-10-11 — 기억 선택 실패 사유도 "무엇을 붙잡을지"를 다시 고르는 게 목적이다.
+    reasons.includes('MEMORY_RELEVANCE_SKIPPED') ||
+    reasons.includes('SELECTED_MEMORY_NOT_USED') ||
+    reasons.includes('FEELING_TARGET_OVER_MEMORY');
+  const keepLine = reasons.includes('MEMORY_RELEVANCE_SKIPPED')
+    ? '- 현재 대화 맥락과 기억 사용 조건은 유지해라. Memory Relevance(+relation)는 이번에 처음 판정하고, Conversation Opportunity는 그 판정을 바탕으로 다시 골라라. 새 기억을 지어내지 마라.'
+    : reselectOpportunity
     ? '- 현재 대화 맥락, Memory Relevance 판단, 기억 사용 조건은 유지해라. Conversation Opportunity는 위 사유대로 다시 판단해라. 새 기억을 지어내지 마라.'
     : '- 현재 대화 맥락, Conversation Opportunity, Memory Relevance 판단, 기억 사용 조건은 유지해라. 새 기억을 지어내지 마라.';
   return {

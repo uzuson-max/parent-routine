@@ -445,7 +445,46 @@ export function validateResponse(result: ValidatedResult, context: ValidationCon
     }
   }
 
+  // ---- 2026-10-11 기억 선택 실패 3종 (SOFT — SOFT_VALIDATION_REASONS 참고) ----
+  // 실데이터(2026-10-08~11)에서 확인된 실패만 잡는다. 기억을 "쓰라고" 강제하지 않는다 —
+  // (a) 판단을 건너뛴 것, (b) 스스로 고른 기억을 버린 것, (c) 꺼낼 가치가 있다고 스스로 판정한 기억을 두고
+  // 말하지 않은 기분/생각을 캐물은 것. 셋 다 모델 자신의 판단과 출력이 어긋난 경우다.
+  const candidateCount = context.validMemoryUnitIds.size;
+  const needsAnswerNow = context.utteranceIntent
+    ? intentNeedsAnswer(context.utteranceIntent as UtteranceIntent, context.userQuestion ?? null)
+    : false;
+
+  // RULE 20 — MEMORY_RELEVANCE_SKIPPED: 후보가 있는데 하나도 판정하지 않았다.
+  // 예) "공간 계약한 지 벌써 2년" + 후보 1·2위 "11월 말이면 2년인데 만족스럽지 못한 결과치" → memory_relevance=[]
+  if (candidateCount > 0 && result.memory_relevance.length === 0) {
+    reasons.push('MEMORY_RELEVANCE_SKIPPED');
+  }
+
+  // RULE 21 — SELECTED_MEMORY_NOT_USED: opportunity로 기억을 STRONG하게 골라놓고 response에선 안 썼다.
+  // 예) "돈 모아야 돼 식물샵 하고 싶거든" → source=memory(107) 선택 → response는 "게으름이 아니라 잠시 멈춘 거 아닐까?"
+  const opp = result.conversation_opportunity;
+  if (opp && opp.source === 'memory' && opp.strength === 'STRONG' && result.memory_unit_id_used === null) {
+    reasons.push('SELECTED_MEMORY_NOT_USED');
+  }
+
+  // RULE 22 — FEELING_TARGET_OVER_MEMORY: 질문/부탁 턴이 아니고, 꺼낼 가치가 있는 관계(worthy relation)로 판정한
+  // 기억이 있는데 opportunity는 기억이 아닌 쪽에서 "기분/느낌/생각"을 묻는 걸로 골랐다.
+  // 감정 질문 자체를 금지하는 규칙이 아니다 — worthy 기억이 없으면 이 규칙은 아무것도 하지 않는다.
+  if (!needsAnswerNow && opp && opp.source !== 'memory' && isFeelingTarget(opp.question_target)) {
+    const hasWorthyMemory = result.memory_relevance.some(
+      (r) => r.relevance === 'YES' && !!r.relation && WORTHY_MEMORY_RELATIONS.has(r.relation)
+    );
+    if (hasWorthyMemory) reasons.push('FEELING_TARGET_OVER_MEMORY');
+  }
+
   return { passed: reasons.length === 0, reasons };
+}
+
+// question_target이 사건·결정·행동이 아니라 "기분/느낌/생각" 자체를 묻는가.
+// 예) "고양이랑 밖에 나가면 어떤 기분인지", "시간이 이렇게 빠르게 지나간 것에 대한 생각"
+const FEELING_TARGET_RE = /(기분|느낌|느꼈|느끼|감정|심정|마음이|에\s*대한\s*생각|든\s*생각|어떤\s*생각|생각이\s*드)/;
+export function isFeelingTarget(questionTarget: string | null | undefined): boolean {
+  return !!questionTarget && FEELING_TARGET_RE.test(questionTarget);
 }
 
 // ==================================================

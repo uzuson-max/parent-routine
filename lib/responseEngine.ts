@@ -6,7 +6,9 @@ import type {
   ValidationContext,
   ResponseResult,
   RecentTurn,
+  ValidationFailureReason,
 } from '@/lib/response/responsetypes';
+import { SOFT_VALIDATION_REASONS } from '@/lib/response/responsetypes';
 import {
   validateResponse,
   isClosingResponse,
@@ -290,7 +292,13 @@ export async function generateResponseCore(input: SystemPromptInput): Promise<Re
     // 1차 수정 — 실패 사유가 형식 문제뿐이면(질문 2개 이상 / anchor 인용 불일치) 재생성 대신 코드로 최소 수정한다.
     // 수정본도 validator를 그대로 다시 통과해야 한다(규칙 완화 없음). 예전 실데이터의 재생성 사유는 거의 전부
     // TOO_MANY_QUESTIONS였다 — 이 경로가 불필요한 두 번째 GPT 호출을 없앤다.
-    const firstRepair = tryRepair({ result: firstResult, reasons: firstValidation.reasons }, validationContext);
+    // 2026-10-11 — SOFT 사유(기억 선택 실패)가 섞여 있으면 코드 수정으로 넘기지 않는다. 고칠 대상이 문장 형식이 아니라
+    // "무엇을 붙잡았는가"라서 재생성 1회로 다시 고르게 한다.
+    const firstHard = hardReasons(firstValidation.reasons);
+    const firstHasSoft = firstHard.length < firstValidation.reasons.length;
+    const firstRepair = firstHasSoft
+      ? null
+      : tryRepair({ result: firstResult, reasons: firstValidation.reasons }, validationContext);
     if (firstRepair) {
       return finalize(firstRepair.result, {
         validation_passed: true,
@@ -318,15 +326,49 @@ export async function generateResponseCore(input: SystemPromptInput): Promise<Re
       });
     }
 
-    const secondRepair = tryRepair({ result: secondResult, reasons: secondValidation.reasons }, validationContext);
+    // 2026-10-11 — 재생성 후에도 SOFT 사유만 남았다면 그 문장을 그대로 쓴다(fallback 템플릿으로 떨어뜨리지 않는다).
+    const secondHard = hardReasons(secondValidation.reasons);
+    const trail = `${firstValidation.reasons.join(', ')} → ${secondValidation.reasons.join(', ')}`;
+    if (secondHard.length === 0) {
+      return finalize(secondResult, {
+        validation_passed: true,
+        validation_failure_reason: trail,
+        regeneration_count: 1,
+        repaired: false,
+        anchorDiscarded: false,
+      });
+    }
+
+    const secondRepair = tryRepair({ result: secondResult, reasons: secondHard }, validationContext);
     if (secondRepair) {
       return finalize(secondRepair.result, {
         validation_passed: true,
-        validation_failure_reason: secondValidation.reasons.join(', '),
+        validation_failure_reason: trail,
         regeneration_count: 1,
         repaired: true,
         anchorDiscarded: secondRepair.anchorDiscarded,
       });
+    }
+
+    // 2026-10-11 — 첫 생성이 SOFT 사유만으로 실패했는데 재생성이 HARD 규칙(질문 개수·질문 무시 등)을 깼다면,
+    // 규칙상 안전했던 첫 생성 결과를 쓴다. (첫 생성이 SOFT + 수정 가능한 HARD였다면 그 HARD만 고쳐서 쓴다.)
+    if (firstHasSoft) {
+      const firstSafe =
+        firstHard.length === 0
+          ? { result: firstResult, anchorDiscarded: false, repaired: false }
+          : (() => {
+              const r = tryRepair({ result: firstResult, reasons: firstHard }, validationContext);
+              return r ? { ...r, repaired: true } : null;
+            })();
+      if (firstSafe) {
+        return finalize(firstSafe.result, {
+          validation_passed: true,
+          validation_failure_reason: `${trail} → 1차 결과 사용`,
+          regeneration_count: 1,
+          repaired: firstSafe.repaired,
+          anchorDiscarded: firstSafe.anchorDiscarded,
+        });
+      }
     }
 
     // 마지막 안전장치 — 키워드가 아니라 발화 의도 / 질문 원문 / 입장 / anchor 기반 문장 (GPT 호출 없음).
@@ -379,6 +421,11 @@ export async function generateResponseCore(input: SystemPromptInput): Promise<Re
 }
 
 type GeneratedResult = ReturnType<typeof buildGeneratedResult>;
+
+// 2026-10-11 — SOFT(기억 선택 실패) 사유를 뺀 나머지. 기존 규칙의 통과/실패 기준은 이 목록으로 판단한다.
+function hardReasons(reasons: ValidationFailureReason[]): ValidationFailureReason[] {
+  return reasons.filter((r) => !SOFT_VALIDATION_REASONS.has(r));
+}
 
 // fallback/STT 실패 경로에서 공통으로 쓰는 "기억을 전혀 쓰지 않은" 판단 필드 기본값.
 function emptyDecisionFields(relationshipLevel: number) {
