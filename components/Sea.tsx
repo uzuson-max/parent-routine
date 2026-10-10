@@ -246,6 +246,9 @@ export default function Sea({ entries, thinking, night, onOpenMonth }: SeaProps)
 
   // ---- 누르기 ----
   const [sheet, setSheet] = useState<Sheet>(null);
+  // 카드에는 한 번에 한 마디만 크게. 0 = 가장 최근에 한 말, 넘기면 그 전에 한 말.
+  const [qi, setQi] = useState(0);
+  useEffect(() => setQi(0), [sheet]);
   const [wiggle, setWiggle] = useState<{ id: string; n: number } | null>(null);
   const [thought, setThought] = useState<{ text: string; key: number } | null>(null);
   const thoughtTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -260,6 +263,7 @@ export default function Sea({ entries, thinking, night, onOpenMonth }: SeaProps)
     setWiggle((w) => ({ id, n: (w?.n ?? 0) + 1 }));
     plop();
   };
+  const swipeX = useRef<number | null>(null);
   const wigCls = (id: string) => (wiggle?.id === id ? (wiggle.n % 2 ? "sea-wigA" : "sea-wigB") : "");
 
   // ---- 아직 안 묶인 이번 달 생각 → 치어 무리 ----
@@ -593,32 +597,75 @@ export default function Sea({ entries, thinking, night, onOpenMonth }: SeaProps)
         </div>
       )}
 
-      {/* 물고기 속 생각 */}
-      {(openNow || openPast) && !thinking && (
-        <>
-          <div className="sea-sheet-dim" onClick={() => setSheet(null)} aria-hidden />
-          <div className="sea-sheet" role="dialog" aria-label="이 물고기 속 생각">
-            <button className="sea-sheet-x" aria-label="닫기" onClick={() => setSheet(null)}>
-              ×
-            </button>
-            {openPast && sheet?.kind === "past" && <p className="sea-sheet-month">{monthLabel(sheet.month)}의 생각</p>}
-            <ul className="sea-quotes">
-              {(openNow ? openNow.quotes : openPast!.quotes).map((q, i) => (
-                <li key={i}>
-                  <span className="sea-when">{openNow ? fuzzyAgo(q.at) : dayLabel(q.at)}</span>
-                  <span className="sea-q">&ldquo;{q.text}&rdquo;</span>
-                </li>
-              ))}
-            </ul>
-            {openNow && (
-              <div className="sea-ask">
-                <PeekMascot expression="base" size={44} />
-                <span>근데 그거 어떻게 됐어?</span>
+      {/* 물고기 속 생각 — 한 마디씩 크게. 옆으로 넘기면 그 전에 한 말. */}
+      {(openNow || openPast) && !thinking && sheet && (() => {
+        const quotes = openNow ? openNow.quotes : openPast!.quotes;
+        const i = Math.min(qi, Math.max(0, quotes.length - 1));
+        const q = quotes[i];
+        const [body, belly] = PALETTE[Math.floor(hash(sheet.id, 11) * PALETTE.length)];
+        const go = (d: number) => setQi((cur) => Math.max(0, Math.min(quotes.length - 1, cur + d)));
+        return (
+          <>
+            <div className="sea-sheet-dim" onClick={() => setSheet(null)} aria-hidden />
+            <div
+              className="sea-sheet"
+              role="dialog"
+              aria-label="이 물고기 속 생각"
+              onTouchStart={(e) => {
+                swipeX.current = e.touches[0].clientX;
+              }}
+              onTouchEnd={(e) => {
+                const start = swipeX.current;
+                swipeX.current = null;
+                if (start === null) return;
+                const dx = e.changedTouches[0].clientX - start;
+                if (dx < -40) go(1);
+                else if (dx > 40) go(-1);
+              }}
+            >
+              <button className="sea-sheet-x" aria-label="닫기" onClick={() => setSheet(null)}>
+                ×
+              </button>
+              <div className="sea-sheet-fish" aria-hidden>
+                {goldfishSvg(body, belly, !!openPast, false)}
               </div>
-            )}
-          </div>
-        </>
-      )}
+              {q && (
+                <>
+                  <p key={i} className="sea-big-q">{q.text}</p>
+                  <p className="sea-big-when">
+                    {openPast && sheet.kind === "past" ? dayLabel(q.at) : fuzzyAgo(q.at)}
+                  </p>
+                </>
+              )}
+              {quotes.length > 1 && (
+                <div className="sea-pager">
+                  <button className="sea-pg-btn" onClick={() => go(-1)} disabled={i === 0} aria-label="더 최근에 한 말">
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+                      <path d="M9 2 L4 7 L9 12" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                  <div className="sea-dots" aria-hidden>
+                    {quotes.map((_, k) => (
+                      <span key={k} className={k === i ? "sea-dot-on" : ""} />
+                    ))}
+                  </div>
+                  <button className="sea-pg-btn" onClick={() => go(1)} disabled={i === quotes.length - 1} aria-label="그 전에 한 말">
+                    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+                      <path d="M5 2 L10 7 L5 12" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+              {openNow && (
+                <div className="sea-ask">
+                  <PeekMascot expression="base" size={40} />
+                  <span>근데 그거 어떻게 됐어?</span>
+                </div>
+              )}
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
@@ -765,15 +812,23 @@ const CSS = `
 .sea-peek-say{max-width:190px;margin-bottom:58px;padding:8px 14px;background:#fff;border:3px solid #1B1630;border-radius:20px;box-shadow:3px 3px 0 #1B1630;font-size:16px;line-height:1.3;word-break:keep-all;animation:sea-say .35s ease .35s both}
 @keyframes sea-say{from{transform:scale(.6);opacity:0}to{transform:none;opacity:1}}
 .sea-sheet-dim{position:fixed;inset:0;z-index:150;background:rgba(10,30,60,.18)}
-.sea-sheet{position:fixed;left:max(12px,calc(50% - 228px));right:max(12px,calc(50% - 228px));bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:151;max-height:55dvh;overflow:auto;padding:14px 16px 12px;box-sizing:border-box;background:#FFFDF8;border:3px solid #1B1630;border-radius:24px;box-shadow:4px 4px 0 #1B1630;animation:sea-sheet .35s cubic-bezier(.2,1.2,.4,1) both}
+.sea-sheet{position:fixed;left:max(14px,calc(50% - 226px));right:max(14px,calc(50% - 226px));bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:151;max-height:60dvh;overflow:auto;padding:18px 22px 16px;box-sizing:border-box;background:#FFFDF8;border:3px solid #1B1630;border-radius:28px;box-shadow:5px 5px 0 #1B1630;text-align:center;animation:sea-sheet .35s cubic-bezier(.2,1.2,.4,1) both}
 @keyframes sea-sheet{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
-.sea-sheet-x{position:absolute;right:10px;top:8px;width:30px;height:30px;border-radius:50%;border:2.5px solid #1B1630;background:#fff;font-family:'Jua',sans-serif;font-size:18px;line-height:1;color:#1B1630;cursor:pointer;padding:0}
-.sea-sheet-month{margin:0 0 8px;font-size:13px;opacity:.6}
-.sea-quotes{list-style:none;margin:0;padding:0 30px 0 0;display:flex;flex-direction:column;gap:8px}
-.sea-quotes li{display:flex;flex-direction:column}
-.sea-when{font-size:12px;opacity:.55}
-.sea-q{font-size:15px;line-height:1.35;word-break:keep-all}
-.sea-ask{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:2px dashed rgba(27,22,48,.18);font-size:15px}
+.sea-sheet-x{position:absolute;right:12px;top:12px;width:32px;height:32px;border-radius:50%;border:2.5px solid #1B1630;background:#fff;font-family:'Jua',sans-serif;font-size:18px;line-height:1;color:#1B1630;cursor:pointer;padding:0}
+.sea-sheet-fish{width:64px;margin:0 auto 6px}
+.sea-sheet-fish svg{display:block;width:100%;height:auto;overflow:visible}
+.sea-big-q{margin:4px 0 0;font-size:22px;line-height:1.5;color:#1B1630;word-break:keep-all;animation:sea-q-in .3s ease both}
+.sea-big-q::before{content:"“";margin-right:2px;opacity:.35}
+.sea-big-q::after{content:"”";margin-left:2px;opacity:.35}
+@keyframes sea-q-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.sea-big-when{margin:8px 0 0;font-size:13px;color:rgba(27,22,48,.45)}
+.sea-pager{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:14px}
+.sea-pg-btn{width:34px;height:34px;border-radius:50%;border:2.5px solid #1B1630;background:#fff;color:#1B1630;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
+.sea-pg-btn:disabled{opacity:.25;cursor:default}
+.sea-dots{display:flex;gap:6px}
+.sea-dots span{width:7px;height:7px;border-radius:50%;background:rgba(27,22,48,.18)}
+.sea-dots .sea-dot-on{background:#1B1630}
+.sea-ask{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:16px;padding-top:12px;border-top:2px dashed rgba(27,22,48,.15);font-size:16px}
 @media (prefers-reduced-motion: reduce){
   .sea-swim,.sea-bob,.ft-tail,.ft-eye,.sea-sway,.sea-surface,.sea-bubble,.sea-ray,.sea-zz,.sea-emerge,.sea-peek-face,.sea-down{animation:none}
 }
