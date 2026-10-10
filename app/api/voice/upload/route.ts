@@ -10,6 +10,7 @@ import { retrieveRelevantMemoriesWithTrace, markMemoriesReferenced, RetrievalTra
 import { retrieveRelevantInsights, markInsightsSurfaced } from '@/lib/insightEngine';
 import { sendRoutineCall } from '@/lib/twilio';
 import { loadRecall, type Recall } from '@/lib/recall';
+import { prefetchEmbedding } from '@/lib/memoryEmbedding';
 import { waitUntil } from '@vercel/functions';
 import OpenAI from 'openai';
 import { looksLikeNoSpeech } from '@/lib/noSpeech';
@@ -169,6 +170,8 @@ export async function POST(request: Request) {
     }
 
     // 전화 여부 판단에만 쓰는 설정 — 미리 읽기 시작해두고 마지막에 받는다.
+    // 기억 검색에 쓸 원문 임베딩을 분석 GPT가 도는 동안 미리 만들어둔다(검색 단계에서 그대로 재사용).
+    prefetchEmbedding(transcript);
     const prefsPromise = loadUserPrefs(userId);
     prefsPromise.catch(() => {}); // 먼저 실패해도 경고 안 나게 — 실제 실패 처리는 아래 await에서
     timer.mark('save');
