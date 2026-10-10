@@ -24,7 +24,35 @@ export function buildMemoryEmbeddingText(input: MemoryEmbeddingInput): string {
   return parts.join(' / ');
 }
 
+// 같은 문장의 임베딩을 짧은 시간 안에 두 번 만들지 않게 잠깐 기억해둔다.
+// 녹음 업로드는 분석 GPT가 도는 동안 원문 임베딩을 미리 만들어두고(prefetchEmbedding), 기억 검색이 그걸 그대로 쓴다.
+// 같은 서버 인스턴스 안에서만, 1분만 유지한다(임베딩 결과는 같은 입력이면 같다).
+const embeddingCache = new Map<string, { at: number; p: Promise<number[] | null> }>();
+const EMBEDDING_CACHE_MS = 60_000;
+
+export function prefetchEmbedding(text: string): void {
+  if (!text || !text.trim()) return;
+  void generateMemoryEmbedding(text);
+}
+
 export async function generateMemoryEmbedding(text: string): Promise<number[] | null> {
+  if (!text || !text.trim()) return null;
+  const now = Date.now();
+  const hit = embeddingCache.get(text);
+  if (hit && now - hit.at < EMBEDDING_CACHE_MS) return hit.p;
+  embeddingCache.forEach((v, k) => {
+    if (now - v.at >= EMBEDDING_CACHE_MS) embeddingCache.delete(k);
+  });
+  const p = createMemoryEmbedding(text);
+  embeddingCache.set(text, { at: now, p });
+  // 실패한 결과(null)는 기억하지 않는다 — 다음 호출이 다시 시도하게
+  p.then((v) => {
+    if (!v) embeddingCache.delete(text);
+  });
+  return p;
+}
+
+async function createMemoryEmbedding(text: string): Promise<number[] | null> {
   if (!text || !text.trim()) return null;
   try {
     const res = await fetch('https://api.openai.com/v1/embeddings', {
