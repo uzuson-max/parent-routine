@@ -119,6 +119,12 @@ export default function Home() {
   const [tankReplyTo, setTankReplyTo] = useState<string | undefined>(undefined);
   // 녹음을 보내고 참견이가 생각하는 중 — 홈 어항 가운데 물방울이 꿀렁거린다.
   const [homeThinking, setHomeThinking] = useState(false);
+  // 2단계 응답 — 서버가 받아쓰기를 끝내자마자 보내준 "방금 니가 한 말". 대답이 오면(또는 실패하면) 비운다.
+  const [homeHeard, setHomeHeard] = useState<{ text: string; key: number } | null>(null);
+  // 보내다 실패한 녹음 — 아직 서버에 기록되기 전에 실패했을 때만 [다시 보내기]로 같은 녹음을 다시 보낸다.
+  const [retrySpeech, setRetrySpeech] = useState<{ blob: Blob; replyTo?: string } | null>(null);
+  // 홈 업로드 요청 번호 — 늦게 도착한 옛 요청의 결과가 새 화면을 덮지 않게.
+  const uploadSeq = useRef(0);
     // "이렇게 말한 거 맞아?" 확인을 기다리는 녹음 — [맞아]를 누르면 이걸 그대로 다시 보낸다.
   const [pendingSpeech, setPendingSpeech] = useState<{ blob: Blob; replyTo?: string } | null>(null);
 
@@ -236,7 +242,17 @@ export default function Home() {
     if (!b || b.kind === "notice") releaseMicStream();
         // 확인 말풍선이 내려가면(닫기/새 녹음) 확인 기다리던 녹음도 버린다.
     if (!b || b.kind !== "confirm") setPendingSpeech(null);
+    if (!b || b.kind !== "retry") setRetrySpeech(null);
     setHomeBubble(b);
+  };
+  // [다시 보내기] — 서버에 닿기 전에 실패한 녹음을 그대로 다시 보낸다(녹음은 그대로 들고 있다).
+  const retryUpload = () => {
+    const pending = retrySpeech;
+    setRetrySpeech(null);
+    setHomeBubble(null);
+    if (!pending) return;
+    setHomeThinking(true);
+    uploadFromHome(pending.blob, pending.replyTo).finally(() => setHomeThinking(false));
   };
   // "이렇게 말한 거 맞아?" — [맞아]면 같은 녹음을 확인 표시와 함께 다시 보내 저장, [아니]면 버린다.
   const confirmSpeech = (yes: boolean) => {
@@ -253,6 +269,14 @@ export default function Home() {
   // 홈(어항) 안에서 녹음한 음성을 보낸다. 화면을 바꾸지 않는 게 기본이고,
   // 확인/전화처럼 전용 화면이 꼭 필요한 결과만 기존 화면으로 넘긴다.
     const uploadFromHome = async (input: Blob, replyTo?: string, speechConfirmed = false) => {
+    const seq = ++uploadSeq.current;
+    const isCurrent = () => seq === uploadSeq.current;
+    const t0 = performance.now();
+    let heard = false; // 받아쓰기 결과가 왔다 = 서버에 기록이 이미 만들어졌다
+    const controller = new AbortController();
+    // 무한 대기 금지 — 60초가 넘으면 끊고 상태를 알려준다.
+    const timeout = setTimeout(() => controller.abort(), 60_000);
+    setHomeHeard(null);
     try {
       const { data: { session } } = await supabaseClient.auth.getSession();
       if (!session) {
@@ -267,16 +291,25 @@ export default function Home() {
       form.append("phone", savedPhone || "");
       form.append("persona", "coach");
       if (replyTo) form.append("topic", replyTo);
-            if (speechConfirmed) form.append("speech_confirmed", "1");
+      if (speechConfirmed) form.append("speech_confirmed", "1");
 
       const res = await fetch("/api/voice/upload", {
         method: "POST",
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${session.access_token}`, "x-upload-stream": "1" },
         body: form,
+        signal: controller.signal,
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok || !body.success) {
-        throw new Error(body.error || `upload API ${res.status}`);
+      const { status, body } = await readUploadResponse(res, (t) => {
+        heard = true;
+        if (!isCurrent()) return;
+        setHomeHeard({ text: t.transcript, key: Date.now() });
+        console.log(`[home-timing] transcript_shown=${Math.round(performance.now() - t0)}ms`);
+      });
+      if (!isCurrent()) return; // 그사이 새 녹음이 시작됐으면 이 결과는 버린다
+      console.log(`[home-timing] final_arrived=${Math.round(performance.now() - t0)}ms`);
+      setHomeHeard(null);
+      if (status >= 400 || !body?.success) {
+        throw new Error(body?.error || `upload API ${status}`);
       }
 
       // 서버 STT가 "말소리 없음"으로 판단 — 아무것도 저장되지 않았다.
@@ -313,9 +346,21 @@ export default function Home() {
         setStep("call_failed");
       }
     } catch (e: any) {
-      console.error("[Home] tank upload failed:", e.message);
+      console.error("[Home] tank upload failed:", e?.message);
       releaseMicStream();
-      setError(e.message);
+      if (!isCurrent()) return;
+      setHomeHeard(null);
+      if (heard) {
+        // 니 말은 이미 서버에 기록됐다 — 다시 보내면 같은 말이 두 번 저장되니 재시도 대신 안내만.
+        fetchEntries();
+        changeHomeBubble({ kind: "notice", text: "니 말은 들어뒀어. 근데 대답이 길을 잃었네. 조금 있다 다시 말 걸어줘." });
+      } else {
+        // 서버에 닿기 전에 실패 — 녹음은 그대로 들고 있으니 같은 녹음을 다시 보낼 수 있다.
+        changeHomeBubble({ kind: "retry", text: "앗, 니 말이 바다에 안 닿았어. 녹음은 그대로 있어." });
+        setRetrySpeech({ blob: input, replyTo });
+      }
+    } finally {
+      clearTimeout(timeout);
     }
   };
 
@@ -450,6 +495,8 @@ export default function Home() {
           onBubbleChange={changeHomeBubble}
                     onConfirmSpeech={confirmSpeech}
           thinking={homeThinking}
+          heard={homeHeard}
+          onRetrySpeech={retryUpload}
           onStartRecording={(replyTo) => {
             setTankReplyTo(replyTo);
             setStep("tank_recording");
@@ -791,3 +838,43 @@ const errorBannerStyle: React.CSSProperties = {
   fontWeight: "bold",
   borderBottom: `2px solid ${BRAND.yellow}`,
 };
+
+// 홈 업로드 응답 읽기 — 서버가 2단계(NDJSON)로 보내면 받아쓰기 줄을 먼저 onTranscript로 넘기고,
+// 마지막 줄의 결과를 돌려준다. 예전처럼 JSON 한 번으로 오면 그대로 읽는다.
+async function readUploadResponse(
+  res: Response,
+  onTranscript: (t: { transcript: string; entry_id: string }) => void
+): Promise<{ status: number; body: any }> {
+  const ctype = res.headers.get("content-type") || "";
+  if (!ctype.includes("ndjson") || !res.body) {
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let final: { status: number; body: any } | null = null;
+  const handle = (line: string) => {
+    if (!line.trim()) return;
+    let msg: any;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (msg?.stage === "transcript" && typeof msg.transcript === "string") onTranscript(msg);
+    else if (msg?.stage === "final") final = { status: Number(msg.status) || 500, body: msg.body };
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let i: number;
+    while ((i = buf.indexOf("\n")) >= 0) {
+      handle(buf.slice(0, i));
+      buf = buf.slice(i + 1);
+    }
+  }
+  handle(buf);
+  if (!final) throw new Error("응답이 중간에 끊겼어");
+  return final;
+}
