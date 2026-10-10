@@ -84,7 +84,7 @@ function bubble(c: AudioContext, at: number, size: number) {
   osc.type = "sine";
   osc.frequency.setValueAtTime(f0, at);
   osc.frequency.exponentialRampToValueAtTime(f0 * (2 + Math.random() * 0.8), at + dur);
- const vol = (0.08 + Math.random() * 0.08) * (night ? 0.6 : 1);
+  const vol = (0.08 + Math.random() * 0.08) * (night ? 0.6 : 1);
   g.gain.setValueAtTime(0.0001, at);
   g.gain.exponentialRampToValueAtTime(vol, at + 0.006);
   g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
