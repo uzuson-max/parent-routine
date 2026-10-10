@@ -30,6 +30,7 @@ interface Lineage {
   lastAt: string;
   returned: boolean;
   entryIds: string[];
+  unitIds?: number[]; // 이 계보에 묶인 memory_unit id들 — 참견이가 꺼낸 기억이 어느 물고기인지 찾는 데 쓴다
   quotes: { text: string; at: string }[];
 }
 
@@ -45,6 +46,9 @@ interface SeaProps {
   night: boolean;
   // (예전 "그때 한 말" 버튼용 — 바다에서 표지판을 빼면서 지금은 쓰지 않는다. 그 달 전체는 하단 "지난 어항" 탭에서.)
   onOpenMonth?: (month: string) => void;
+  // 참견이가 지금 꺼내 온 기억(memory_unit id). 있으면 그 기억이 사는 물고기가 깨어나 위로 떠오르고,
+  // 다른 물고기는 흐려지고 바다가 살짝 어두워진다 — 앱에서 가장 도드라지는 순간.
+  recallUnitId?: number | null;
 }
 
 const NOISE_MAX = 5;
@@ -123,7 +127,7 @@ type Sheet =
   | { kind: "past"; month: string; id: string }
   | null;
 
-export default function Sea({ entries, thinking, night }: SeaProps) {
+export default function Sea({ entries, thinking, night, recallUnitId = null }: SeaProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(375);
   useEffect(() => {
@@ -296,8 +300,26 @@ export default function Sea({ entries, thinking, night }: SeaProps) {
       .slice(-MAX_LOOSE_FRY);
   }, [entries, lineages]);
 
-  const hidden = (lineages ?? []).filter((l) => l.state === "hidden");
-  const visible = (lineages ?? []).filter((l) => l.state !== "hidden");
+  // ---- 기억 소환 ----
+  const recalledId = recallUnitId
+    ? (lineages ?? []).find((l) => (l.unitIds ?? []).includes(recallUnitId))?.id ?? null
+    : null;
+  const recallOn = !!recallUnitId && !thinking;
+  const [risen, setRisen] = useState(false);
+  useEffect(() => {
+    setRisen(false);
+    if (!recallUnitId) return;
+    // 말풍선 위 기억 캡슐이 뜨는 것과 같은 박자에 물고기가 깨어나 떠오르기 시작한다.
+    const t = setTimeout(() => setRisen(true), 350);
+    return () => clearTimeout(t);
+  }, [recallUnitId]);
+  const dimOthers = recallOn && risen;
+  const RECALL_TOP = "min(430px, 54%)"; // 말풍선 바로 아래쯤 — 떠오른 물고기가 머무는 자리
+  const recallMove = "top 1.9s cubic-bezier(.22,.9,.3,1), left 1.9s cubic-bezier(.22,.9,.3,1), width 1.2s ease, opacity .7s ease";
+
+  // 수초 뒤에서 쉬던 물고기도 소환되면 헤엄치는 쪽으로 나와서 떠오른다.
+  const hidden = (lineages ?? []).filter((l) => l.state === "hidden" && !(recallOn && l.id === recalledId));
+  const visible = (lineages ?? []).filter((l) => l.state !== "hidden" || (recallOn && l.id === recalledId));
   const slow = night ? 1.9 : 1;
 
   // ---- 가끔 지나가는 손님 — 한 번에 한 마리, 가끔만. 깊이마다 사는 생물이 다르다. ----
@@ -414,7 +436,7 @@ export default function Sea({ entries, thinking, night }: SeaProps) {
                 animationDuration: `${dur}s`,
                 animationDelay: `${-(r(5) * dur)}s`,
                 zIndex: 5,
-                ...fade(1),
+                ...fade(dimOthers ? 0.3 : 1),
               }}
             >
               <button
@@ -463,21 +485,25 @@ export default function Sea({ entries, thinking, night }: SeaProps) {
           const dur = (13 + r(6) * 10) * slow * (1 + sink * 1.2);
           const isFresh = l.entryIds.some((id) => fresh.has(String(id)));
           const enterCls = isFresh ? "sea-arrive" : emerging === l.id ? "sea-emerge" : "";
+          const isRecalled = recallOn && l.id === recalledId;
+          const lift = isRecalled && risen;
           return (
             <div
               key={l.id}
               className="sea-swim"
               style={{
-                left: leftPx,
-                top: `${topPct}%`,
-                width: w,
-                ["--dx" as any]: `${dx}px`,
+                left: lift ? Math.max(12, (width - w * 1.3) / 2 - 10) : leftPx,
+                top: lift ? RECALL_TOP : `${topPct}%`,
+                width: lift ? w * 1.3 : w,
+                ["--dx" as any]: `${lift ? 20 : dx}px`,
                 animationDuration: `${dur}s`,
                 animationDelay: `${-(r(5) * dur)}s`,
-                zIndex: 6 + l.stage,
-                ...fade(1 - sink * 0.25),
+                zIndex: isRecalled ? 14 : 6 + l.stage,
+                opacity: appear ? (isRecalled ? 1 : (1 - sink * 0.25) * (dimOthers ? 0.3 : 1)) : 0,
+                transition: isRecalled ? recallMove : "opacity .7s ease",
               }}
             >
+              {isRecalled && <RecallGlow on={lift} />}
               <div
                 className="sea-bob"
                 style={{
@@ -505,6 +531,38 @@ export default function Sea({ entries, thinking, night }: SeaProps) {
           );
         })}
 
+        {/* 기억 소환 중 — 바다 가장자리가 살짝 어두워져 떠오른 물고기만 도드라진다 */}
+        <div className="sea-recall-dim" style={{ opacity: dimOthers ? 1 : 0 }} aria-hidden />
+
+        {/* 꺼낸 기억이 지금 바다에 없는 물고기(지난달에만 있던 생각 등)면 — 바닥에서 한 마리가 깨어나 올라온다 */}
+        {recallOn && !recalledId && (() => {
+          const gid = `recall-${recallUnitId}`;
+          const [body, belly] = PALETTE[Math.floor(hash(gid, 11) * PALETTE.length)];
+          const w = STAGE_W[2];
+          return (
+            <div
+              key={gid}
+              className="sea-swim"
+              style={{
+                left: risen ? Math.max(12, (width - w * 1.3) / 2 - 10) : width * 0.2,
+                top: risen ? RECALL_TOP : "86%",
+                width: risen ? w * 1.3 : w,
+                ["--dx" as any]: "20px",
+                animationDuration: "14s",
+                zIndex: 14,
+                opacity: risen ? 1 : 0,
+                transition: recallMove,
+              }}
+              aria-hidden
+            >
+              <RecallGlow on={risen} />
+              <div className="sea-bob" style={{ animationDuration: "2s", ["--wag" as any]: "0.4s" }}>
+                {goldfishSvg(body, belly, false, false)}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* 아주 오래 조용한 계보 — 바닥 수초 뒤에서 쉰다 */}
         {hidden.map((l, hi) => {
           const r = (k: number) => hash(l.id, k);
@@ -514,7 +572,7 @@ export default function Sea({ entries, thinking, night }: SeaProps) {
             <div
               key={l.id}
               className="sea-rest"
-              style={{ right: 14 + hi * 18, bottom: `calc(${pastMonths.length ? 70 : 210}px + ${hi * 20}px)`, width: w, ...fade(0.85) }}
+              style={{ right: 14 + hi * 18, bottom: `calc(${pastMonths.length ? 70 : 210}px + ${hi * 20}px)`, width: w, ...fade(dimOthers ? 0.25 : 0.85) }}
             >
               <div className="sea-bob" style={{ animationDuration: `${2.4 + r(7)}s`, ["--wag" as any]: "0.9s" }}>
                 <div className={emerging === l.id ? "sea-emerge" : ""}>
@@ -744,6 +802,34 @@ export default function Sea({ entries, thinking, night }: SeaProps) {
         );
       })()}
     </div>
+  );
+}
+
+// 소환된 물고기 뒤의 노란 빛 + 반짝임 + 위로 올라가는 기포 줄(말풍선 쪽으로 이어진다)
+function RecallGlow({ on }: { on: boolean }) {
+  return (
+    <>
+      <div className={`sea-halo ${on ? "sea-halo-on" : ""}`} aria-hidden />
+      {on && (
+        <>
+          <svg className="sea-spark" style={{ left: "-14%", top: "-30%", animationDelay: "0s" }} width="18" height="18" viewBox="0 0 20 20" aria-hidden>
+            <path d="M10 0 L12 8 L20 10 L12 12 L10 20 L8 12 L0 10 L8 8 Z" fill="#FFF3A8" stroke="#1B1630" strokeWidth={1.4} />
+          </svg>
+          <svg className="sea-spark" style={{ right: "-12%", top: "-12%", animationDelay: ".6s" }} width="14" height="14" viewBox="0 0 20 20" aria-hidden>
+            <path d="M10 0 L12 8 L20 10 L12 12 L10 20 L8 12 L0 10 L8 8 Z" fill="#FFF3A8" stroke="#1B1630" strokeWidth={1.4} />
+          </svg>
+          <svg className="sea-spark" style={{ right: "4%", bottom: "-26%", animationDelay: "1.1s" }} width="12" height="12" viewBox="0 0 20 20" aria-hidden>
+            <path d="M10 0 L12 8 L20 10 L12 12 L10 20 L8 12 L0 10 L8 8 Z" fill="#FFF3A8" stroke="#1B1630" strokeWidth={1.4} />
+          </svg>
+          <div className="sea-trail" aria-hidden>
+            <span style={{ animationDelay: "0s" }} />
+            <span style={{ animationDelay: ".5s" }} />
+            <span style={{ animationDelay: "1s" }} />
+            <span style={{ animationDelay: "1.5s" }} />
+          </div>
+        </>
+      )}
+    </>
   );
 }
 
@@ -979,6 +1065,15 @@ const CSS = `
 @keyframes sea-paddle{from{transform:rotate(-6deg)}to{transform:rotate(6deg)}}
 .sea-v-glow{animation:sea-glow 2.2s ease-in-out infinite;transform-box:fill-box;transform-origin:50% 50%}
 @keyframes sea-glow{0%,100%{opacity:.2;transform:scale(.8)}50%{opacity:.55;transform:scale(1.15)}}
+.sea-recall-dim{position:absolute;inset:0;z-index:5;pointer-events:none;background:radial-gradient(ellipse 70% 55% at 50% 42%,rgba(8,25,60,0) 0%,rgba(8,25,60,.38) 100%);transition:opacity 1s ease}
+.sea-halo{position:absolute;left:50%;top:50%;width:190%;aspect-ratio:1;transform:translate(-50%,-50%) scale(.3);border-radius:50%;background:radial-gradient(circle,rgba(255,240,150,.95) 0%,rgba(255,226,107,.55) 35%,rgba(255,226,107,0) 68%);opacity:0;transition:opacity 1s ease,transform 1.4s cubic-bezier(.3,1.4,.5,1);pointer-events:none;z-index:-1}
+.sea-halo-on{opacity:1;transform:translate(-50%,-50%) scale(1);animation:sea-halo 2.4s ease-in-out 1.4s infinite}
+@keyframes sea-halo{0%,100%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.14)}}
+.sea-spark{position:absolute;z-index:2;pointer-events:none;animation:sea-spark 1.8s ease-in-out infinite}
+@keyframes sea-spark{0%,100%{transform:scale(.4) rotate(0deg);opacity:.2}50%{transform:scale(1.15) rotate(45deg);opacity:1}}
+.sea-trail{position:absolute;left:50%;bottom:70%;width:0;height:0;pointer-events:none}
+.sea-trail span{position:absolute;left:-5px;bottom:0;width:10px;height:10px;border-radius:50%;border:2px solid #fff;background:rgba(255,255,255,.35);animation:sea-trail 2s ease-in infinite;opacity:0}
+@keyframes sea-trail{0%{transform:translate(0,0) scale(.5);opacity:0}15%{opacity:1}100%{transform:translate(6px,-110px) scale(1.1);opacity:0}}
 @media (prefers-reduced-motion: reduce){
   .sea-swim,.sea-bob,.ft-tail,.ft-eye,.sea-sway,.sea-surface,.sea-bubble,.sea-ray,.sea-zz,.sea-emerge,.sea-peek-face,.sea-down{animation:none}
   .sea-visitor{display:none}
