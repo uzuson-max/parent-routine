@@ -82,10 +82,13 @@ export default function Home() {
   // MY는 화면을 바꾸지 않고 어항 위로 올라오는 시트로 연다(숨비의 바텀시트처럼 — 어항에서 안 떠난 느낌).
   const [myOpen, setMyOpen] = useState(false);
   // 하단 탭(어항 / 지난 어항 / 편지) 이동 — 화면 데이터는 캐시에서 바로 그려지니 막(바다 화면) 없이 바로 바꾼다.
+    // 홈 바다의 지난달 층에서 "그때 한 말"을 눌렀을 때 지난 어항 화면이 먼저 열 달. 탭으로 가면 비운다(최근 달).
+  const [archiveMonth, setArchiveMonth] = useState<string | undefined>(undefined);
   const goTab = (tab: WorldTab) => {
     const target: Step = tab === "home" ? "landing" : tab;
     if (target === step) return;
     setMyOpen(false);
+        setArchiveMonth(undefined);
     setStep(target);
     window.scrollTo(0, 0);
   };
@@ -451,6 +454,12 @@ export default function Home() {
             setTankReplyTo(replyTo);
             setStep("tank_recording");
           }}
+                    onOpenMonth={(month) => {
+            setMyOpen(false);
+            setArchiveMonth(month);
+            setStep("archive");
+            window.scrollTo(0, 0);
+          }}
         />
       )}
 
@@ -522,7 +531,12 @@ export default function Home() {
       )}
 
       {step === "archive" && (
-        <ArchiveScreen onNavigate={goTab} unreadLetterCount={unreadLetterCount} />
+             <ArchiveScreen
+          key={archiveMonth ?? "latest"}
+          onNavigate={goTab}
+          unreadLetterCount={unreadLetterCount}
+          initialMonth={archiveMonth}
+        />
       )}
 
       {step === "raw_landing" && (
@@ -755,11 +769,9 @@ const tankWaterBackground: React.CSSProperties = {
   backgroundColor: "#2E9BD6",
 };
 
-// 홈(어항) 화면일 때 wrapper 배경 — 어항 벽과 같은 색이라 화면 가장자리에서 크림색이 비치지 않는다.
+// 홈(바다) 화면일 때 wrapper 배경 — 깊은 물색이라 화면 가장자리에서 크림색이 비치지 않는다.
 const tankWallBackground: React.CSSProperties = {
-  backgroundColor: "#FFE9A8",
-  backgroundImage: "radial-gradient(#FFDA78 17%, transparent 18%)",
-  backgroundSize: "34px 34px",
+  backgroundColor: "#1B5A96",
 };
 
 const errorBannerStyle: React.CSSProperties = {
