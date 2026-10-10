@@ -51,14 +51,19 @@ function timeLabel(iso: string): string {
 export default function ArchiveScreen({
   onNavigate,
   unreadLetterCount = 0,
+  initialMonth,
 }: {
   onNavigate: (tab: WorldTab) => void;
   unreadLetterCount?: number;
+  // 홈 바다의 지난달 층에서 "그때 한 말"로 들어오면 그 달을 먼저 연다.
+  initialMonth?: string;
 }) {
   // 홈에서 미리 받아뒀거나 한 번 열어봤으면 바로 그 자리 그대로 보인다.
   const [months, setMonths] = useState<ArchiveMonth[] | null>(() => peekMemory<ArchiveMonth[]>("archive"));
   const [failed, setFailed] = useState(false);
-  const [selected, setSelected] = useState<string | null>(() => peekMemory<ArchiveMonth[]>("archive")?.[0]?.month ?? null);
+   const [selected, setSelected] = useState<string | null>(
+    () => initialMonth ?? peekMemory<ArchiveMonth[]>("archive")?.[0]?.month ?? null
+  );
   const [openFish, setOpenFish] = useState<string | null>(null);
   const [openEntry, setOpenEntry] = useState<string | null>(null);
   const [shown, setShown] = useState(ENTRY_PAGE);
