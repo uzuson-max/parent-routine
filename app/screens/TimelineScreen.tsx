@@ -6,7 +6,7 @@ import Sea from "@/components/Sea";
 import { BottomNav, MyButton, type WorldTab } from "@/components/WorldNav";
 import { acquireMicStream } from "@/lib/micStream";
 import { playFx } from "@/lib/fx";
-import { seaSoundPref, setSeaSoundPref, startSea, stopSea } from "@/lib/seaSound";
+import { seaSoundPref, setSeaSoundPref, startSea, stopSea, recallChime } from "@/lib/seaSound";
 
 export interface RecordEntry {
   id: string;
@@ -22,6 +22,15 @@ export interface RecordEntry {
 export interface ProactiveLine {
   id: number;
   content: string;
+  // 참견이가 먼저 꺼낸 기억의 원문/시각(api/user/proactive-line). insight 콜백이면 없다.
+  recall?: Recall | null;
+}
+
+// 참견이가 꺼내 온 기억 — 사용자가 그때 실제로 한 말과 그 시각. 이 순간이 참견이의 주인공이다.
+export interface Recall {
+  memory_unit_id: number;
+  quote: string;
+  at: string;
 }
 
 // 어항 위에 뜨는 참견이 말풍선.
@@ -32,6 +41,8 @@ export interface ProactiveLine {
 export interface HomeBubble {
   kind: "reply" | "notice" | "confirm";
   text: string;
+  // reply가 과거 기억을 꺼내 온 대답이면 그 기억(voice/upload → response.recalled)
+  recall?: Recall | null;
 }
 
 interface TimelineScreenProps {
@@ -143,18 +154,34 @@ export default function TimelineScreen({
   };
 
   // 화면에 보일 말풍선: 방금 대답/안내가 우선, 없으면 참견이가 먼저 꺼낸 말
-  const shown: { stamp: string | null; text: string; closable: boolean } | null = bubble
-    ? { stamp: bubble.kind === "reply" ? "참견이" : null, text: bubble.text, closable: true }
+  const shown: { stamp: string | null; text: string; closable: boolean; recall: Recall | null } | null = bubble
+    ? { stamp: bubble.kind === "reply" ? "참견이" : null, text: bubble.text, closable: true, recall: bubble.kind === "reply" ? bubble.recall ?? null : null }
     : hasCallback && proactiveLine
-    ? { stamp: "참견이 등장.", text: proactiveLine.content, closable: false }
+    ? { stamp: "참견이 등장.", text: proactiveLine.content, closable: false, recall: proactiveLine.recall ?? null }
     : null;
+  // 지금 화면에 떠 있는 "기억 소환" — 말풍선 위 기억 캡슐 + 바다에서 그 물고기가 깨어나 떠오른다.
+  const recall = shown && !thinking && bubble?.kind !== "confirm" ? shown.recall : null;
+  const recallKey = recall ? `${recall.memory_unit_id}:${shown?.text}` : null;
+  useEffect(() => {
+    if (!recallKey) return;
+    // 물고기가 떠오르는 타이밍에 맞춰 작은 종소리(물속 소리가 켜져 있을 때만) + 짧은 진동(지원 기기만)
+    const t = setTimeout(() => {
+      recallChime();
+      try {
+        navigator.vibrate?.([14, 50, 20]);
+      } catch {
+        /* 진동 없는 기기 */
+      }
+    }, 700);
+    return () => clearTimeout(t);
+  }, [recallKey]);
   const replying = !!bubble ? bubble.kind === "reply" : hasCallback;
 
   return (
     <div style={styles.container}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
 
-      <Sea entries={entries} thinking={thinking} night={night} onOpenMonth={onOpenMonth} />
+      <Sea entries={entries} thinking={thinking} night={night} onOpenMonth={onOpenMonth} recallUnitId={recall?.memory_unit_id ?? null} />
 
       {/* HEADER — 소라(물속 소리) · 로고 · MY. 바다 위에 떠 있다. */}
       <div style={styles.header}>
@@ -205,7 +232,28 @@ export default function TimelineScreen({
         ) : (
           shown &&
           !thinking && (
-            <div key={shown.text} className="tl-bubble" style={styles.bubble} role="status">
+            <>
+            {recall && (
+              <div key={"recall:" + recallKey} className="tl-recall" style={styles.recallWrap}>
+                <div className="tl-recall-cap" style={styles.recallCap}>
+                  <span style={styles.recallWhen}>
+                    <svg width="22" height="16" viewBox="0 0 80 56" aria-hidden>
+                      <path d="M24 28 C14 17 8 11 3 12 C7 21 7 35 3 44 C8 45 14 39 24 28 Z" fill="#FFB347" stroke={INK} strokeWidth={5} strokeLinejoin="round" />
+                      <ellipse cx="47" cy="29" rx="26" ry="19.5" fill="#FFB347" stroke={INK} strokeWidth={5} />
+                      <circle cx="58" cy="22" r="5" fill={INK} />
+                    </svg>
+                    {recallWhen(recall.at)}
+                  </span>
+                  <span style={styles.recallQuote}>“{recall.quote.length > 70 ? recall.quote.slice(0, 70) + "…" : recall.quote}”</span>
+                </div>
+                <div className="tl-recall-link" aria-hidden>
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              </div>
+            )}
+            <div key={shown.text} className={recall ? "tl-bubble tl-bubble-late" : "tl-bubble"} style={styles.bubble} role="status">
               {shown.stamp && <span style={styles.bubbleStamp}>{shown.stamp}</span>}
               <span style={styles.bubbleText}>{shown.text}</span>
               {shown.closable && (
@@ -216,6 +264,7 @@ export default function TimelineScreen({
                 </button>
               )}
             </div>
+            </>
           )
         )}
       </div>
@@ -238,6 +287,16 @@ export default function TimelineScreen({
       <BottomNav active="home" onNavigate={onNavigate} unreadLetterCount={unreadLetterCount} disabled={thinking} />
     </div>
   );
+}
+
+// 기억 캡슐 위 작은 글씨 — 언제 한 말인지. 일주일 안쪽은 흐리게, 그보다 오래되면 날짜로.
+function recallWhen(iso: string): string {
+  const d = new Date(iso);
+  const days = (Date.now() - d.getTime()) / 86_400_000;
+  if (days < 1) return "아까 니가 한 말";
+  if (days < 2) return "어제 니가 한 말";
+  if (days < 7) return "며칠 전에 니가 한 말";
+  return `${d.getMonth() + 1}월 ${d.getDate()}일에 니가 한 말`;
 }
 
 function ShellIcon({ on }: { on: boolean }) {
@@ -279,12 +338,23 @@ const CSS = `
 .tl-mic:focus-visible { outline: 3px dashed #fff; outline-offset: 4px; }
 .tl-sticker:focus-visible, .tl-close:focus-visible, .tl-sticker:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 ${INK} !important; }
 .tl-bubble { animation: tlBubbleIn .4s ease-out both; }
+.tl-bubble-late { animation-delay: 1.1s; }
+.tl-recall { display: flex; flex-direction: column; align-items: center; animation: tlRecallIn .7s cubic-bezier(.3,1.5,.5,1) both; }
+@keyframes tlRecallIn { 0% { opacity: 0; transform: translateY(40px) scale(.6); } 60% { opacity: 1; transform: translateY(-4px) scale(1.04); } 100% { opacity: 1; transform: none; } }
+.tl-recall-cap { animation: tlGlow 2.4s ease-in-out .7s infinite; }
+@keyframes tlGlow { 0%,100% { box-shadow: 0 0 0 5px rgba(255,226,107,.45), 0 0 26px 6px rgba(255,226,107,.55), 4px 4px 0 ${INK}; } 50% { box-shadow: 0 0 0 9px rgba(255,226,107,.3), 0 0 40px 12px rgba(255,226,107,.7), 4px 4px 0 ${INK}; } }
+.tl-recall-link { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 0; }
+.tl-recall-link span { display: block; border-radius: 50%; background: #FFFFFF; border: 2px solid ${INK}; opacity: 0; animation: tlDot .3s ease-out both; }
+.tl-recall-link span:nth-child(1) { width: 7px; height: 7px; animation-delay: .7s; }
+.tl-recall-link span:nth-child(2) { width: 9px; height: 9px; animation-delay: .82s; }
+.tl-recall-link span:nth-child(3) { width: 11px; height: 11px; animation-delay: .94s; }
+@keyframes tlDot { from { opacity: 0; transform: scale(.3); } to { opacity: 1; transform: none; } }
 .tl-shell { width: 46px; height: 46px; border-radius: 50%; border: 3px solid ${INK}; background: #FFFFFF; box-shadow: 3px 3px 0 ${INK}; display: flex; align-items: center; justify-content: center; padding: 0 0 0 2px; cursor: pointer; pointer-events: auto; -webkit-tap-highlight-color: transparent; }
 .tl-shell-on { background: #FFF1C2; }
 .tl-wave1 { animation: tlWave 1.6s ease-in-out infinite; }
 .tl-wave2 { animation: tlWave 1.6s ease-in-out .3s infinite; }
 @keyframes tlWave { 0%,100% { opacity: .25; } 50% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .tl-mic-idle, .tl-bubble, .tl-wave1, .tl-wave2 { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .tl-mic-idle, .tl-bubble, .tl-wave1, .tl-wave2, .tl-recall, .tl-recall-cap, .tl-recall-link span { animation: none; opacity: 1; } }
 `;
 
 const styles: { [key: string]: React.CSSProperties } = {
@@ -335,7 +405,37 @@ const styles: { [key: string]: React.CSSProperties } = {
     right: 20,
     zIndex: 20,
     display: "flex",
-    justifyContent: "center",
+    flexDirection: "column",
+    alignItems: "center",
+  },
+  // 기억 캡슐 — 참견이가 꺼내 온 "그때 니가 한 말". 노란 빛을 내며 말풍선보다 먼저 떠오른다.
+  recallWrap: {
+    width: "100%",
+    maxWidth: 320,
+  },
+  recallCap: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 6,
+    padding: "10px 18px 13px",
+    background: "#FFF4C2",
+    border: `3px solid ${INK}`,
+    borderRadius: 20,
+    transform: "rotate(-2deg)",
+    textAlign: "center",
+  },
+  recallWhen: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 13,
+    color: "rgba(27,22,48,.6)",
+  },
+  recallQuote: {
+    fontSize: 18,
+    lineHeight: 1.4,
+    wordBreak: "keep-all",
   },
   bubble: {
     position: "relative",
