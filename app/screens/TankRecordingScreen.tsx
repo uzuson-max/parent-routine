@@ -7,7 +7,7 @@ import { playFx } from "@/lib/fx";
 // ============================================================================
 // 녹음 화면 — "어항 속으로 들어온" 화면.
 // 홈에서 마이크를 누르면 이 화면으로 와서 바로 녹음이 시작된다.
-//   - 화면 전체가 물속. 상어 한 마리만 천천히 지나다닌다(녹음에 방해되지 않게 딱 하나).
+//   - 화면 전체가 물속. 수달 한 마리만 대각선·가로·세로로 천천히 돌아다닌다(녹음에 방해되지 않게 딱 하나).
 //   - 말하는 동안 물방울 안의 내 물고기가 아주 조금씩 자란다: 치어로 시작 → 6초 넘으면 금붕어 →
 //     1분까지 천천히 더 커진다. "이게 곧 어항에 들어가겠구나" 하는 기대감.
 //   - 다 말했어(마이크) → 물고기가 물방울째 위로 떠올라 사라지고 → 홈으로 돌아가면 어항에 퐁당.
@@ -122,10 +122,10 @@ export default function TankRecordingScreen({ replyTo, onDone, onCancel, onMicFa
         <span key={i} className="tr-bg-bubble" style={b} />
       ))}
 
-      {/* 상어 한 마리 — 천천히 지나다닌다 */}
-      <div className="tr-shark-swim" aria-hidden>
-        <div className="tr-shark-bob">
-          <Shark />
+      {/* 수달 한 마리 — 대각선·가로·세로로 천천히 돌아다니다 가끔 한 바퀴 뒹군다 */}
+      <div className="tr-otter-swim" aria-hidden>
+        <div className="tr-otter-bob">
+          <Otter />
         </div>
       </div>
 
@@ -215,26 +215,31 @@ export default function TankRecordingScreen({ replyTo, onDone, onCancel, onMicFa
   );
 }
 
-// 상어 — 오른쪽을 보고 있는 기본형. 무섭지 않게 둥글고, 이빨은 살짝만.
-function Shark() {
+// 수달 — 오른쪽을 보고 헤엄치는 기본형. 둥근 얼굴, 하얀 주둥이, 수염, 작은 앞발.
+function Otter() {
   return (
-    <svg viewBox="0 0 170 86" aria-hidden>
-      <g className="tr-shark-tail">
-        <path d="M34 44 C22 30 14 18 4 12 C8 28 10 36 6 46 C10 56 8 64 4 78 C16 70 24 58 34 48 Z" fill="#7FA6CF" stroke={INK} strokeWidth={3.2} strokeLinejoin="round" />
+    <svg viewBox="0 0 150 70" aria-hidden>
+      <g className="tr-otter-tail">
+        <path d="M30 40 C18 40 8 44 2 50 C10 54 22 52 34 46 Z" fill="#9A6A45" stroke={INK} strokeWidth={3} strokeLinejoin="round" />
       </g>
-      <path d="M78 22 C82 8 92 2 104 2 C100 10 98 18 100 24 Z" fill="#7FA6CF" stroke={INK} strokeWidth={3.2} strokeLinejoin="round" />
-      <path d="M30 46 C30 28 60 18 96 18 C132 18 160 30 164 46 C160 62 132 72 96 72 C60 72 30 64 30 46 Z" fill="#8DB4DC" stroke={INK} strokeWidth={3.4} strokeLinejoin="round" />
-      <path d="M58 56 C80 68 120 70 150 56 C140 66 118 72 96 72 C78 72 64 66 58 56 Z" fill="#FFFFFF" />
-      <path d="M86 58 C84 68 78 76 70 80 C80 80 92 74 98 62 Z" fill="#7FA6CF" stroke={INK} strokeWidth={3} strokeLinejoin="round" />
-      <path d="M110 36 C108 40 108 44 110 48" fill="none" stroke={INK} strokeWidth={2.4} strokeLinecap="round" />
-      <path d="M116 35 C114 40 114 45 116 50" fill="none" stroke={INK} strokeWidth={2.4} strokeLinecap="round" />
-      <circle cx="136" cy="36" r="8" fill="#FFFFFF" stroke={INK} strokeWidth={3} />
-      <circle cx="138.5" cy="36.5" r="3.8" fill={INK} />
-      <circle cx="137" cy="35" r="1.2" fill="#FFFFFF" />
-      <path d="M128 25 Q136 21 144 25" fill="none" stroke={INK} strokeWidth={2.6} strokeLinecap="round" />
-      <path d="M134 54 Q147 60 158 50" fill="none" stroke={INK} strokeWidth={2.8} strokeLinecap="round" />
-      <path d="M140 56 L142.5 60.5 L145 57.5 Z M148 56 L150 60 L152 55.5 Z" fill="#FFFFFF" stroke={INK} strokeWidth={1.6} strokeLinejoin="round" />
-      <ellipse cx="146" cy="47" rx="4" ry="2.4" fill="#FF8FB3" opacity={0.6} />
+      <path d="M40 52 C34 60 30 64 24 64 C26 58 30 54 36 50 Z" fill="#9A6A45" stroke={INK} strokeWidth={2.6} strokeLinejoin="round" />
+      <path d="M26 42 C28 28 50 20 76 20 C96 20 106 26 110 34 C112 46 100 56 78 58 C54 60 30 56 26 42 Z" fill="#B88458" stroke={INK} strokeWidth={3.2} strokeLinejoin="round" />
+      <path d="M48 50 C62 56 84 56 100 48 C94 56 82 58 72 58 C60 58 52 56 48 50 Z" fill="#E9C9A4" />
+      <g className="tr-otter-paw">
+        <ellipse cx="96" cy="54" rx="6" ry="4" fill="#9A6A45" stroke={INK} strokeWidth={2.4} />
+      </g>
+      <circle cx="118" cy="32" r="21" fill="#B88458" stroke={INK} strokeWidth={3.2} />
+      <circle cx="104" cy="15" r="5" fill="#9A6A45" stroke={INK} strokeWidth={2.6} />
+      <circle cx="128" cy="13" r="5" fill="#9A6A45" stroke={INK} strokeWidth={2.6} />
+      <ellipse cx="126" cy="40" rx="12" ry="9" fill="#F4E2C8" stroke={INK} strokeWidth={2.6} />
+      <ellipse cx="129" cy="35" rx="4" ry="3" fill={INK} />
+      <path d="M126 43 Q129 46 132 43" fill="none" stroke={INK} strokeWidth={2.2} strokeLinecap="round" />
+      <path d="M134 39 L146 36 M134 42 L146 43" fill="none" stroke={INK} strokeWidth={1.6} strokeLinecap="round" />
+      <circle className="tr-otter-eye" cx="113" cy="27" r="3.4" fill={INK} />
+      <circle className="tr-otter-eye" cx="127" cy="25" r="3.4" fill={INK} />
+      <circle cx="114" cy="26" r="1.1" fill="#FFFFFF" />
+      <circle cx="128" cy="24" r="1.1" fill="#FFFFFF" />
+      <ellipse cx="109" cy="36" rx="4" ry="2.4" fill="#FF8FB3" opacity={0.65} />
     </svg>
   );
 }
@@ -305,18 +310,30 @@ const CSS = `
 .tr-bg-bubble { position: absolute; bottom: 90px; border-radius: 50%; border: 2px solid rgba(255,255,255,.9); background: rgba(255,255,255,.18); animation: trRise linear infinite; pointer-events: none; }
 @keyframes trRise { 0% { transform: translateY(0) scale(.5); opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { transform: translateY(-70vh) scale(1.1); opacity: 0; } }
 
-/* 상어 — 화면을 가로질러 천천히 왕복 */
-.tr-shark-swim { position: absolute; top: 24%; left: 0; width: 150px; z-index: 1; animation: trSharkSwim 26s ease-in-out infinite; pointer-events: none; }
-@keyframes trSharkSwim {
-  0%   { transform: translateX(-170px) scaleX(1); }
-  46%  { transform: translateX(min(500px, 100vw)) scaleX(1); }
-  50%  { transform: translateX(min(500px, 100vw)) scaleX(-1); }
-  96%  { transform: translateX(-170px) scaleX(-1); }
-  100% { transform: translateX(-170px) scaleX(1); }
+/* 수달 — 대각선, 가로, 세로로 화면을 돌아다니다 한 바퀴 뒹굴고 오른쪽으로 나간다. 방향을 바꿀 땐 몸이 쏙 뒤집힌다. */
+.tr-otter-swim { position: absolute; left: -30%; top: 30%; width: 140px; z-index: 1; animation: trOtterRoam 44s ease-in-out infinite; pointer-events: none; }
+@keyframes trOtterRoam {
+  0%   { left: -30%;              top: 30%; transform: scaleX(1) rotate(0deg);    opacity: 1; }
+  16%  { left: 55%;               top: 16%; transform: scaleX(1) rotate(-14deg); }
+  28%  { left: calc(100% - 170px); top: 46%; transform: scaleX(1) rotate(62deg); }
+  34%  { left: calc(100% - 170px); top: 52%; transform: scaleX(-1) rotate(0deg); }
+  48%  { left: 8%;                top: 60%; transform: scaleX(-1) rotate(-6deg); }
+  56%  { left: 4%;                top: 36%; transform: scaleX(-1) rotate(28deg); }
+  60%  { left: 6%;                top: 32%; transform: scaleX(1) rotate(0deg); }
+  68%  { left: 34%;               top: 24%; transform: scaleX(1) rotate(360deg); }
+  82%  { left: 70%;               top: 34%; transform: scaleX(1) rotate(370deg); opacity: 1; }
+  90%  { left: 115%;              top: 30%; transform: scaleX(1) rotate(360deg); opacity: 1; }
+  91%  { left: 115%;              top: 30%; transform: scaleX(1) rotate(0deg);   opacity: 0; }
+  99%  { left: -30%;              top: 30%; transform: scaleX(1) rotate(0deg);   opacity: 0; }
+  100% { left: -30%;              top: 30%; transform: scaleX(1) rotate(0deg);   opacity: 1; }
 }
-.tr-shark-bob { animation: trBob 2.6s ease-in-out infinite alternate; }
-.tr-shark-bob svg { display: block; width: 100%; height: auto; overflow: visible; }
-.tr-shark-tail { transform-box: fill-box; transform-origin: 100% 50%; animation: trWag .7s ease-in-out infinite alternate; }
+.tr-otter-bob { animation: trBob 2.2s ease-in-out infinite alternate; }
+.tr-otter-bob svg { display: block; width: 100%; height: auto; overflow: visible; }
+.tr-otter-tail { transform-box: fill-box; transform-origin: 100% 50%; animation: trWag .6s ease-in-out infinite alternate; }
+.tr-otter-paw { transform-box: fill-box; transform-origin: 50% 0%; animation: trPaw .5s ease-in-out infinite alternate; }
+@keyframes trPaw { from { transform: rotate(-20deg); } to { transform: rotate(20deg); } }
+.tr-otter-eye { transform-box: fill-box; transform-origin: 50% 50%; animation: trOtterBlink 4.6s infinite; }
+@keyframes trOtterBlink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.1); } }
 @keyframes trBob { from { transform: translateY(-6px) rotate(-2deg); } to { transform: translateY(6px) rotate(2deg); } }
 @keyframes trWag { from { transform: rotate(-12deg); } to { transform: rotate(12deg); } }
 
@@ -353,7 +370,7 @@ const CSS = `
 .tr-mic:focus-visible, .tr-sticker:focus-visible { outline: 3px dashed #fff; outline-offset: 4px; }
 .tr-sticker:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 ${INK} !important; }
 @media (prefers-reduced-motion: reduce) {
-  .tr-wave, .tr-ray, .tr-bg-bubble, .tr-shark-swim, .tr-shark-bob, .tr-shark-tail, .tr-weed, .tr-float, .tr-tail, .tr-mic-idle, .tr-mic-rec, .tr-mb { animation: none; }
+  .tr-wave, .tr-ray, .tr-bg-bubble, .tr-otter-swim, .tr-otter-bob, .tr-otter-tail, .tr-otter-paw, .tr-otter-eye, .tr-weed, .tr-float, .tr-tail, .tr-mic-idle, .tr-mic-rec, .tr-mb { animation: none; }
 }
 `;
 
