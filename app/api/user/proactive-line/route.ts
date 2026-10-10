@@ -6,6 +6,7 @@ import { markInsightsSurfaced } from '@/lib/insightEngine';
 import { PERSONALITY_PROMPT } from '@/lib/responseEngine';
 import { filterConfirmedCommitments, markMemoriesReferenced } from '@/lib/memoryRetrieval';
 import { createLetter } from '@/lib/letters';
+import { loadRecall } from '@/lib/recall';
 
 // 홈 화면에서 "참견이가 나를 찾아왔다"고 보여줄 수 있는 진짜 참견 한 건을 골라주는 읽기 엔드포인트.
 // 우선순위: 1) 단일 memory_unit 콜백(memoryCallbackEngine.ts와 같은 후보/판단 로직) →
@@ -216,9 +217,11 @@ export async function GET(request: Request) {
         } catch (letterErr: any) {
           console.error('[api/user/proactive-line] 편지 저장 실패(무시):', letterErr?.message);
         }
+                // 참견이가 먼저 꺼낸 기억의 원문/시각 — 홈이 기억 소환 순간을 크게 보여준다.
+        const recall = await loadRecall(memCandidate.id);
         return NextResponse.json({
           success: true,
-          data: { id: memCandidate.id, content: message },
+                data: { id: memCandidate.id, content: message, recall },
         });
       }
       // found:false — claim하지 않고 2순위로 넘어간다(원본 엔진과 동일하게, 다음에 다시 판단될 수 있음).
