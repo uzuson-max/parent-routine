@@ -11,6 +11,7 @@ import { retrieveRelevantInsights, markInsightsSurfaced } from '@/lib/insightEng
 import { sendRoutineCall } from '@/lib/twilio';
 import { loadRecall, type Recall } from '@/lib/recall';
 import { prefetchEmbedding } from '@/lib/memoryEmbedding';
+import { saveScheduledEvent } from '@/lib/events';
 import { waitUntil } from '@vercel/functions';
 import OpenAI from 'openai';
 import { looksLikeNoSpeech } from '@/lib/noSpeech';
@@ -249,6 +250,14 @@ async function handleUpload(request: Request, onTranscript?: (t: TranscriptReady
 
     timer.mark('analysis');
 
+    // 날짜가 정해진 일정("금요일에 면접")은 묻지 않고 저장해둔다 — 그날 아침/끝난 뒤 참견이가 찾아간다.
+    // 저장은 대답을 돌려준 뒤 뒤에서, 화면에는 "그날 알려줄까?"를 띄울 수 있게 일정 정보만 같이 돌려준다.
+    const scheduledEvent = analysisResult?.scheduled_event ?? null;
+    if (scheduledEvent) {
+      const entryIdForEvent = String(entry.id);
+      later('save-event', () => saveScheduledEvent(userId, entryIdForEvent, effectivePhone, scheduledEvent));
+    }
+
     if (analysisResult) {
       // memory_units에서 오늘 발화와 관련될 수도 있는 과거 기억을 retrieval — 실패해도 빈 배열로 계속 진행.
       // P0 — 원문 + 분석이 뽑은 상황 문장/핵심 주제어로 검색하고, 무엇을 찾았는지 기록(trace)을 함께 받는다.
@@ -396,7 +405,10 @@ async function handleUpload(request: Request, onTranscript?: (t: TranscriptReady
 
     timer.mark('finish');
     timer.log(`entry=${entry.id} regen=${responseResult?.regeneration_count ?? '-'}`);
-    return NextResponse.json({ success: true, data: { ...entry, ...updateData } });
+    return NextResponse.json({
+      success: true,
+      data: { ...entry, ...updateData, scheduled_event: scheduledEvent ? { what: scheduledEvent.what, at: scheduledEvent.at } : null },
+    });
   } catch (globalErr: any) {
     console.error('서버 에러:', globalErr);
     return NextResponse.json({ success: false, error: globalErr.message }, { status: 500 });

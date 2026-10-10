@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
 import { requestPhoneLink, confirmPhoneCode, syncVerifiedPhoneToBackend, type PhoneLinkVerifyType } from "@/lib/phoneAuthClient";
 import { fetchMe, saveNickname } from "@/lib/userClient";
+import { currentSubscription, notificationPermission, pushSupport, subscribePush, unsubscribePush } from "@/lib/pushClient";
 import PeekMascot from "@/components/PeekMascot";
 import { WorldTitle, worldPage, stickerCard, INK, YELLOW, WALL, WORLD_CSS } from "@/components/WorldNav";
 
@@ -131,6 +132,28 @@ export default function MyPageScreen({
   const prefsTouched = useRef(false);
   // --- 기타 ---
   const [soundOn, setSoundOn] = useState(true);
+  // 앱 알림 — 이 기기 기준. null = 아직 확인 중
+  const [pushOn, setPushOn] = useState<boolean | null>(null);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushNote, setPushNote] = useState<string | null>(null);
+  useEffect(() => {
+    currentSubscription().then((sub) => setPushOn(!!sub));
+  }, []);
+  const togglePush = async () => {
+    if (pushBusy) return;
+    setPushBusy(true);
+    setPushNote(null);
+    if (pushOn) {
+      await unsubscribePush();
+      setPushOn(false);
+    } else {
+      const r = await subscribePush();
+      setPushOn(r === "ok");
+      if (r === "denied") setPushNote("알림이 막혀 있어. 폰 설정 > 알림에서 참견이를 켜줘.");
+      if (r === "failed") setPushNote("지금은 안 되네. 조금 있다 다시 해볼래?");
+    }
+    setPushBusy(false);
+  };
   const [sheet, setSheet] = useState<Sheet>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
@@ -430,11 +453,30 @@ export default function MyPageScreen({
         ) : (
           <>
             <ToggleRow
-              label="문자·전화로 참견받기"
-              sub={prefs.outreachEnabled ? undefined : "앱 안에서만 대답해."}
+              label="참견이가 먼저 찾아오기"
+              sub={prefs.outreachEnabled ? "앱 알림이 안 되면 문자로 와." : "앱 안에서만 대답해."}
               value={prefs.outreachEnabled}
               disabled={prefsBusy}
               onToggle={() => savePrefs({ outreachEnabled: !prefs.outreachEnabled })}
+            />
+            <Divider />
+            <ToggleRow
+              label="앱 알림으로 받기"
+              sub={
+                pushSupport() === "needs_install"
+                  ? "홈 화면에 추가한 참견이에서 켤 수 있어."
+                  : pushSupport() === "unsupported"
+                  ? "이 브라우저에선 안 돼."
+                  : pushNote ??
+                    (notificationPermission() === "denied"
+                      ? "알림이 막혀 있어. 폰 설정에서 켜줘."
+                      : pushOn
+                      ? "이 폰으로 찾아갈게. 문자는 안 보내."
+                      : "켜면 문자 대신 알림으로 찾아가.")
+              }
+              value={!!pushOn}
+              disabled={outreachOff || pushBusy || pushOn === null || pushSupport() !== "ok"}
+              onToggle={togglePush}
             />
             <Divider />
             <Row label="참견 정도" value={level.label} sub={level.desc} disabled={outreachOff} onClick={() => setSheet("level")} />
@@ -442,7 +484,7 @@ export default function MyPageScreen({
             <Row
               label="조용한 시간"
               value={`${hourLabel(prefs.quietStartHour)} ~ ${hourLabel(prefs.quietEndHour)}`}
-              sub="이 시간엔 먼저 문자하지 않아."
+              sub="이 시간엔 먼저 찾아가지 않아."
               disabled={outreachOff}
               onClick={() => setSheet("quiet")}
             />

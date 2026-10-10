@@ -3,7 +3,8 @@ import { supabase } from '@/lib/supabase';
 import { PERSONALITY_PROMPT } from '@/lib/responseEngine';
 import { InterventionType } from '@/lib/intervention/interventionTypes';
 import { checkPushGate } from '@/lib/intervention/pushGate';
-import { deliverPush } from '@/lib/intervention/dispatch';
+import { canReach, deliverPush } from '@/lib/intervention/dispatch';
+import { isEveBefore, scheduleEvent } from '@/lib/intervention/eventSchedule';
 import { smsLengthRule } from '@/lib/intervention/smsFit';
 import { kstHuman, kstIsoWithWeekday, relativeFromNow } from '@/lib/intervention/kstTime';
 import {
@@ -13,7 +14,12 @@ import {
 } from '@/lib/intervention/commitmentSchedule';
 
 // ============================================================================
-// commitment_memory 기반 개입 엔진 — REMINDER와 COMMITMENT_CHECK 두 타입만 다룬다.
+// commitment_memory 기반 개입 엔진 — REMINDER, COMMITMENT_CHECK, 그리고 일정(kind='event')을 다룬다.
+//
+//   EVENT (kind='event')                  사용자가 말한 날짜 정해진 일정(면접, 치과…). 묻지 않고 자동 저장된다(lib/events.ts).
+//                                         stage 0 → 그날 아침(이른 일정이면 전날 저녁) "오늘이지?" (EVENT_DAY)
+//                                         stage 1 → 끝나고 3시간 뒤 "어땠어?" (COMMITMENT_CHECK) → 종료
+//                                         다른 참견의 하루 상한/쿨다운에서 빠지지만 조용한 시간은 지킨다(pushGate eventBound).
 //
 //   REMINDER         (kind='reminder')   사용자가 "다시 알려줘"라고 한 일정. 지정 시각(1시간 전)에 한 번 보낸다.
 //                                         일반 쿨다운 bypass, 발송 후엔 일반 쿨다운이 다시 시작된다.
@@ -36,7 +42,7 @@ interface DueRow {
   user_phone: string | null;
   voice_entry_id: string | null;
   commitment: string;
-  kind: CommitmentKind | null;
+  kind: CommitmentKind | 'event' | null;
   target_date: string | null;
   created_at: string;
   intervention_stage: number;
@@ -93,6 +99,15 @@ async function reschedule(rowId: string, at: Date) {
     .eq('id', rowId)
     .eq('fulfilled', false);
   if (error) console.error('[interventionEngine] 재스케줄 실패:', error.message);
+}
+
+async function setStage(rowId: string, stage: number, nextAt: Date) {
+  const { error } = await supabase
+    .from('commitment_memory')
+    .update({ intervention_stage: stage, next_intervention_at: nextAt.toISOString() })
+    .eq('id', rowId)
+    .eq('fulfilled', false);
+  if (error) console.error('[interventionEngine] 단계 변경 실패:', error.message);
 }
 
 // ---- 문구 생성 ---------------------------------------------------------------------------
@@ -188,6 +203,123 @@ ${COMMON_RULES}
   return line && !hasPresentActionGuess(line) ? line : fallback;
 }
 
+async function buildEventDayMessage(row: DueRow, eventAt: Date, now: Date): Promise<string> {
+  const eve = isEveBefore(eventAt, now);
+  const fallback = eve ? `내일 ${row.commitment} 있다며.` : `오늘이 그 ${row.commitment} 날이지?`;
+  const facts = [
+    `현재 시각: ${kstIsoWithWeekday(now)}`,
+    `일정 시각: ${kstHuman(eventAt)} (${relativeFromNow(eventAt, now)})`,
+    `사용자가 말해둔 일정: "${row.commitment}"`,
+    eve ? '지금은 일정 전날 저녁이다.' : '지금은 일정 당일 아침이다.',
+  ].join('\n');
+
+  const line = await generateLine(`${PERSONALITY_PROMPT}
+
+지금 너는 사용자가 예전에 지나가듯 말해둔 일정 날을 기억하고, ${eve ? '전날 저녁에' : '그날 아침에'} 먼저 아는 척하는 한마디를 쓴다.
+"나 그거 기억하고 있었지" 느낌이 핵심이다. 응원/훈계/할 일 지시가 아니다.
+예시 톤(베끼지 마라): "오늘 그 면접 날이지?", "내일 치과 있다며. 떨려?"
+
+[사실]
+${facts}
+
+${COMMON_RULES}
+- 일정이 ${eve ? '내일' : '오늘'}이라는 걸 자연스럽게 담아라.
+
+반드시 JSON으로만 답해: { "message": "..." }`);
+  return line && !hasPresentActionGuess(line) ? line : fallback;
+}
+
+async function buildEventCheckMessage(row: DueRow, eventAt: Date, now: Date): Promise<string> {
+  const fallback = `${row.commitment} 어땠어?`;
+  const facts = [
+    `현재 시각: ${kstIsoWithWeekday(now)}`,
+    `일정 시각: ${kstHuman(eventAt)} (${relativeFromNow(eventAt, now)} — 이미 지났음)`,
+    `사용자가 말해둔 일정: "${row.commitment}"`,
+  ].join('\n');
+
+  const line = await generateLine(`${PERSONALITY_PROMPT}
+
+지금 너는 사용자가 말해둔 일정이 끝난 뒤, 어땠는지 궁금해서 먼저 묻는 한마디를 쓴다.
+결과를 모르니 잘됐다고도 망했다고도 단정하지 마라. 한 번에 답할 수 있는 질문 하나.
+예시 톤(베끼지 마라): "면접 어땠어? 떨었지?", "치과 갔다 왔어?"
+
+[사실]
+${facts}
+
+${COMMON_RULES}
+
+반드시 JSON으로만 답해: { "message": "..." }`);
+  return line && !hasPresentActionGuess(line) ? line : fallback;
+}
+
+/** 일정(kind='event') 한 줄 처리 — 그날 아침 → 끝난 뒤, 두 번만 찾아간다. */
+async function processEventRow(row: DueRow, now: Date, dryRun: boolean): Promise<ProcessResult> {
+  const atRaw = row.target_date ? new Date(row.target_date) : null;
+  if (!row.user_id || !atRaw) {
+    if (!dryRun) await finish(row.id);
+    return { id: row.id, type: 'COMMITMENT_CHECK', action: 'dropped', reason: '사용자/일정 시각 없음' };
+  }
+  const at: Date = atRaw;
+  const sch = scheduleEvent(at, new Date(row.created_at));
+  const isDay = row.intervention_stage === 0;
+  const type: InterventionType = isDay ? 'EVENT_DAY' : 'COMMITMENT_CHECK';
+
+  if (now.getTime() > sch.expiresAt.getTime()) {
+    if (!dryRun) await finish(row.id);
+    return { id: row.id, type, action: 'expired', reason: '일정 끝나고 너무 지남 — 폐기' };
+  }
+  // 아침 알림을 못 보낸 채 일정이 시작됐으면 아침 알림은 건너뛰고 "끝난 뒤" 단계로
+  if (isDay && now.getTime() >= at.getTime()) {
+    if (!dryRun) await setStage(row.id, 1, sch.checkAt);
+    return { id: row.id, type, action: 'held', reason: '일정이 이미 시작돼 아침 알림 건너뜀', retryAt: sch.checkAt.toISOString() };
+  }
+
+  const topicKey = `event:${row.id}:${isDay ? 'day' : 'check'}`;
+  const gate = await checkPushGate(row.user_id, {
+    type,
+    channel: 'sms',
+    now,
+    topicKey,
+    referencedEventAt: isDay ? null : at,
+    expiresAt: isDay ? at : sch.expiresAt,
+    eventBound: true,
+  });
+  if (!gate.allowed) {
+    if (!dryRun) {
+      if (gate.retryAt) await reschedule(row.id, gate.retryAt);
+      else if (isDay) await setStage(row.id, 1, sch.checkAt);
+      else await finish(row.id);
+    }
+    return { id: row.id, type, action: gate.retryAt ? 'held' : 'dropped', reason: gate.reason, retryAt: gate.retryAt?.toISOString() ?? null };
+  }
+
+  const body = isDay ? await buildEventDayMessage(row, at, now) : await buildEventCheckMessage(row, at, now);
+  if (dryRun) return { id: row.id, type, action: 'dry_run', reason: gate.reason, message: body };
+
+  const phone = await resolvePhone(row);
+  if (!(await canReach(row.user_id, phone))) {
+    // 찾아갈 수단이 없다(앱 알림 미허용 + 번호 없음). 다음 단계로 넘기거나 끝낸다.
+    if (isDay) await setStage(row.id, 1, sch.checkAt);
+    else await finish(row.id);
+    return { id: row.id, type, action: 'skipped_no_phone', reason: '앱 알림도 문자도 보낼 수 없음' };
+  }
+
+  const sent = await deliverPush({
+    userId: row.user_id,
+    phone,
+    type,
+    channel: 'sms',
+    header: INTERVENTION_HEADER,
+    body,
+    reason: `${isDay ? 'event_day' : 'event_check'}: ${row.commitment}`,
+    topicKey,
+    triggerEntryId: row.voice_entry_id,
+  });
+  if (isDay) await setStage(row.id, 1, sch.checkAt);
+  else await finish(row.id);
+  return { id: row.id, type, action: 'sms', message: sent.text, reason: `via ${sent.via}` };
+}
+
 // ---- 메인 --------------------------------------------------------------------------------
 
 /**
@@ -200,6 +332,15 @@ export async function processDueInterventions(dryRun: boolean = false): Promise<
   const results: ProcessResult[] = [];
 
   for (const row of rows) {
+    if (row.kind === 'event') {
+      try {
+        results.push(await processEventRow(row, now, dryRun));
+      } catch (err: any) {
+        console.error(`[interventionEngine] event#${row.id} 처리 실패:`, err?.message);
+        results.push({ id: row.id, type: 'EVENT_DAY', action: 'send_failed', error: err?.message ?? String(err) });
+      }
+      continue;
+    }
     const kind: CommitmentKind = row.kind === 'reminder' ? 'reminder' : 'commitment';
     const type: InterventionType = kind === 'reminder' ? 'REMINDER' : 'COMMITMENT_CHECK';
     const createdAt = new Date(row.created_at);
@@ -257,8 +398,8 @@ export async function processDueInterventions(dryRun: boolean = false): Promise<
       }
 
       const phone = await resolvePhone(row);
-      if (!phone) {
-        // 번호가 없으면 보낼 수단이 없다. 만료 전까지 하루 뒤 다시 확인한다.
+      if (!(await canReach(row.user_id, phone))) {
+        // 앱 알림도 문자도 보낼 수단이 없다. 만료 전까지 하루 뒤 다시 확인한다.
         await reschedule(row.id, new Date(now.getTime() + 24 * 60 * 60 * 1000));
         results.push({ id: row.id, type, action: 'skipped_no_phone' });
         continue;
@@ -276,7 +417,7 @@ export async function processDueInterventions(dryRun: boolean = false): Promise<
         triggerEntryId: row.voice_entry_id,
       });
       await finish(row.id);
-      results.push({ id: row.id, type, action: 'sms', message: sent.text });
+      results.push({ id: row.id, type, action: 'sms', message: sent.text, reason: `via ${sent.via}` });
     } catch (err: any) {
       // 발송 실패 → 상태를 건드리지 않는다. 다음 실행 때 같은 조건으로 재시도된다(만료되면 폐기).
       console.error(`[interventionEngine] commitment_memory#${row.id} 처리 실패:`, err?.message);

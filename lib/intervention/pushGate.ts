@@ -42,6 +42,10 @@ export interface PushGateInput {
   memoryId?: number | null;
   referencedEventAt?: Date | null; // 이 개입이 가리키는 사건 시각 (예: 토요일 09:00)
   expiresAt?: Date | null;
+  // 사용자가 직접 말한 날짜 정해진 일정(아침 "오늘이지?" / 끝난 뒤 "어땠어?")이면 true.
+  // 조용한 시간·만료·기한 전 금지는 그대로 지키고, 하루 상한/쿨다운/같은 주제 차단은 건너뛴다.
+  // topicKey는 "event:"로 시작해야 한다 — 그래야 다른 참견의 하루 상한/쿨다운 계산에서도 빠진다.
+  eventBound?: boolean;
 }
 
 // MY에서 사용자가 정한 참견 받는 방법 (lib/userPrefs.ts). 넘기지 않으면 기존 정책 그대로.
@@ -112,6 +116,7 @@ function hold(reason: string, retryAt: Date | null, expiresAt?: Date | null): Pu
  * prefs를 넘기지 않으면 기존 정책과 완전히 같다.
  */
 export function evaluatePushGate(input: PushGateInput, history: PushHistory, prefs?: GatePrefs): PushGateDecision {
+  // eslint-disable-next-line no-param-reassign
   const { type, channel, now, expiresAt, referencedEventAt } = input;
   const rule = channelRule(type, channel);
   const pol = policyFor(prefs);
@@ -149,6 +154,13 @@ export function evaluatePushGate(input: PushGateInput, history: PushHistory, pre
   if (withinQuietHours(now, pol)) {
     return hold('조용한 시간대', nextAllowedWindowStart(now, pol), expiresAt);
   }
+
+  if (input.eventBound) {
+    return { allowed: true, reason: '사용자가 말한 일정 알림 — 하루 상한/쿨다운 예외 (조용한 시간은 지킴)' };
+  }
+
+  // 일정 알림은 사용자가 직접 말한 일정이라, 다른 참견의 쿨다운/하루 상한 계산에 넣지 않는다.
+  history = { ...history, recentPushes: history.recentPushes.filter((p) => !(p.topic_key ?? '').startsWith('event:')) };
 
   const blockSince = now.getTime() - SAME_TOPIC_BLOCK_DAYS * 24 * 60 * 60 * 1000;
   const sameTopic = history.recentPushes.find(
@@ -203,7 +215,7 @@ export async function loadPushHistory(userId: string, now: Date = new Date()): P
       .select('created_at, intervention_type, topic_key, chosen_memory_id')
       .eq('user_id', userId)
       .eq('decision', 'intervene')
-      .in('channel', ['sms', 'call', 'letter'])
+      .in('channel', ['sms', 'push', 'call', 'letter'])
       .gte('created_at', since)
       .order('created_at', { ascending: false })
       .limit(50),

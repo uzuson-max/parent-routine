@@ -9,6 +9,12 @@ import {
 } from '@/lib/intervention/commitmentSchedule';
 import { normalizeUnderstanding, StanceItem, UtteranceIntent } from '@/lib/response/understanding';
 
+export interface ScheduledEvent {
+  what: string; // 짧은 이름 — "면접", "치과", "제주도 출발"
+  at: string; // ISO 8601 (+09:00)
+  quote: string | null; // 그 일정이 나온 원문 구간
+}
+
 interface AnalysisResult {
   type: 'excuse' | 'contradiction' | 'repetition' | 'none';
   summary: string;
@@ -20,6 +26,9 @@ interface AnalysisResult {
   commitment_kind: CommitmentKind | null;
   // commitment/reminder가 가리키는 시각(ISO 8601, +09:00). 발화에 시점이 없으면 null.
   commitment_due_at: string | null;
+  // 사용자 본인에게 곧 있을 날짜가 정해진 일정(면접, 병원, 약속, 출발, 마감 등). 없으면 null.
+  // "하겠다"는 약속(commitment)과 별개 — 그냥 "금요일에 면접 있어"도 여기 담긴다. 그날 아침/끝난 뒤 참견에 쓴다.
+  scheduled_event: ScheduledEvent | null;
   excuse: string | null;
   emotion: string | null;
   intervention_needed: boolean;
@@ -173,6 +182,19 @@ async function fetchMemoryCandidates(userId: string): Promise<{ memory_type: Mem
     .map((r: any) => ({ memory_type: r.title as MemoryType, content: r.content as string }));
 }
 
+// GPT가 준 일정을 검증한다 — 이름이 너무 길거나, 시각이 과거/너무 먼 미래(60일 초과)면 버린다.
+function sanitizeScheduledEvent(raw: any, transcript: string): ScheduledEvent | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const what = typeof raw.what === 'string' ? raw.what.trim() : '';
+  if (!what || what.length > 20) return null;
+  const at = sanitizeDueAt(raw.at, new Date());
+  if (!at) return null;
+  if (at.getTime() - Date.now() > 60 * 24 * 60 * 60 * 1000) return null;
+  if (at.getTime() < Date.now() + 10 * 60 * 1000) return null; // 이미 지났거나 코앞이면 챙길 게 없다
+  const quote = typeof raw.quote === 'string' && raw.quote.trim() && transcript.includes(raw.quote.trim()) ? raw.quote.trim() : null;
+  return { what, at: at.toISOString(), quote };
+}
+
 async function callGPT(
   transcript: string,
   persona: string,
@@ -257,6 +279,11 @@ ${memoryCandidatesBlock}
 - 예외 — 명시적 리마인더 요청: 사용자가 "다시 알려줘", "까먹지 않게 말해줘", "리마인드 해줘"처럼 특정 일정을 나중에 알려달라고 직접 요청했다면, 위 commitment 기준과 상관없이 그 일정을 commitment에 담고(예: "토요일 아침 9시에 출발"), commitment_type="explicit", commitment_confidence="high"로 한다.
 - commitment_kind: commitment가 null이면 null. 위처럼 사용자가 "알려달라"고 명시적으로 요청했으면 "reminder". 그런 요청 없이 스스로 하겠다고 말한 약속이면 "commitment". 약속을 했다고 해서 알려달라는 뜻으로 추측하지 마라.
 - commitment_due_at: commitment가 가리키는 시각을 위 "현재 시각" 기준으로 계산한 ISO 8601 문자열(반드시 +09:00 포함, 예: "2026-09-26T09:00:00+09:00"). "토요일 아침 9시" → 다가오는 토요일 09:00. "내일 아침" 처럼 시간이 모호하면 아침=08:00, 점심=12:00, 오후=15:00, 저녁=19:00, 밤=22:00, "오늘"만 있으면 그날 21:00, "주말"만 있으면 다가오는 토요일 12:00. 발화에 시점이 전혀 없으면 null. 현재 시각보다 과거로 계산하지 마라.
+- scheduled_event: commitment와 별개로, 사용자 "본인"에게 곧 있을 날짜가 정해진 일정 하나(없으면 null). 면접, 병원/치과, 약속, 시험, 발표, 여행 출발, 마감 같은 것.
+  "하겠다"는 의지가 없어도 된다 — "금요일에 면접 있어", "내일 3시에 치과"도 해당한다.
+  아래는 null: 날짜가 없는 것("언젠가 제주도 가고 싶다"), 희망/가정("시간 되면 갈까"), 이미 지난 일, 다른 사람의 일정, 매일 하는 일상(출근, 알바 같은 반복 일과).
+  형식: { "what": "짧은 이름(2~12자, 원문 단어 그대로 — 예: '면접', '치과', '제주도 출발')", "at": "commitment_due_at과 같은 규칙으로 계산한 ISO 8601(+09:00)", "quote": "그 일정이 나온 원문 구간 그대로" }.
+  애매하면 null이 기본값이다.
 - intervention_needed: 이건 "화면에 짧게 반응하는 것"과는 완전히 다른, 훨씬 엄격한 기준이다. true가 되면 실제로 전화가 걸릴 수 있다는 뜻이다. 아래 경우에만 true로 판단해라 (기본은 false):
   - 같은 핑계나 같은 목표를 여러 번 반복하는 게 위 기록에서 확인됨
   - 같은 약속을 여러 번 미루고 있는 게 확인됨
@@ -300,6 +327,7 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
   "commitment_confidence": "high|medium|low" or null,
   "commitment_kind": "reminder|commitment" or null,
   "commitment_due_at": "..." or null,
+  "scheduled_event": {"what": "...", "at": "...", "quote": "..."} or null,
   "excuse": "..." or null,
   "emotion": "...",
   "intervention_needed": true or false,
@@ -361,6 +389,7 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
       commitment_due_at: parsed.commitment
         ? sanitizeDueAt(parsed.commitment_due_at, new Date())?.toISOString() ?? null
         : null,
+      scheduled_event: sanitizeScheduledEvent(parsed.scheduled_event, transcript),
       excuse: parsed.excuse ?? null,
       emotion: parsed.emotion ?? null,
       intervention_needed: parsed.intervention_needed ?? false,
@@ -405,6 +434,7 @@ intervention_needed가 false면 call_line은 짧은 반응 한 마디로만 채�
       commitment_confidence: null,
       commitment_kind: null,
       commitment_due_at: null,
+      scheduled_event: null,
       excuse: null,
       emotion: null,
       intervention_needed: false,

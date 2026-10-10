@@ -17,9 +17,11 @@ export type InterventionType =
   | 'COMMITMENT_CHECK' // 사용자가 스스로 말한 약속 — 기한이 지난 뒤에만 결과를 확인
   | 'RETURN_MEMORY' // 새 발화/시간 흐름과 과거 기억 사이의 연결 — 참견이의 핵심 기능
   | 'FOLLOW_UP' // 사용자 반응이 있을 때만, 대화 안에서 이어지는 추가 질문
+  | 'EVENT_DAY' // 사용자가 말한 날짜 정해진 일정의 그날 아침(이른 일정이면 전날 저녁) "오늘이지?" 한마디
   | 'NONE'; // 개입하지 않음 (기억은 별도로 저장될 수 있음)
 
-export type Channel = 'screen' | 'letter' | 'sms' | 'call';
+// push = 앱 알림(웹 푸시). 규칙은 sms와 같다 — 둘 다 "앱 밖으로 먼저 찾아가는" 채널이다.
+export type Channel = 'screen' | 'letter' | 'sms' | 'push' | 'call';
 
 // 각 (타입, 채널) 조합의 전달 규칙.
 //   immediate — 사용자가 지금 앱/대화 안에 있으므로 바로 반환 가능 (push gate 대상 아님)
@@ -33,30 +35,42 @@ export const CHANNEL_POLICY: Record<InterventionType, Record<Channel, ChannelRul
     screen: 'forbidden', // 리마인더는 지정 시각에 앱 밖으로 찾아가는 것 — 화면 반응과는 별개
     letter: 'forbidden', // 편지는 시간 정확도가 필요한 채널이 아님
     sms: 'bypass',
+    push: 'bypass',
     call: 'bypass', // 전화는 현재 리마인더 중심의 별도 정책. 지금 엔진은 sms만 사용한다.
   },
   COMMITMENT_CHECK: {
     screen: 'immediate',
     letter: 'gated',
     sms: 'gated',
+    push: 'gated',
     call: 'forbidden', // 예전 3차 SMS → 전화 승격 사다리는 폐지
   },
   RETURN_MEMORY: {
     screen: 'immediate', // "그러고 보니 예전에 제주도 한 달 살기 얘기했었잖아" — 대화 중엔 바로 가능
     letter: 'gated', // Letter Opportunity 엔진이 나중에 고를 수 있는 선택지. 지금은 자동 생성 안 함.
     sms: 'gated',
+    push: 'gated',
     call: 'forbidden',
   },
   FOLLOW_UP: {
     screen: 'immediate', // 사용자가 답한 대화 안에서만
     letter: 'forbidden',
     sms: 'forbidden', // 반응 없는 사용자에게 선제 발송 금지
+    push: 'forbidden',
+    call: 'forbidden',
+  },
+  EVENT_DAY: {
+    screen: 'forbidden', // 그날 아침에 앱 밖으로 찾아가는 것 — 화면 반응과는 별개
+    letter: 'forbidden',
+    sms: 'gated', // 조용한 시간은 지킨다. 하루 상한/쿨다운 예외는 pushGate의 eventBound가 처리
+    push: 'gated',
     call: 'forbidden',
   },
   NONE: {
     screen: 'forbidden',
     letter: 'forbidden',
     sms: 'forbidden',
+    push: 'forbidden',
     call: 'forbidden',
   },
 };
@@ -66,7 +80,7 @@ export function channelRule(type: InterventionType, channel: Channel): ChannelRu
 }
 
 export function isPushChannel(channel: Channel): boolean {
-  return channel === 'sms' || channel === 'call' || channel === 'letter';
+  return channel === 'sms' || channel === 'push' || channel === 'call' || channel === 'letter';
 }
 
 // ---- 시간 정책 (타입이 아니라 전달/스케줄링 쪽 상수) --------------------------------------

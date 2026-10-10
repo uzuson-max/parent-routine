@@ -7,6 +7,7 @@ import { BottomNav, MyButton, type WorldTab } from "@/components/WorldNav";
 import { acquireMicStream } from "@/lib/micStream";
 import { playFx } from "@/lib/fx";
 import { seaSoundPref, setSeaSoundPref, startSea, stopSea, recallChime } from "@/lib/seaSound";
+import { dismissPushOffer, subscribePush } from "@/lib/pushClient";
 
 export interface RecordEntry {
   id: string;
@@ -44,6 +45,8 @@ export interface HomeBubble {
   text: string;
   // reply가 과거 기억을 꺼내 온 대답이면 그 기억(voice/upload → response.recalled)
   recall?: Recall | null;
+  // 날짜가 정해진 일정을 말했을 때 — "그날 알려줄까?" (ask) / 아이폰 사파리 탭이면 "홈 화면에 추가하면…" (install)
+  askPush?: { what: string; at: string; mode: "ask" | "install" } | null;
 }
 
 interface TimelineScreenProps {
@@ -319,6 +322,7 @@ export default function TimelineScreen({
             <div key={shown.text} className={recall ? "tl-bubble tl-bubble-late" : "tl-bubble"} style={styles.bubble} role="status">
               {shown.stamp && <span style={styles.bubbleStamp}>{shown.stamp}</span>}
               <span style={styles.bubbleText}>{shown.text}</span>
+              {bubble?.kind === "reply" && bubble.askPush && <PushOffer key={bubble.askPush.at} offer={bubble.askPush} />}
               {shown.closable && (
                 <button className="tl-close" style={styles.bubbleClose} aria-label="말풍선 닫기" onClick={() => onBubbleChange(null)}>
                   <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
@@ -350,6 +354,81 @@ export default function TimelineScreen({
       <BottomNav active="home" onNavigate={onNavigate} unreadLetterCount={unreadLetterCount} disabled={thinking} />
     </div>
   );
+}
+
+// "그날 알려줄까?" — 일정을 처음 말했을 때 대답 아래에 한 번. 누르는 순간(사용자 제스처)에 알림 허용 창을 띄운다.
+function PushOffer({ offer }: { offer: { what: string; at: string; mode: "ask" | "install" } }) {
+  const [state, setState] = useState<"ask" | "busy" | "ok" | "denied" | "failed" | "hidden">("ask");
+  if (state === "hidden") return null;
+  const when = dayWord(offer.at);
+  const line =
+    offer.mode === "install"
+      ? `홈 화면에 추가해두면 ${when} ${offer.what} 날 찾아갈 수 있어.`
+      : state === "ok"
+      ? `${when} 그날 찾아갈게.`
+      : state === "denied"
+      ? "알림이 꺼져 있네. 폰 설정에서 켜주면 찾아갈게."
+      : state === "failed"
+      ? "지금은 안 되네. MY에서 다시 켤 수 있어."
+      : `${when} ${offer.what}, 그날 알려줄까?`;
+  return (
+    <div style={styles.pushOffer}>
+      <span style={styles.pushOfferText}>{line}</span>
+      {offer.mode === "ask" && (state === "ask" || state === "busy") && (
+        <div style={styles.confirmRow}>
+          <button
+            className="tl-sticker"
+            style={{ ...styles.pushBtn, background: "#FFD23F" }}
+            disabled={state === "busy"}
+            onClick={async () => {
+              playFx("buttonPress");
+              setState("busy");
+              const r = await subscribePush();
+              setState(r);
+            }}
+          >
+            {state === "busy" ? "잠깐만…" : "응, 알려줘"}
+          </button>
+          <button
+            className="tl-sticker"
+            style={styles.pushBtn}
+            disabled={state === "busy"}
+            onClick={() => {
+              playFx("buttonPress");
+              dismissPushOffer();
+              setState("hidden");
+            }}
+          >
+            괜찮아
+          </button>
+        </div>
+      )}
+      {offer.mode === "install" && (
+        <button
+          className="tl-sticker"
+          style={styles.pushBtn}
+          onClick={() => {
+            dismissPushOffer();
+            setState("hidden");
+          }}
+        >
+          알겠어
+        </button>
+      )}
+    </div>
+  );
+}
+
+// "오늘 / 내일 / 모레 / 금요일 / 10월 24일" — 일정 날짜를 사람 말로
+function dayWord(iso: string): string {
+  const d = new Date(iso);
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(d) - day(new Date())) / 86_400_000);
+  if (diff <= 0) return "오늘";
+  if (diff === 1) return "내일";
+  if (diff === 2) return "모레";
+  if (diff < 7) return `${"일월화수목금토"[d.getDay()]}요일`;
+  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
 }
 
 // 기억 캡슐 위 작은 글씨 — 언제 한 말인지. 일주일 안쪽은 흐리게, 그보다 오래되면 날짜로.
@@ -474,6 +553,34 @@ const styles: { [key: string]: React.CSSProperties } = {
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
+  },
+  pushOffer: {
+    width: "100%",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 6,
+    paddingTop: 10,
+    borderTop: "2px dashed rgba(27,22,48,.15)",
+  },
+  pushOfferText: {
+    fontSize: 15,
+    lineHeight: 1.4,
+    color: "rgba(27,22,48,.8)",
+    wordBreak: "keep-all",
+  },
+  pushBtn: {
+    minHeight: 38,
+    padding: "0 14px",
+    borderRadius: 12,
+    border: `2.5px solid ${INK}`,
+    background: "#FFFFFF",
+    boxShadow: `2px 2px 0 ${INK}`,
+    fontFamily: "'Jua', sans-serif",
+    fontSize: 15,
+    color: INK,
+    cursor: "pointer",
   },
   // 방금 니가 한 말 — 대답을 기다리는 동안 보이는 내 말. 참견이 말풍선(흰색, 스탬프)과 헷갈리지 않게 반투명 물방울 모양.
   heard: {
