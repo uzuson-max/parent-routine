@@ -1,4 +1,4 @@
-
+// app/api/voice/upload/route.ts
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { getUserIdFromRequest } from '@/lib/auth';
@@ -10,13 +10,43 @@ import { retrieveRelevantMemoriesWithTrace, markMemoriesReferenced, RetrievalTra
 import { retrieveRelevantInsights, markInsightsSurfaced } from '@/lib/insightEngine';
 import { sendRoutineCall } from '@/lib/twilio';
 import { loadRecall, type Recall } from '@/lib/recall';
+import { waitUntil } from '@vercel/functions';
 import OpenAI from 'openai';
 import { looksLikeNoSpeech } from '@/lib/noSpeech';
 import { loadUserPrefs, allowsCalls } from '@/lib/userPrefs';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// 대답을 기다리는 시간이 길다는 문제 — 단계마다 몇 ms 걸렸는지 한 줄로 남긴다(Vercel 로그에서 [upload-timing] 검색).
+function makeTimer() {
+  const t0 = Date.now();
+  let last = t0;
+  const marks: string[] = [];
+  return {
+    mark(label: string) {
+      const now = Date.now();
+      marks.push(`${label}=${now - last}`);
+      last = now;
+    },
+    log(extra = '') {
+      console.log(`[upload-timing] total=${Date.now() - t0}ms ${marks.join(' ')} ${extra}`.trim());
+    },
+  };
+}
+
+// 대답에 필요 없는 기록 작업은 대답을 돌려준 뒤 뒤에서 마저 한다(Vercel waitUntil — 함수가 끝까지 살아 있게 해준다).
+// 로컬 개발 서버에서는 그냥 백그라운드 promise로 돈다.
+function later(label: string, work: () => Promise<unknown>) {
+  const p = work().catch((e: any) => console.error(`[upload] 뒤에서 하던 일 실패 (${label}):`, e?.message ?? e));
+  try {
+    waitUntil(p);
+  } catch {
+    /* Vercel 밖 — promise는 이미 돌고 있다 */
+  }
+}
+
 export async function POST(request: Request) {
+  const timer = makeTimer();
   try {
     const userId = await getUserIdFromRequest(request);
     if (!userId) {
@@ -61,21 +91,23 @@ export async function POST(request: Request) {
     let buffer: Buffer | null = null;
     let fileName: string | null = null;
 
+    // 녹음 파일 저장은 받아쓰기와 동시에 돌린다(예전엔 저장이 끝나야 받아쓰기를 시작했다).
+    let storagePromise: Promise<{ error: { message: string } | null }> | null = null;
     if (audio) {
       fileName = `${Date.now()}-${crypto.randomUUID()}.webm`;
       buffer = Buffer.from(await audio.arrayBuffer());
-
-      const { error: uploadError } = await supabase.storage
+      storagePromise = supabase.storage
         .from('voice-recordings')
-        .upload(fileName, buffer, { contentType: 'audio/webm' });
-
-      if (uploadError) {
-        console.error('Supabase 업로드 실패:', uploadError.message);
-        return NextResponse.json({ success: false, error: uploadError.message }, { status: 500 });
-      }
-
+        .upload(fileName, buffer, { contentType: 'audio/webm' })
+        .then((r) => ({ error: r.error ? { message: r.error.message } : null }));
       audioUrl = supabase.storage.from('voice-recordings').getPublicUrl(fileName).data.publicUrl;
     }
+    // 저장된 녹음을 지워야 할 때(말소리 없음/환각 의심) — 저장이 끝난 뒤에 지운다.
+    const removeStored = () => {
+      if (!fileName || !storagePromise) return;
+      const name = fileName;
+      later('remove-audio', () => storagePromise!.then(() => supabase.storage.from('voice-recordings').remove([name])));
+    };
     // 텍스트 입력이면 오디오 저장 자체가 없으므로 audio_url은 null로 남는다 (컬럼이 nullable이라 스키마 변경 불필요).
 
        // STT는 기록(voice_entries)을 만들기 전에 먼저 한다 — 말소리가 없는 녹음이면 아예 기록을 만들지 않기 위해.
@@ -96,9 +128,7 @@ export async function POST(request: Request) {
         // 받아쓴 글자가 아예 없으면 확인할 것도 없다 — 저장하지 않는다.
         if (!text.trim()) {
           console.log('[upload] 받아쓴 내용 없음 — 저장하지 않음');
-          if (fileName) {
-            await supabase.storage.from('voice-recordings').remove([fileName]).catch(() => {});
-          }
+          removeStored();
           return NextResponse.json({ success: true, data: { no_speech: true } });
         }
         // Whisper 환각("시청해주셔서 감사합니다" 등)으로 의심되면 바로 버리지 않고 사용자에게 확인한다.
@@ -106,15 +136,24 @@ export async function POST(request: Request) {
         // [맞아]를 누르면 같은 녹음을 speech_confirmed=1로 다시 보낸다. 지금은 아무것도 저장하지 않는다.
         if (!speechConfirmed && looksLikeNoSpeech(text, transcription?.segments)) {
           console.log('[upload] 무음 환각 의심 — 사용자 확인 요청:', JSON.stringify(text).slice(0, 80));
-          if (fileName) {
-            await supabase.storage.from('voice-recordings').remove([fileName]).catch(() => {});
-          }
+          removeStored();
           return NextResponse.json({ success: true, data: { needs_confirm: true, transcript: text } });
         }
         transcript = text;
       } catch (sttErr: any) {
         console.error('STT 변환 중 에러 (무시하고 진행):', sttErr?.message);
         transcript = '(음성 변환 실패)';
+      }
+    }
+
+    timer.mark('stt');
+
+    // 받아쓰기와 같이 돌던 녹음 파일 저장이 실패했으면 예전처럼 여기서 멈춘다.
+    if (storagePromise) {
+      const { error: uploadError } = await storagePromise;
+      if (uploadError) {
+        console.error('Supabase 업로드 실패:', uploadError.message);
+        return NextResponse.json({ success: false, error: uploadError.message }, { status: 500 });
       }
     }
 
@@ -129,12 +168,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: insertError?.message }, { status: 500 });
     }
 
+    // 전화 여부 판단에만 쓰는 설정 — 미리 읽기 시작해두고 마지막에 받는다.
+    const prefsPromise = loadUserPrefs(userId);
+    prefsPromise.catch(() => {}); // 먼저 실패해도 경고 안 나게 — 실제 실패 처리는 아래 await에서
+    timer.mark('save');
+
     let analysisResult: any = null;
     let commitmentUntil: string | null = null;
     let responseResult: any = null;
     // P0 — 이번 발화에서 과거 기억 검색이 실제로 무엇을 했는지. voice_entries.response.retrieval_trace로 함께 저장된다.
     let retrievalTrace: RetrievalTrace | null = null;
-        // 대답이 실제로 쓴 과거 기억(원문+시각) — 홈이 "기억 소환" 순간을 크게 보여준다. 없으면 null.
+    // 대답이 실제로 쓴 과거 기억(원문+시각) — 홈이 "기억 소환" 순간을 크게 보여준다. 없으면 null.
     let recalled: Recall | null = null;
     let memoryCandidates: { memory_type: string; content: string }[] = [];
     let existingCommitments: { id: string; commitment: string }[] = [];
@@ -149,29 +193,33 @@ export async function POST(request: Request) {
       console.error('AI 분석 중 에러 (무시하고 진행):', analysisErr?.message);
     }
 
+    timer.mark('analysis');
+
     if (analysisResult) {
       // memory_units에서 오늘 발화와 관련될 수도 있는 과거 기억을 retrieval — 실패해도 빈 배열로 계속 진행.
       // P0 — 원문 + 분석이 뽑은 상황 문장/핵심 주제어로 검색하고, 무엇을 찾았는지 기록(trace)을 함께 받는다.
+      // 과거 기억 검색과 인사이트 검색은 서로 상관없으니 동시에 한다(예전엔 하나씩 차례로).
       let relevantMemoryUnits: Awaited<ReturnType<typeof retrieveRelevantMemoriesWithTrace>>['units'] = [];
-      try {
-        const retrieved = await retrieveRelevantMemoriesWithTrace(userId, transcript, {
+      let relevantInsights: Awaited<ReturnType<typeof retrieveRelevantInsights>> = [];
+      const [memRes, insightRes] = await Promise.allSettled([
+        retrieveRelevantMemoriesWithTrace(userId, transcript, {
           situation: analysisResult.retrieval_situation ?? null,
           topics: Array.isArray(analysisResult.retrieval_topics) ? analysisResult.retrieval_topics : [],
-        });
-        relevantMemoryUnits = retrieved.units;
-        retrievalTrace = retrieved.trace;
-      } catch (retrievalErr: any) {
-        console.error('memory retrieval 실패 (무시하고 진행):', retrievalErr?.message);
+        }),
+        retrieveRelevantInsights(userId, transcript),
+      ]);
+      if (memRes.status === 'fulfilled') {
+        relevantMemoryUnits = memRes.value.units;
+        retrievalTrace = memRes.value.trace;
+      } else {
+        console.error('memory retrieval 실패 (무시하고 진행):', (memRes.reason as any)?.message);
       }
-
-      // memory_insights(여러 memory_unit을 묶어 미리 판단해둔 관찰)에서 오늘 발화와 관련될 수도 있는
-      // 것을 retrieval — 실패해도 빈 배열로 계속 진행 (raw memory retrieval과 완전히 독립적인 별도 경로).
-      let relevantInsights: Awaited<ReturnType<typeof retrieveRelevantInsights>> = [];
-      try {
-        relevantInsights = await retrieveRelevantInsights(userId, transcript);
-      } catch (insightRetrievalErr: any) {
-        console.error('insight retrieval 실패 (무시하고 진행):', insightRetrievalErr?.message);
+      if (insightRes.status === 'fulfilled') {
+        relevantInsights = insightRes.value;
+      } else {
+        console.error('insight retrieval 실패 (무시하고 진행):', (insightRes.reason as any)?.message);
       }
+      timer.mark('retrieval');
 
       try {
         responseResult = await generateResponse(
@@ -189,40 +237,34 @@ export async function POST(request: Request) {
         console.error('Response engine 에러 (무시하고 진행):', respErr?.message);
       }
 
-      // responseEngine이 실제로 특정 memory_unit을 답변에 썼다면 last_referenced_at/reference_count 갱신.
+      timer.mark('response');
+
+      // 대답이 실제로 쓴 과거 기억의 원문/시각 — 홈의 기억 소환 연출에 필요해서 이것만 기다린다.
       if (responseResult?.memory_unit_id_used) {
-                recalled = await loadRecall(responseResult.memory_unit_id_used);
-        try {
-          await markMemoriesReferenced([responseResult.memory_unit_id_used]);
-        } catch (refErr: any) {
-          console.error('memory_units 참조 기록 실패 (무시하고 진행):', refErr?.message);
-        }
+        recalled = await loadRecall(responseResult.memory_unit_id_used);
       }
 
+      // 아래 기록들은 대답에 필요 없으니 대답을 돌려준 뒤 뒤에서 한다.
+      const usedMemoryId = responseResult?.memory_unit_id_used ?? null;
+      const usedInsightId = responseResult?.insight_id_used ?? null;
+      const detectedPattern = analysisResult.detected_pattern ?? undefined;
+      const excuse = analysisResult.excuse ?? undefined;
+      // responseEngine이 실제로 특정 memory_unit을 답변에 썼다면 last_referenced_at/reference_count 갱신.
+      if (usedMemoryId) later('mark-memory', () => markMemoriesReferenced([usedMemoryId]));
       // responseEngine이 실제로 특정 insight를 답변에 썼다면 last_surfaced_at/surfaced_count 갱신.
-      if (responseResult?.insight_id_used) {
-        try {
-          await markInsightsSurfaced([responseResult.insight_id_used]);
-        } catch (insightRefErr: any) {
-          console.error('memory_insights 참조 기록 실패 (무시하고 진행):', insightRefErr?.message);
-        }
-      }
-
-      try {
-        await updateUserMemory(userId, analysisResult.detected_pattern ?? undefined, analysisResult.excuse ?? undefined);
-      } catch (memErr: any) {
-        console.error('user_memory 업데이트 실패 (무시하고 진행):', memErr?.message);
-      }
+      if (usedInsightId) later('mark-insight', () => markInsightsSurfaced([usedInsightId]));
+      later('user-memory', () => updateUserMemory(userId, detectedPattern, excuse));
     }
 
     // Phase 2 (WRITE ONLY) — 기존 analysis/response/memory 흐름과 완전히 별개인 병렬 경로.
     // analysisResult 성패와 무관하게, transcript가 실제로 있으면 항상 시도한다.
     // runMemoryPipeline은 내부에서 모든 실패를 흡수하므로 여기서 실패해도 위/아래 로직에 영향이 없다.
-    try {
+    // 대답에는 안 쓰이는 "다음을 위한 저장"이라 대답을 돌려준 뒤 뒤에서 한다 — 예전엔 이게 끝날 때까지
+    // (GPT 추출 + 기억마다 저장/연결/임베딩) 사용자가 기다렸다. 홈 바다는 잠시 뒤 다시 불러와 새 물고기를 반영한다.
+    {
       const sourceChannel: 'voice' | 'text' = audio ? 'voice' : 'text';
-      await runMemoryPipeline(entry.id, userId, transcript, sourceChannel);
-    } catch (memPipelineErr: any) {
-      console.error('memory pipeline 실패 (무시하고 진행):', memPipelineErr?.message);
+      const entryId = entry.id;
+      later('memory-pipeline', () => runMemoryPipeline(entryId, userId, transcript, sourceChannel));
     }
 
     let currentCallState: string;
@@ -231,7 +273,7 @@ export async function POST(request: Request) {
     // 설정을 못 읽으면 전화하지 않는 쪽으로 — 사용자가 꺼둔 전화가 울리는 것보다 안전하다.
     let callsAllowed = false;
     try {
-      callsAllowed = allowsCalls((await loadUserPrefs(userId)).prefs);
+      callsAllowed = allowsCalls((await prefsPromise).prefs);
     } catch (prefErr: any) {
       console.error('사용자 설정 조회 실패 — 이번엔 전화하지 않음:', prefErr?.message);
     }
@@ -283,7 +325,7 @@ export async function POST(request: Request) {
               ? {
             ...responseResult,
             retrieval_trace: retrievalTrace,
-                            // 꺼낸 기억 — 홈 기억 소환 연출 + 나중에 물고기 대화 기록에서도 쓴다(스키마 변경 없음, response jsonb 안).
+            // 꺼낸 기억 — 홈 기억 소환 연출 + 나중에 물고기 대화 기록에서도 쓴다(스키마 변경 없음, response jsonb 안).
             ...(recalled ? { recalled } : {}),
             reply_to: topicFromForm ?? null,
             // 환각 의심이었지만 사용자가 "맞아"라고 확인한 녹음 — 목록에서 걸러지지 않게 표시한다.
@@ -298,6 +340,8 @@ export async function POST(request: Request) {
     const { error: updateError } = await supabase.from('voice_entries').update(updateData).eq('id', entry.id);
     if (updateError) console.error('DB 업데이트 실패:', updateError.message);
 
+    timer.mark('finish');
+    timer.log(`entry=${entry.id} regen=${responseResult?.regeneration_count ?? '-'}`);
     return NextResponse.json({ success: true, data: { ...entry, ...updateData } });
   } catch (globalErr: any) {
     console.error('서버 에러:', globalErr);
