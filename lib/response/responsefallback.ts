@@ -78,11 +78,7 @@ export function tryRepair(
 
   let opp: ConversationOpportunity = c.result.conversation_opportunity;
   let anchorDiscarded = false;
-  // 2026-10-11 — 기억을 근거로 한 opportunity인데 anchor(오늘 발화 중 그 기억과 이어지는 구간)가 원문에 없으면,
-  // "오늘 말과 이 기억이 이어진다"는 근거 자체가 없는 것이다. anchor만 지우고 그 기억 문장을 내보내면
-  // ("이제 할 거는 식물샵+참견이+스튜디오" → "사운드 이펙트 작업은 어떻게 돼?") 엉뚱한 소환이 그대로 나간다 → 수정하지 않고 재생성.
-  if (c.reasons.includes('ANCHOR_NOT_IN_TRANSCRIPT') && opp.source === 'memory') return null;
-  if (c.reasons.includes('ANCHOR_NOT_IN_TRANSCRIPT')) {
+   if (c.reasons.includes('ANCHOR_NOT_IN_TRANSCRIPT')) {
     opp = { ...opp, anchor_quote: null, anchor_fact: null };
     anchorDiscarded = true;
   }
