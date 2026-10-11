@@ -83,7 +83,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, data: { persisted: false } });
     }
     const next = markSeen(stored, want);
-    if (next.seen !== stored.seen) await writeStored(userId, next);
+    if (next.seen !== stored.seen) {
+      const ok = await writeStored(userId, next);
+      // 저장 실패를 "봤음"으로 돌려주지 않는다 — 다음에 열면 단서가 다시 뜨는 게 맞다.
+      if (!ok) return NextResponse.json({ success: false, error: '기록 못 했어.' }, { status: 500 });
+    }
     return NextResponse.json({ success: true, data: { stage: next.stage, seen: next.seen, persisted: true } });
   } catch (e: any) {
     console.error('[growth] POST 실패:', e?.message);
