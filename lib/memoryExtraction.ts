@@ -58,7 +58,8 @@ candidate를 만들지 않는 것: "ㅋㅋ", "졸려", "배고파", "오늘 날�
 지금 단계에서 과도하게 걸러낼 필요 없다.
 
 하나의 발화에서 서로 다른 미래 맥락(다른 대상, 다른 시점, 다른 주제)을 가진 기억이 여러 개
-나올 수 있다. 하지만 하나의 사건 안에서 감정이나 결과가 자연스럽게 딸려 있으면 억지로 쪼개서
+나올 수 있다. 긴 발화(여러 문장에 걸친 이야기)일수록 서로 다른 사실이 여러 개 들어 있다 — 숫자·금액이 붙은 사건,
+아직 끝내지 않은 일("돈까지 썼는데 아직 안 했다"), 스스로 내린 평가는 각각 놓치지 말고 candidate로 만든다. 하지만 하나의 사건 안에서 감정이나 결과가 자연스럽게 딸려 있으면 억지로 쪼개서
 여러 개로 만들지 마라 — 그럴 땐 하나의 candidate로 합쳐라.
 예) "고양이가 아파서 놀랐는데 다행히 괜찮아졌어" → event 하나 (감정과 결과를 다 포함)
 예) "고양이가 아파서 놀랐어. 그리고 갑자기 엄마가 나 어떻게 키웠는지 생각났어"
@@ -70,6 +71,15 @@ candidate를 만들지 않는 것: "ㅋㅋ", "졸려", "배고파", "오늘 날�
 - subject: 이 기억이 붙는 대상의 표면형 텍스트 (예: "고양이", "엄마"). 뚜렷한 대상이 없으면 null
 - content: 한 문장으로 정제한 기억. 사용자가 실제로 한 말의 의미만 담고, 성향을 일반화하지 마라
   (금지: "사용자는 반려동물을 매우 사랑한다" / 허용: "고양이가 식물을 핥아서 크게 놀랐다")
+  · content는 반드시 같은 candidate의 raw_quote 구간만 요약한다. 발화의 다른 부분 내용을 섞지 마라.
+    다른 부분에 다른 사실이 있으면 그건 별도 candidate다.
+  · raw_quote에 있는 숫자·기간·금액·횟수("2년", "5만원", "3개", "1분")와 사용자의 평가·판단 표현
+    ("만족스럽지 못하다", "실망", "후회", "외면했다", "아직 안 했다", "별로였다")은 content에서 빼지 마라.
+    나중에 다시 꺼낼 때 가장 중요한 건 바로 이 부분이다.
+    예) raw_quote "가게 연 지 다음 달이면 1년인데 자리는 잡았지만 솔직히 만족스럽진 않아"
+      → ❌ "다음 달에 목표를 이루고 나서 온라인 판매도 해보려 한다" (발화의 다른 부분 내용 + 핵심 평가 누락)
+      → ✅ "가게 연 지 다음 달이면 1년인데, 자리는 잡았지만 만족스럽지 않다"
+  · "사용자는 ~", "~라고 했다" 같은 3인칭·보고체를 쓰지 말고 사실만 쓴다 ("~라고 했다" ❌ → "~다" ✅).
 - emotional_relevance: 이 기억에 실린 감정을 짧게 (예: "놀람 → 안도", "죄책감", "의아함"). 없으면 null
 - temporal_context: 시간적 위치를 자연어 원문 그대로 (예: "오늘", "며칠 전", "이번 주말",
   "어렸을 때", "그때", "다음 주쯤"). timestamp로 변환하지 말고 자연어 그대로 담아라. 없으면 null
@@ -82,6 +92,7 @@ candidate를 만들지 않는 것: "ㅋㅋ", "졸려", "배고파", "오늘 날�
   예) "제주도는 가기 싫고" → stance "negative", content "제주도는 가기 싫다고 했다" (❌ "제주도에 관심이 있다")
   예) "일본도 괜찮은데 비행기값이 비싸" → stance "uncertain"
 - raw_quote: 이 기억의 근거가 된 발화 원문 구간을 글자 그대로 복사 (요약·교정 금지). 없으면 null
+  content가 말하는 내용이 전부 이 구간 안에 있어야 한다.
 - content는 입장을 반드시 그대로 담는다: "싫다", "안 하기로 했다", "비싸서 고민 중" 같은 의미를 빼거나 뒤집지 마라.
 
 절대 하지 마라: 사용자가 말하지 않은 성향이나 이유를 지어내는 것.
@@ -166,6 +177,20 @@ export async function extractMemoryCandidates(transcript: string): Promise<Extra
                   : null,
             })
           )
+          // 2026-10-11 — 요약이 자기 원문의 핵심(숫자·평가)을 잃었으면 원문을 우선한다.
+          // 원문이 너무 길면(여러 문장을 통째로 잡은 경우) 대체하지 않는다 — 기억이 녹음 전체가 돼버리고,
+          // 그런 경우 빠진 숫자는 대개 날짜·시각 같은 부수 정보였다(평가 결과: "10월 11일", "30대").
+          // 원문은 raw_quote로 따로 저장되고 응답 엔진이 원문을 먼저 보므로 정보 자체는 사라지지 않는다.
+          .map((c: MemoryCandidate): MemoryCandidate => {
+            const lost = findLostInContent(c.content, c.raw_quote);
+            if (lost.length === 0 || !c.raw_quote) return c;
+            if (c.raw_quote.length > RAW_QUOTE_REPLACE_MAX) {
+              console.log(`[memoryExtraction] content가 원문 핵심을 잃음(${lost.join(', ')}) — 원문이 길어 요약 유지: "${c.content}"`);
+              return c;
+            }
+            console.log(`[memoryExtraction] content가 원문 핵심을 잃음(${lost.join(', ')}) → 원문으로 대체: "${c.content}"`);
+            return { ...c, content: c.raw_quote };
+          })
       : [];
 
     console.log(
@@ -177,6 +202,27 @@ export async function extractMemoryCandidates(transcript: string): Promise<Extra
     console.error('[memoryExtraction] 추출 실패:', err?.message);
     return { candidates: [], latencyMs, usage: null };
   }
+}
+
+// 2026-10-11 — 원문(raw_quote) 우선 원칙. 요약(content)이 원문에 있는 숫자·기간·금액이나 사용자의 평가 표현을
+// 빠뜨렸는지 본다. 빠진 게 있으면 그 목록을 돌려준다(빈 배열이면 문제 없음). GPT 호출 없음.
+// 실데이터 기준: 105("…2년인데 …만족스럽지는 못한 결과치" → 요약에서 "2년", "만족" 누락),
+// 125("1분도 되고 2분도 되고" → 숫자 누락), 110("계정 3개" → 숫자 누락).
+// 부정 표현("안 했다"/"하지 않았다")은 요약에서 바꿔 말해도 뜻이 유지되는 경우가 많아 검사하지 않는다.
+const RAW_QUOTE_REPLACE_MAX = 100;
+const EVALUATION_WORDS = ['만족', '실망', '후회', '외면', '포기', '접었', '별로', '싫', '아직'];
+
+export function findLostInContent(content: string, rawQuote: string | null | undefined): string[] {
+  if (!rawQuote) return [];
+  const lost: string[] = [];
+  const contentDigits = new Set(content.match(/\d+/g) ?? []);
+  for (const n of rawQuote.match(/\d+/g) ?? []) {
+    if (!contentDigits.has(n) && !lost.includes(n)) lost.push(n);
+  }
+  for (const w of EVALUATION_WORDS) {
+    if (rawQuote.includes(w) && !content.includes(w)) lost.push(w);
+  }
+  return lost;
 }
 
 export interface StoreMemoryUnitsResult {
