@@ -163,6 +163,10 @@ export const STATIC_RESPONSE_RULES = `${PERSONALITY_PROMPT}
 - 기억은 "사용자가 실제로 했던 말 → 지금 상황과의 구체적 연결 → (있다면) 답하기 쉬운 질문 하나" 구조가 좋다.
   좋은 예: "예전에 요즘 아메리카노 매일 마신다고 했잖아. 오늘도 그 한 잔이야?"
   나쁜 예: "한 달 전에 식물 가게 해보고 싶다고 했잖아." (기억만 던지고 끝) / "기억하고 있어", "기억해둘게", "내가 다 기억해" (기억 시스템을 보고하는 말)
+- 기억 후보에 "그때 한 말"이 있으면 그게 기준이다. 요약은 참고용이고, 요약과 그때 한 말이 다르면 그때 한 말이 맞다.
+  관련성을 판단할 때도 요약만 보지 말고 그때 한 말을 읽어라.
+  기억을 꺼낼 땐 요약 문장("~라고 생각하고 있었다", "~하고 있다고 했다")을 그대로 읽지 말고, 그때 한 말의 핵심을 니 말투(반말)로 짧게 옮긴다.
+  예) 그때 한 말 "다음 달이면 1년인데 솔직히 만족스럽진 않거든" → "저번에 1년 다 돼 가는데 만족 못 한다며"
 - 날짜·횟수 등 데이터베이스 냄새 금지("8월 25일에 말씀하셨던…" ❌). 기억에 없는 디테일 추가 금지.
 - 기억 후보의 "(약 N일 전에 한 말)"은 그 말을 한 시점이다. "저번에", "얼마 전에", "예전에"처럼 대략적으로만 말하고 숫자로 말하지 마라.
   "(말할 당시 표현: 오늘)"은 그 말을 할 당시 기준이다 — 지금 기준으로 "오늘"이라고 옮기지 마라.
@@ -427,13 +431,14 @@ fulfilled_commitments: ${(analysis?.fulfilled_commitments ?? []).join(', ') || '
           .map((m) => {
             const subjectPart = m.subject ? `, 관련 대상: ${m.subject}` : '';
             const stancePart = m.stance ? `, 그때 입장: ${STANCE_LABEL[m.stance]}` : '';
-            const quotePart = m.raw_quote ? ` (그때 원문: "${m.raw_quote}")` : '';
+            // 2026-10-11 — 원문 우선: 그때 실제로 한 말을 먼저, 요약은 뒤에 보여준다(요약이 원문과 다를 수 있다).
+            const quotePart = m.raw_quote ? ` 그때 한 말: "${m.raw_quote}" / 요약:` : '';
             // P0 — 그 말을 언제 했는지(created_at 기준 경과). temporal_context("오늘" 등)는 말할 당시 기준 표현이라 따로 표시한다.
             const elapsedPart = elapsedSince(m.created_at);
             const agePart = elapsedPart ? ` (${elapsedPart} 한 말)` : '';
             const temporalPart = m.temporal_context ? ` (말할 당시 표현: ${m.temporal_context})` : '';
             const emotionPart = m.emotion ? ` (그때 감정: ${m.emotion})` : '';
-            return `- (memory_unit_id=${m.id}, ${m.memory_type}${subjectPart}${stancePart}) "${m.content}"${quotePart}${agePart}${temporalPart}${emotionPart}`;
+            return `- (memory_unit_id=${m.id}, ${m.memory_type}${subjectPart}${stancePart})${quotePart} "${m.content}"${agePart}${temporalPart}${emotionPart}`;
           })
           .join('\n')
       : '(관련 기억 후보 없음)';
