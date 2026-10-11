@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from "react";
 import Sea from "@/components/Sea";
+import { OtterFace } from "@/components/Otter";
 import { BottomNav, MyButton, type WorldTab } from "@/components/WorldNav";
 import { acquireMicStream } from "@/lib/micStream";
 import { playFx } from "@/lib/fx";
@@ -302,6 +303,10 @@ export default function TimelineScreen({
             {recall && (
               <div key={"recall:" + recallKey} className="tl-recall" style={styles.recallWrap}>
                 <div className="tl-recall-cap" style={styles.recallCap}>
+                  {/* 참견이가 주머니에서 조약돌(그때 니가 한 말)을 꺼내 든 얼굴 — 실제로 꺼낸 기억이 있을 때만 */}
+                  <span className="tl-recall-otter" style={styles.recallOtter} aria-hidden>
+                    <OtterFace expression="remember" size={56} />
+                  </span>
                   <span style={styles.recallWhen}>
                     <svg width="22" height="16" viewBox="0 0 80 56" aria-hidden>
                       <path d="M24 28 C14 17 8 11 3 12 C7 21 7 35 3 44 C8 45 14 39 24 28 Z" fill="#FFB347" stroke={INK} strokeWidth={5} strokeLinejoin="round" />
@@ -488,6 +493,9 @@ const CSS = `
 .tl-recall { display: flex; flex-direction: column; align-items: center; animation: tlRecallIn .7s cubic-bezier(.3,1.5,.5,1) both; }
 @keyframes tlRecallIn { 0% { opacity: 0; transform: translateY(40px) scale(.6); } 60% { opacity: 1; transform: translateY(-4px) scale(1.04); } 100% { opacity: 1; transform: none; } }
 .tl-recall-cap { animation: tlGlow 2.4s ease-in-out .7s infinite; }
+.tl-recall-otter { display: block; animation: tlOtterIn .6s cubic-bezier(.3,1.6,.5,1) .25s both; }
+.tl-recall-otter svg { display: block; }
+@keyframes tlOtterIn { from { opacity: 0; transform: translate(14px, 18px) rotate(10deg) scale(.5); } to { opacity: 1; transform: rotate(-8deg); } }
 @keyframes tlGlow { 0%,100% { box-shadow: 0 0 0 5px rgba(255,226,107,.45), 0 0 26px 6px rgba(255,226,107,.55), 4px 4px 0 ${INK}; } 50% { box-shadow: 0 0 0 9px rgba(255,226,107,.3), 0 0 40px 12px rgba(255,226,107,.7), 4px 4px 0 ${INK}; } }
 .tl-recall-link { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 0; }
 .tl-recall-link span { display: block; border-radius: 50%; background: #FFFFFF; border: 2px solid ${INK}; opacity: 0; animation: tlDot .3s ease-out both; }
@@ -500,7 +508,7 @@ const CSS = `
 .tl-wave1 { animation: tlWave 1.6s ease-in-out infinite; }
 .tl-wave2 { animation: tlWave 1.6s ease-in-out .3s infinite; }
 @keyframes tlWave { 0%,100% { opacity: .25; } 50% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .tl-heard, .tl-sea-in, .tl-mic-idle, .tl-bubble, .tl-wave1, .tl-wave2, .tl-recall, .tl-recall-cap, .tl-recall-link span { animation: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tl-heard, .tl-sea-in, .tl-mic-idle, .tl-bubble, .tl-wave1, .tl-wave2, .tl-recall, .tl-recall-cap, .tl-recall-otter, .tl-recall-link span { animation: none; opacity: 1; } }
 `;
 
 const styles: { [key: string]: React.CSSProperties } = {
@@ -616,7 +624,14 @@ const styles: { [key: string]: React.CSSProperties } = {
     width: "100%",
     maxWidth: 320,
   },
+  recallOtter: {
+    position: "absolute",
+    left: -20,
+    top: -24,
+    transform: "rotate(-8deg)",
+  },
   recallCap: {
+    position: "relative",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",

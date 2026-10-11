@@ -1,25 +1,26 @@
+// components/Mascot.tsx
+// ============================================================================
+// 참견이 포즈 — 예전엔 사막여우 일러스트 PNG 12장(public/mascot/*.png)이었다.
+// 2026-10-11부터 참견이는 수달이라, 같은 포즈 이름을 수달 얼굴 표정(components/Otter.tsx)에 연결한다.
+// PNG 파일은 지우지 않고 남겨둔다(되돌릴 때 이 파일만 예전 버전으로 바꾸면 된다).
+// ============================================================================
 
-"use client";
+import { OtterFace, type OtterExpression } from "@/components/Otter";
 
-// 참견이 강아지 마스코트 — 하나의 컴포넌트로 관리하고, pose만 바꿔서 여러 화면에서 재사용한다.
-// 실제 일러스트 파일은 public/mascot/*.png 로 들어간다 (이미지 바이너리라 코드블록으로는 못 옮기니
-// 별도 파일로 전달받은 걸 그 경로에 넣어주면 됨).
-// 2026-09-09: 마스코트 디자인이 새 캐릭터(참견이 표정 시트)로 교체되면서 기본/말을거는 파일도
-// 새 이미지로 바뀌었고, 나머지 10개 표정도 함께 추가함. 배경은 전부 투명 PNG.
-const MASCOT_POSES = {
-  기본: "/mascot/00_today.png",       // "오늘도 여기 있어."
-  말을거는: "/mascot/01_question.png", // "니가 아까 뭐라고 했더라?"
-  갸우뚱: "/mascot/02_confused.png",   // "그게 무슨 말이야?"
-  궁금: "/mascot/03_curious.png",      // "근데 그거 어떻게 됐어?"
-  기억남: "/mascot/04_remember.png",   // "니가 저번에 말했잖아."
-  확인: "/mascot/05_checking.png",     // "약속한 거, 확인해볼까?"
-  진지: "/mascot/06_serious.png",      // "그거... 진심이야?"
-  새침: "/mascot/07_shy.png",          // "흥. 아무것도 아니야."
-  조언: "/mascot/08_advice.png",       // "내 스타일대로 조언해줄까?"
-  놀람: "/mascot/09_surprised.png",    // "어! 깜짝이야."
-  웃음: "/mascot/10_laughing.png",     // "하하하! 재미있네."
-  자신감: "/mascot/11_confident.png",  // "다 계획이 있어!"
-} as const;
+export const MASCOT_POSES = {
+  기본: "base",
+  말을거는: "base",
+  갸우뚱: "tilt",
+  궁금: "tilt",
+  기억남: "remember",
+  확인: "base",
+  진지: "base",
+  새침: "proud",
+  조언: "base",
+  놀람: "surprise",
+  웃음: "laugh",
+  자신감: "proud",
+} as const satisfies Record<string, OtterExpression>;
 
 export type MascotPose = keyof typeof MASCOT_POSES;
 
@@ -32,13 +33,8 @@ interface MascotProps {
 
 export default function Mascot({ pose = "기본", size = 88, className, style }: MascotProps) {
   return (
-    <img
-      src={MASCOT_POSES[pose]}
-      alt="참견이"
-      width={size}
-      height={size}
-      className={className}
-      style={{ width: size, height: "auto", display: "block", ...style }}
-    />
+    <span role="img" aria-label="참견이" className={className} style={{ display: "block", width: size, ...style }}>
+      <OtterFace expression={MASCOT_POSES[pose]} size={size} />
+    </span>
   );
 }

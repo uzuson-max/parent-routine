@@ -6,6 +6,8 @@ import { loadFresh, peekMemory, peekStored, prefetchWorld } from "@/lib/worldCac
 import PeekMascot, { type PeekExpression } from "@/components/PeekMascot";
 import { goldfishSvg, hash, PALETTE, type TankEntry } from "@/components/FishTank";
 import { plop } from "@/lib/seaSound";
+import { supabaseClient } from "@/lib/supabaseClient";
+import DeepSea, { type SeaGrowth } from "@/components/DeepSea";
 
 // ============================================================================
 // 참견이 바다 — 화면 전체가 물속. "깊이 = 시간".
@@ -15,10 +17,11 @@ import { plop } from "@/lib/seaSound";
 //   - 높이: 마지막으로 말한 지 오래될수록 매일 조금씩 아래로 가라앉는다(연속). 오늘 말한 건 빛 드는 수면 근처.
 //     말한 지 아주 오래된 계보는 바닥 수초 뒤에서 쉰다. 죽거나 사라지지 않고, 다시 말하면 쑥 올라온다.
 //   - 아직 계보로 안 묶인 이번 달 생각은 수면 근처 치어 무리.
-// 아래로 내려가면(스크롤) 물이 점점 어두워지며 지난달, 지지난달 생각들이 자고 있다. 표지판/버튼 없이 그냥 이어지는 물.
-//   - 자는 물고기를 누르면 그때 한 말(날짜는 카드 안에서만). 그 달 전체를 읽는 건 하단 "지난 어항" 탭이 맡는다.
-//   - 맨 아래가 진짜 바닥(모래·머그컵).
-// 가끔 손님이 지나간다 — 위쪽엔 거북이, 중간엔 해파리, 밤 바닥엔 아귀. 한 번에 한 마리, 가끔만(Visitor).
+// 아래로 내려가면(스크롤) 물이 점점 어두워지며 심해 — 참견이(수달)가 사는 곳(components/DeepSea.tsx).
+//   - 2026-10-11: 예전엔 여기에 지난달 물고기 층이 있었다. 지난달 기록은 이제 "지난 어항" 탭에서만 본다(데이터는 그대로).
+//   - 심해는 성장 단계(/api/user/growth)에 따라 달라진다. 실제로 단계가 올라갔는데 아직 못 봤을 때만
+//     첫 화면 바닥에서 빛나는 기포가 올라온다(성장 단서). 기억 회상 중엔 단서를 숨긴다 — 회상이 먼저.
+// 가끔 손님이 지나간다 — 위쪽엔 거북이, 심해엔 해파리, 밤 심해 바닥엔 아귀. 한 번에 한 마리, 가끔만(Visitor).
 // 숫자/날짜/설명 문구는 바다에 넣지 않는다.
 // ============================================================================
 
@@ -32,12 +35,6 @@ interface Lineage {
   entryIds: string[];
   unitIds?: number[]; // 이 계보에 묶인 memory_unit id들 — 참견이가 꺼낸 기억이 어느 물고기인지 찾는 데 쓴다
   quotes: { text: string; at: string }[];
-}
-
-interface ArchiveMonth {
-  month: string; // YYYY-MM (KST)
-  fish: { id: string; stage: 1 | 2 | 3; quotes: { text: string; at: string }[] }[];
-  reflection: string | null;
 }
 
 interface SeaProps {
@@ -60,15 +57,12 @@ const MAX_LOOSE_FRY = 5;
 const SEEN_KEY = "ganseobi_tank_seen_v1";
 const RETURN_SEEN_KEY = "ganseobi_tank_returned_v1";
 const STAGE_W = { 1: 34, 2: 62, 3: 92 } as const;
-const PAST_W = { 1: 30, 2: 52, 3: 74 } as const;
 const SINK_DAYS = 40; // 이만큼 조용하면 거의 바닥까지 가라앉는다
-const LAYER_H = 380; // 지난달 한 층의 높이(px)
+const SEEN_LOCAL_KEY = "ganseobi_sea_seen_v1"; // SQL 실행 전(서버에 못 남길 때)만 쓰는 "심해에서 본 단계"
 
 // 깊어질수록 물색
 const WATER_DAY = ["#8BE0FA", "#45BFEC", "#2E9BD6"];
 const WATER_NIGHT = ["#3E8FCB", "#2C78B6", "#225F98"];
-const LAYER_DAY = ["#2A8DCB", "#2479BA", "#1F68A8", "#1B5A96"];
-const LAYER_NIGHT = ["#1F5A92", "#1B4E82", "#174374", "#143A66"];
 
 function fuzzyAgo(iso: string): string {
   const days = (Date.now() - new Date(iso).getTime()) / 86_400_000;
@@ -79,20 +73,8 @@ function fuzzyAgo(iso: string): string {
   return "꽤 전에";
 }
 
-function dayLabel(iso: string): string {
-  const d = new Date(iso);
-  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
-}
 
-function monthLabel(key: string): string {
-  const [y, m] = key.split("-").map(Number);
-  return y === new Date().getFullYear() ? `${m}월` : `${y}년 ${m}월`;
-}
 
-function thisMonthKst(): string {
-  const d = new Date(Date.now() + 9 * 3600_000);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-}
 
 function charCount(t: string): number {
   return t.replace(/\s/g, "").length;
@@ -132,10 +114,7 @@ interface Visitor {
   key: number;
 }
 
-type Sheet =
-  | { kind: "now"; id: string }
-  | { kind: "past"; month: string; id: string }
-  | null;
+type Sheet = { kind: "now"; id: string } | null;
 
 export default function Sea({ entries, thinking, night, recallUnitId = null, thinkingPhase = null, heardKey = null }: SeaProps) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -181,38 +160,79 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
     // 치어로 먼저 들어온 생각이 제 물고기(계보)로 자리 잡게 한다.
     if (entriesKey === null) return;
     const t1 = setTimeout(pull, 8000);
-    const t2 = setTimeout(pull, 20000);
+    const t2 = setTimeout(() => {
+      pull();
+      pullGrowth();
+    }, 20000);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
     };
   }, [entriesKey]);
 
-  // ---- 지난달 층 — 지난 어항 데이터(이번 달은 첫 화면이 맡으니 뺀다) ----
-  const [archive, setArchive] = useState<ArchiveMonth[] | null>(() => peekMemory<ArchiveMonth[]>("archive"));
+  // ---- 지난 어항 탭을 미리 받아둔다(홈에는 그리지 않는다 — 지난달 기록은 "지난 어항" 탭에서) ----
   useEffect(() => {
-    if (!archive) {
-      const stored = peekStored<ArchiveMonth[]>("archive");
-      if (stored) setArchive(stored);
+    const t = setTimeout(() => prefetchWorld("archive"), 900);
+    return () => clearTimeout(t);
+  }, []);
+
+  // ---- 심해 성장 단계 — 기기에 남은 값으로 먼저 그리고(연출 없이), 서버 값이 오면 그때만 "새 변화"를 판단 ----
+  const [growth, setGrowth] = useState<SeaGrowth | null>(null);
+  const readLocalSeen = (): number | null => {
+    try {
+      const v = localStorage.getItem(SEEN_LOCAL_KEY);
+      return v === null ? null : Number(v);
+    } catch {
+      return null;
     }
-    // 첫 화면이 먼저 뜨게 조금 있다가 받는다
-    const t = setTimeout(() => {
-      prefetchWorld("archive");
-      loadFresh<ArchiveMonth[]>("archive")
-        .then((d) => {
-          if (d && alive.current) setArchive(d);
-        })
-        .catch(() => {
-          /* 지난 층은 없어도 첫 화면은 그대로 */
-        });
-    }, 900);
+  };
+  const writeLocalSeen = (n: number) => {
+    try {
+      localStorage.setItem(SEEN_LOCAL_KEY, String(n));
+    } catch {
+      /* 못 남기면 이번만 */
+    }
+  };
+  const pullGrowth = () =>
+    loadFresh<{ stage: number; seen: number | null; persisted: boolean }>("growth")
+      .then((d) => {
+        if (!d || !alive.current) return;
+        let seen = d.seen;
+        if (!d.persisted) {
+          // 서버에 저장 칸이 없을 때 — 이 기기에서 처음이면 지금 단계를 본 것으로(가짜 성장 연출 없음)
+          const local = readLocalSeen();
+          if (local === null || !Number.isFinite(local)) writeLocalSeen(d.stage);
+          seen = local === null || !Number.isFinite(local) ? d.stage : Math.min(local, d.stage);
+        }
+        setGrowth({ stage: d.stage, seen: seen ?? d.stage, fresh: true });
+      })
+      .catch(() => {
+        /* 성장은 없어도 바다는 그대로 */
+      });
+  useEffect(() => {
+    const stored = peekStored<{ stage: number; seen: number | null }>("growth");
+    if (stored && typeof stored.stage === "number") setGrowth({ stage: stored.stage, seen: stored.stage, fresh: false });
+    const t = setTimeout(pullGrowth, 700);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const pastMonths = useMemo(() => {
-    const cur = thisMonthKst();
-    return (archive ?? []).filter((m) => m.month < cur && m.fish.length > 0);
-  }, [archive]);
+  const markGrowthSeen = (stage: number) => {
+    setGrowth((g) => (g ? { ...g, seen: Math.max(g.seen, Math.min(stage, g.stage)) } : g));
+    writeLocalSeen(stage);
+    supabaseClient.auth
+      .getSession()
+      .then(({ data: { session } }) => {
+        if (!session) return;
+        return fetch("/api/user/growth", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ seen: stage }),
+        });
+      })
+      .catch(() => {
+        /* 다음에 다시 보이면 그때 또 기록 */
+      });
+  };
 
   // ---- 처음 한 번만 다 같이 스르륵 ----
   const [appear, setAppear] = useState(() => peekMemory("tank") !== null);
@@ -365,8 +385,6 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
   busyRef.current = !!thinking || sheet !== null;
   const nightRef = useRef(night);
   nightRef.current = night;
-  const pastCountRef = useRef(0);
-  pastCountRef.current = pastMonths.length;
   const widthRef = useRef(width);
   widthRef.current = width;
   useEffect(() => {
@@ -392,15 +410,16 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
         return;
       }
       const vh = window.innerHeight || 800;
-      const past = pastCountRef.current;
+      const deepTop = Math.max(vh, 560); // 첫 화면 높이 = 심해가 시작되는 곳
+      const deepH = Math.max(vh * 0.94, 640);
       const n = nightRef.current;
       const roll = Math.random();
       const kind: VisitorKind = n ? (roll < 0.45 ? "angler" : roll < 0.8 ? "jelly" : "turtle") : roll < 0.5 ? "turtle" : "jelly";
       let top: number;
       if (kind === "turtle") top = vh * (0.34 + Math.random() * 0.2);
       else if (kind === "jelly")
-        top = past > 0 && Math.random() < 0.6 ? vh + 120 + Math.random() * Math.max(0, past * LAYER_H - 260) : vh * (0.58 + Math.random() * 0.14);
-      else top = past > 0 ? vh + past * LAYER_H + 30 : vh - 300;
+        top = Math.random() < 0.6 ? deepTop + 120 + Math.random() * Math.max(0, deepH - 380) : vh * (0.58 + Math.random() * 0.14);
+      else top = deepTop + deepH - 230;
       const dur = kind === "turtle" ? 26 : kind === "jelly" ? 20 : 32;
       const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
       const left = kind === "jelly" ? widthRef.current * (0.15 + Math.random() * 0.6) : 0;
@@ -414,16 +433,10 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
     return () => clearTimeout(timer);
   }, []);
   const water = night ? WATER_NIGHT : WATER_DAY;
-  const layerColors = night ? LAYER_NIGHT : LAYER_DAY;
-  const lastLayerColor = pastMonths.length
-    ? layerColors[Math.min(pastMonths.length - 1, layerColors.length - 1)]
-    : water[2];
 
   const openNow = sheet?.kind === "now" ? (lineages ?? []).find((l) => l.id === sheet.id) ?? null : null;
-  const openPast =
-    sheet?.kind === "past"
-      ? pastMonths.find((m) => m.month === sheet.month)?.fish.find((f) => f.id === sheet.id) ?? null
-      : null;
+  // 성장 단서 — 실제로 단계가 올라갔고 아직 심해에서 못 봤을 때만. 기억 회상·대답 대기·카드가 열려 있으면 숨긴다.
+  const growthCue = !!growth && growth.fresh && growth.stage > growth.seen && !thinking && !recallOn && !sheet;
 
   const eyeNight = night;
 
@@ -607,7 +620,7 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
             <div
               key={l.id}
               className="sea-rest"
-              style={{ right: 14 + hi * 18, bottom: `calc(${pastMonths.length ? 70 : 210}px + ${hi * 20}px)`, width: w, ...fade(dimOthers ? 0.25 : 0.85) }}
+              style={{ right: 14 + hi * 18, bottom: `calc(70px + ${hi * 20}px)`, width: w, ...fade(dimOthers ? 0.25 : 0.85) }}
             >
               <div className="sea-bob" style={{ animationDuration: `${2.4 + r(7)}s`, ["--wag" as any]: "0.9s" }}>
                 <div className={emerging === l.id ? "sea-emerge" : ""}>
@@ -628,15 +641,22 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
         })}
 
         {/* 쉬는 물고기를 가리는 수초 */}
-        <svg className="sea-deco sea-sway-wrap" width="58" height="150" viewBox="0 0 40 140" style={{ right: 2, bottom: pastMonths.length ? 40 : 180, zIndex: 9 }} aria-hidden>
+        <svg className="sea-deco sea-sway-wrap" width="58" height="150" viewBox="0 0 40 140" style={{ right: 2, bottom: 40, zIndex: 9 }} aria-hidden>
           <path className="sea-ol sea-sway" d={WEED} fill="#2FAF6A" />
         </svg>
-        <svg className="sea-deco" width="40" height="110" viewBox="0 0 40 140" style={{ right: 44, bottom: pastMonths.length ? 40 : 180, zIndex: 9 }} aria-hidden>
+        <svg className="sea-deco" width="40" height="110" viewBox="0 0 40 140" style={{ right: 44, bottom: 40, zIndex: 9 }} aria-hidden>
           <path className="sea-ol sea-sway" d={WEED} fill="#46C985" style={{ animationDelay: "-1.4s" }} />
         </svg>
 
-        {/* 지난달이 없으면 첫 화면 바닥이 곧 진짜 바닥 */}
-        {pastMonths.length === 0 && <SeaFloor color={water[2]} lift />}
+        {/* 성장 단서 — 심해에서 빛나는 기포가 올라온다 */}
+        {growthCue && (
+          <div className="sea-cue" aria-hidden>
+            <span style={{ left: "44%", animationDelay: "0s" }} />
+            <span style={{ left: "53%", width: 12, height: 12, animationDelay: "-1.1s" }} />
+            <span style={{ left: "48%", width: 22, height: 22, animationDelay: "-2.2s" }} />
+            <span style={{ left: "57%", width: 10, height: 10, animationDelay: "-3.3s" }} />
+          </div>
+        )}
 
         {thinking && (
           <div className="sea-thinking" role="status" aria-label="참견이가 생각하는 중">
@@ -694,85 +714,23 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
           </>
         )}
 
-        {/* 아래가 더 있다는 표시 — 글자 없이 화살표만 */}
-        {pastMonths.length > 0 && (
-          <div className="sea-down" aria-hidden>
-            <svg width="16" height="16" viewBox="0 0 16 16">
-              <path d="M3 3 L8 7.5 L13 3 M3 8.5 L8 13 L13 8.5" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </div>
-        )}
+        {/* 아래가 더 있다는 표시 — 글자 없이 화살표만. 아직 못 본 변화가 있으면 노랗게 빛난다. */}
+        <div className={growthCue ? "sea-down sea-down-glow" : "sea-down"} aria-hidden>
+          <svg width="16" height="16" viewBox="0 0 16 16">
+            <path d="M3 3 L8 7.5 L13 3 M3 8.5 L8 13 L13 8.5" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </div>
       </section>
 
-      {/* ================= 지난달 층 — 내려갈수록 지난 시간 ================= */}
-      {pastMonths.map((m, li) => {
-        const top = li === 0 ? water[2] : layerColors[Math.min(li - 1, layerColors.length - 1)];
-        const bottom = layerColors[Math.min(li, layerColors.length - 1)];
-        const cols = width < 360 ? 2 : 3;
-        const rows = Math.max(1, Math.ceil(m.fish.length / cols));
-        const cellW = (width - 32) / cols;
-        const cellH = (LAYER_H - 90) / rows;
-        return (
-          <section
-            key={m.month}
-            className="sea-layer"
-            style={{ height: LAYER_H, background: `linear-gradient(${top}, ${bottom})` }}
-            aria-label={`${monthLabel(m.month)} 바다`}
-          >
-            {m.fish.map((f, i) => {
-              const r = (k: number) => hash(f.id, k);
-              const [body, belly] = PALETTE[Math.floor(r(11) * PALETTE.length)];
-              const w = PAST_W[f.stage] ?? 52;
-              const col = i % cols;
-              const row = Math.floor(i / cols);
-              const left = 16 + col * cellW + r(4) * Math.max(0, cellW - w - 30);
-              const topPx = 40 + row * cellH + r(3) * Math.max(0, cellH - w * 0.7);
-              const dx = 18 + r(2) * 26;
-              const dur = (20 + r(6) * 10) * slow;
-              const isOpen = sheet?.kind === "past" && sheet.month === m.month && sheet.id === f.id;
-              return (
-                <div
-                  key={f.id}
-                  className="sea-swim"
-                  style={{
-                    left,
-                    top: topPx,
-                    width: w,
-                    ["--dx" as any]: `${dx}px`,
-                    animationDuration: `${dur}s`,
-                    animationDelay: `${-(r(5) * dur)}s`,
-                    zIndex: 4,
-                    opacity: Math.max(0.6, 0.88 - li * 0.08),
-                  }}
-                >
-                  <div className="sea-bob" style={{ animationDuration: `${2.2 + r(7)}s`, ["--wag" as any]: "0.8s", ["--blink" as any]: `${4 + r(10) * 4}s` }}>
-                    <button
-                      className={`sea-fishbtn ${wigCls(f.id)}`}
-                      style={isOpen ? { outline: "3px dashed #fff", outlineOffset: 4, borderRadius: 14 } : undefined}
-                      aria-label={`${monthLabel(m.month)}의 생각 물고기`}
-                      onClick={() => {
-                        poke(f.id);
-                        setSheet({ kind: "past", month: m.month, id: f.id });
-                      }}
-                    >
-                      {goldfishSvg(body, belly, true, r(12) > 0.55)}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-            {/* 층마다 기포 몇 개 */}
-            <div className="sea-bubble" style={{ left: `${20 + (li * 31) % 60}%`, bottom: 30, width: 9, height: 9, animationDuration: "6s", animationDelay: `${-li}s` }} />
-            <div className="sea-bubble" style={{ left: `${60 - (li * 17) % 40}%`, bottom: 60, width: 7, height: 7, animationDuration: "7.4s", animationDelay: `${-li * 2}s` }} />
-          </section>
-        );
-      })}
-
-      {pastMonths.length > 0 && (
-        <section className="sea-layer" style={{ height: 230, background: lastLayerColor }} aria-label="바다 바닥">
-          <SeaFloor color={lastLayerColor} />
-        </section>
-      )}
+      {/* ================= 심해 — 참견이가 사는 곳 ================= */}
+      <DeepSea
+        night={night}
+        topColor={water[2]}
+        growth={growth}
+        fishCount={(lineages ?? []).length + (school.length > 0 ? 1 : 0)}
+        busy={!!thinking || sheet !== null}
+        onSeen={markGrowthSeen}
+      />
 
       {/* 가끔 지나가는 손님 */}
       {visitor && (
@@ -803,8 +761,8 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
       )}
 
       {/* 물고기 속 생각 — 한 마디씩 크게. 옆으로 넘기면 그 전에 한 말. */}
-      {(openNow || openPast) && !thinking && sheet && (() => {
-        const quotes = openNow ? openNow.quotes : openPast!.quotes;
+      {openNow && !thinking && sheet && (() => {
+        const quotes = openNow.quotes;
         const i = Math.min(qi, Math.max(0, quotes.length - 1));
         const q = quotes[i];
         const [body, belly] = PALETTE[Math.floor(hash(sheet.id, 11) * PALETTE.length)];
@@ -832,13 +790,13 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
                 ×
               </button>
               <div className="sea-sheet-fish" aria-hidden>
-                {goldfishSvg(body, belly, !!openPast, false)}
+                {goldfishSvg(body, belly, false, false)}
               </div>
               {q && (
                 <>
                   <p key={i} className="sea-big-q">{q.text}</p>
                   <p className="sea-big-when">
-                    {openPast && sheet.kind === "past" ? dayLabel(q.at) : fuzzyAgo(q.at)}
+                    {fuzzyAgo(q.at)}
                   </p>
                 </>
               )}
@@ -903,36 +861,6 @@ function RecallGlow({ on }: { on: boolean }) {
   );
 }
 
-// lift — 첫 화면이 곧 바닥일 때, 모래가 탭바 뒤에 가려지지 않게 탭바 높이만큼 올린다.
-function SeaFloor({ color, lift = false }: { color: string; lift?: boolean }) {
-  return (
-    <div
-      className="sea-floor"
-      style={{ background: `linear-gradient(rgba(0,0,0,0), ${color} 55%)`, bottom: lift ? "calc(60px + env(safe-area-inset-bottom, 0px))" : 0 }}
-      aria-hidden
-    >
-      <svg className="sea-deco" width="44" height="150" viewBox="0 0 40 140" style={{ left: 18, bottom: 70 }}>
-        <path className="sea-ol sea-sway" d={WEED} fill="#2FAF6A" />
-      </svg>
-      <svg className="sea-deco" width="32" height="104" viewBox="0 0 40 140" style={{ left: 54, bottom: 66 }}>
-        <path className="sea-ol sea-sway" d={WEED} fill="#46C985" style={{ animationDelay: "-1.2s" }} />
-      </svg>
-      {/* 가라앉은 머그컵 — 참견이 바다의 표식 */}
-      <svg className="sea-deco" width="60" height="54" viewBox="0 0 50 44" style={{ right: "22%", bottom: 62, transform: "rotate(-22deg)", zIndex: 3 }}>
-        <path className="sea-ol" d="M34 14 C45 14 45 31 34 31" fill="none" />
-        <path className="sea-ol" d="M6 8 H34 V34 C34 39 30 42 26 42 H14 C10 42 6 39 6 34 Z" fill="#FF8FB3" />
-        <path className="sea-ol2" d="M6 17 H34 V23 H6 Z" fill="#FFF6E5" />
-        <path className="sea-ol2" d="M20 8 L23 12 L26 8" fill="#45BFEC" />
-      </svg>
-      <svg className="sea-sand" viewBox="0 0 332 84" preserveAspectRatio="none">
-        <path className="sea-ol" d="M-4 42 C40 28 80 46 120 35 C160 24 200 42 240 33 C280 24 310 37 336 30 V90 H-4 Z" fill="#F6D589" />
-        {PEBBLES.map(([cx, cy, rx, ry, c], i) => (
-          <ellipse key={i} className="sea-ol2" cx={cx} cy={cy} rx={rx} ry={ry} fill={c} />
-        ))}
-      </svg>
-    </div>
-  );
-}
 
 function turtleSvg() {
   return (
@@ -1016,21 +944,6 @@ function frySvg(color: string, night: boolean) {
 
 const WEED = "M20 140 C8 110 30 95 18 70 C8 48 28 35 20 6 C34 30 22 50 30 72 C40 98 24 112 28 140 Z";
 
-const PEBBLES: [number, number, number, number, string][] = [
-  [40, 52, 13, 9, "#FF9EC4"],
-  [66, 60, 10, 7, "#8BE0C0"],
-  [96, 50, 12, 8, "#B9A7F2"],
-  [128, 62, 14, 9, "#FFD54A"],
-  [160, 48, 9, 6.5, "#FFFFFF"],
-  [188, 58, 12, 8, "#FF9EC4"],
-  [212, 66, 9, 6, "#7FB2FF"],
-  [292, 52, 13, 9, "#8BE0C0"],
-  [266, 64, 10, 7, "#FFD54A"],
-  [20, 70, 11, 7, "#7FB2FF"],
-  [110, 74, 9, 6, "#FF9EC4"],
-  [236, 76, 11, 7, "#B9A7F2"],
-  [314, 72, 9, 6, "#FFFFFF"],
-];
 
 const BUBBLES: React.CSSProperties[] = [
   { left: "78%", bottom: "18%", width: 13, height: 13, animationDuration: "6.5s" },
@@ -1083,9 +996,11 @@ const CSS = `
 @keyframes sea-arrive{0%{transform:translateY(-220px) scale(.55) rotate(-28deg);opacity:0}30%{opacity:1}100%{transform:none;opacity:1}}
 .sea-emerge{animation:sea-emerge 2.4s cubic-bezier(.3,1.2,.5,1) .3s both}
 @keyframes sea-emerge{0%{transform:translate(120px,160px) scale(.7);opacity:0}25%{opacity:1}100%{transform:none;opacity:1}}
-.sea-floor{position:absolute;left:0;right:0;bottom:0;height:230px}
-.sea-sand{position:absolute;left:-6px;right:-6px;bottom:0;width:calc(100% + 12px);height:100px;display:block}
 .sea-down{position:absolute;left:20px;bottom:calc(96px + env(safe-area-inset-bottom,0px));z-index:10;display:flex;align-items:center;gap:4px;padding:6px;border-radius:999px;background:rgba(255,255,255,.18);color:#fff;font-size:13px;animation:sea-hint 2.6s ease-in-out infinite}
+.sea-down-glow{background:rgba(255,226,107,.85);color:#1B1630;box-shadow:0 0 18px rgba(255,226,107,.9)}
+.sea-cue{position:absolute;left:0;right:0;bottom:0;height:46%;z-index:4;pointer-events:none}
+.sea-cue span{position:absolute;bottom:-20px;width:17px;height:17px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fffbe0 0%,#FFE066 45%,rgba(255,224,102,.35) 100%);box-shadow:0 0 18px 6px rgba(255,226,107,.8);animation:sea-cue 4.4s ease-in infinite}
+@keyframes sea-cue{0%{transform:translate(0,0) scale(.6);opacity:0}12%{opacity:1}70%{opacity:.9}100%{transform:translate(10px,-40vh) scale(1.1);opacity:0}}
 @keyframes sea-hint{0%,100%{transform:translateY(0)}50%{transform:translateY(4px)}}
 .sea-zz{position:absolute;z-index:9;font-family:'Jua',sans-serif;color:#FFFFFF;-webkit-text-stroke:1.5px #1B1630;pointer-events:none;animation:sea-zz 3.6s ease-in-out infinite}
 @keyframes sea-zz{0%{transform:translate(0,10px) scale(.6);opacity:0}25%{opacity:1}100%{transform:translate(14px,-40px) scale(1.2);opacity:0}}
@@ -1149,6 +1064,7 @@ const CSS = `
 @keyframes sea-trail{0%{transform:translate(0,0) scale(.5);opacity:0}15%{opacity:1}100%{transform:translate(6px,-110px) scale(1.1);opacity:0}}
 @media (prefers-reduced-motion: reduce){
   .sea-swim,.sea-bob,.ft-tail,.ft-eye,.sea-sway,.sea-surface,.sea-bubble,.sea-ray,.sea-zz,.sea-emerge,.sea-peek-face,.sea-down{animation:none}
+  .sea-cue span{animation:none;opacity:.9;bottom:24px}
   .sea-visitor{display:none}
 }
 `;

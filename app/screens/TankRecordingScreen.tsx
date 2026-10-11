@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { otterFaceG } from "@/components/Otter";
 import { useTankRecorder, type TankRecordResult } from "@/lib/useTankRecorder";
 import { playFx } from "@/lib/fx";
 
@@ -215,7 +216,7 @@ export default function TankRecordingScreen({ replyTo, onDone, onCancel, onMicFa
   );
 }
 
-// 수달 — 오른쪽을 보고 헤엄치는 기본형. 둥근 얼굴, 하얀 주둥이, 수염, 작은 앞발.
+// 수달 = 참견이. 오른쪽으로 헤엄치는 몸 + 홈 심해와 같은 얼굴.
 function Otter() {
   return (
     <svg viewBox="0 0 150 70" aria-hidden>
@@ -228,18 +229,8 @@ function Otter() {
       <g className="tr-otter-paw">
         <ellipse cx="96" cy="54" rx="6" ry="4" fill="#9A6A45" stroke={INK} strokeWidth={2.4} />
       </g>
-      <circle cx="118" cy="32" r="21" fill="#B88458" stroke={INK} strokeWidth={3.2} />
-      <circle cx="104" cy="15" r="5" fill="#9A6A45" stroke={INK} strokeWidth={2.6} />
-      <circle cx="128" cy="13" r="5" fill="#9A6A45" stroke={INK} strokeWidth={2.6} />
-      <ellipse cx="126" cy="40" rx="12" ry="9" fill="#F4E2C8" stroke={INK} strokeWidth={2.6} />
-      <ellipse cx="129" cy="35" rx="4" ry="3" fill={INK} />
-      <path d="M126 43 Q129 46 132 43" fill="none" stroke={INK} strokeWidth={2.2} strokeLinecap="round" />
-      <path d="M134 39 L146 36 M134 42 L146 43" fill="none" stroke={INK} strokeWidth={1.6} strokeLinecap="round" />
-      <circle className="tr-otter-eye" cx="113" cy="27" r="3.4" fill={INK} />
-      <circle className="tr-otter-eye" cx="127" cy="25" r="3.4" fill={INK} />
-      <circle cx="114" cy="26" r="1.1" fill="#FFFFFF" />
-      <circle cx="128" cy="24" r="1.1" fill="#FFFFFF" />
-      <ellipse cx="109" cy="36" rx="4" ry="2.4" fill="#FF8FB3" opacity={0.65} />
+      {/* 머리 — 홈 심해의 참견이와 같은 얼굴(components/Otter.tsx) */}
+      <g transform="translate(93 2) scale(0.54)">{otterFaceG("base", { props: false })}</g>
     </svg>
   );
 }

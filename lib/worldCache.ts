@@ -9,11 +9,12 @@
 // ============================================================================
 import { supabaseClient } from "@/lib/supabaseClient";
 
-export type WorldKey = "tank" | "archive";
+export type WorldKey = "tank" | "archive" | "growth";
 
 const URLS: Record<WorldKey, string> = {
   tank: "/api/user/tank",
   archive: "/api/user/archive",
+  growth: "/api/user/growth", // 심해 성장 단계(components/DeepSea.tsx)
 };
 const storageKey = (k: WorldKey) => `ganseobi_world_${k}_v1`;
 
