@@ -18,7 +18,7 @@
 // ============================================================================
 
 export type OtterExpression = "base" | "tilt" | "surprise" | "laugh" | "remember" | "proud" | "sleep";
-export type OtterHolding = "none" | "pebble" | "shell" | "pearl";
+export type OtterHolding = "none" | "pebble" | "shell" | "pearl" | "note"; // note = 물 위 쪽지(알람/메모 얘기할 때)
 
 export const OTTER = {
   INK: "#1B1630",
@@ -42,6 +42,13 @@ function heldItem(item: OtterHolding, cx: number, cy: number, s = 1) {
       <g transform={`translate(${cx} ${cy}) scale(${s})`}>
         <ellipse cx={0} cy={0} rx={8} ry={6} fill={OTTER.PEBBLE} stroke={INK} strokeWidth={2.4} />
         <ellipse cx={-2.6} cy={-2} rx={2.4} ry={1.4} fill="#FFFFFF" opacity={0.85} />
+      </g>
+    );
+  if (item === "note")
+    return (
+      <g transform={`translate(${cx} ${cy}) scale(${s}) rotate(-8)`}>
+        <path d="M-9 -11 H7 L10 -8 V9 Q4 6.5 0 9 Q-5 11.5 -9 9 Z" fill="#FFFDF6" stroke={INK} strokeWidth={2.2} strokeLinejoin="round" />
+        <path d="M-5 -5 H5 M-5 -1 H5 M-5 3 H1" {...line} strokeWidth={1.6} />
       </g>
     );
   if (item === "shell")
@@ -282,6 +289,40 @@ export function OtterBody({
       <ellipse cx={134} cy={66} rx={7} ry={5.5} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.4} />
       {/* 머리 — 살짝 들어서 이쪽 */}
       <g transform="translate(138 8) scale(0.84) rotate(-8 50 56)">{otterFaceG(expression, { props: false })}</g>
+    </svg>
+  );
+}
+
+/**
+ * 헤엄치는 모습 — 배를 아래로, 오른쪽을 보고 쭉 뻗어 간다(녹음 화면에서 헤엄치던 그 수달).
+ * 왼쪽으로 갈 땐 바깥에서 scaleX(-1). 꼬리/앞발 움직임은 바깥 CSS(.otr-swim-tail, .otr-swim-paw).
+ */
+export function OtterSwim({
+  expression = "base",
+  holding = "none",
+  width = 140,
+  className,
+  style,
+}: {
+  expression?: OtterExpression;
+  holding?: OtterHolding;
+  width?: number;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <svg viewBox="0 0 150 70" width={width} height={(width * 70) / 150} className={className} style={{ overflow: "visible", ...style }} aria-hidden>
+      <g className="otr-swim-tail">
+        <path d="M30 40 C18 40 8 44 2 50 C10 54 22 52 34 46 Z" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={3} strokeLinejoin="round" />
+      </g>
+      <path d="M40 52 C34 60 30 64 24 64 C26 58 30 54 36 50 Z" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.6} strokeLinejoin="round" />
+      <path d="M26 42 C28 28 50 20 76 20 C96 20 106 26 110 34 C112 46 100 56 78 58 C54 60 30 56 26 42 Z" fill={OTTER.FUR} stroke={INK} strokeWidth={3.2} strokeLinejoin="round" />
+      <path d="M48 50 C62 56 84 56 100 48 C94 56 82 58 72 58 C60 58 52 56 48 50 Z" fill="#E9C9A4" />
+      {heldItem(holding, 104, 60, 0.9)}
+      <g className="otr-swim-paw">
+        <ellipse cx="96" cy="54" rx="6" ry="4" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.4} />
+      </g>
+      <g transform="translate(93 2) scale(0.54)">{otterFaceG(expression, { props: false })}</g>
     </svg>
   );
 }

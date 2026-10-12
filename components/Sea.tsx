@@ -8,6 +8,8 @@ import { goldfishSvg, hash, PALETTE, type TankEntry } from "@/components/FishTan
 import { plop } from "@/lib/seaSound";
 import { supabaseClient } from "@/lib/supabaseClient";
 import DeepSea, { type SeaGrowth } from "@/components/DeepSea";
+import SeaOtter from "@/components/SeaOtter";
+import { loadOtterMemory, pickVisit, saveOtterMemory, type Visit } from "@/lib/otterCues";
 
 // ============================================================================
 // 참견이 바다 — 화면 전체가 물속. "깊이 = 시간".
@@ -51,7 +53,11 @@ interface SeaProps {
   // 받아쓰기가 도착한 순간(키) — 그 말이 치어로 퐁당 들어오는 연출
   heardKey?: number | null;
   // 심해 참견이가 말할 수 있는 실제 상태 — 메모 개수(모르면 null), 다음 알람(없으면 null)
-  deepFacts?: { noteCount: number | null; nextReminder: { title: string; at: string } | null };
+  deepFacts?: { noteCount: number | null; nextReminder: { id: number; title: string; at: string } | null };
+  // 홈에 참견이 말풍선/대답이 떠 있거나 시트가 열려 있음 — 수달이 말하러 올라오지 않는다(말 없는 방문만)
+  quiet?: boolean;
+  // 놀러 온 수달을 눌렀을 때(곧 울릴 알람 얘기였으면) 알람 탭 열기
+  onOpenAlarms?: () => void;
 }
 
 const NOISE_MAX = 5;
@@ -118,7 +124,18 @@ interface Visitor {
 
 type Sheet = { kind: "now"; id: string } | null;
 
-export default function Sea({ entries, thinking, night, recallUnitId = null, thinkingPhase = null, heardKey = null, deepFacts }: SeaProps) {
+export default function Sea({
+  entries,
+  thinking,
+  night,
+  recallUnitId = null,
+  thinkingPhase = null,
+  heardKey = null,
+  deepFacts,
+  quiet = false,
+  onOpenAlarms,
+}: SeaProps) {
+  const nowRef = useRef<HTMLElement>(null); // 첫 화면(이번 달 바다) — 수달이 놀러 오는 무대
   const rootRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(375);
   useEffect(() => {
@@ -336,6 +353,8 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
     setWiggle((w) => ({ id, n: (w?.n ?? 0) + 1 }));
     plop();
   };
+  // 수달이 콕 — 소리 없이 움찔만
+  const otterPoke = (id: string) => setWiggle((w) => ({ id, n: (w?.n ?? 0) + 1 }));
   const swipeX = useRef<number | null>(null);
   const wigCls = (id: string) => (wiggle?.id === id ? (wiggle.n % 2 ? "sea-wigA" : "sea-wigB") : "");
 
@@ -375,9 +394,88 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
   const recallMove = "top 1.9s cubic-bezier(.22,.9,.3,1), left 1.9s cubic-bezier(.22,.9,.3,1), width 1.2s ease, opacity .7s ease";
 
   // 수초 뒤에서 쉬던 물고기도 소환되면 헤엄치는 쪽으로 나와서 떠오른다.
+  // (높이 순서 — 아래 visible 계산 뒤에 rankOf로 쓴다)
   const hidden = (lineages ?? []).filter((l) => l.state === "hidden" && !(recallOn && l.id === recalledId));
   const visible = (lineages ?? []).filter((l) => l.state !== "hidden" || (recallOn && l.id === recalledId));
   const slow = night ? 1.9 : 1;
+  const ranked = [...visible].sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
+  const rankOf = new Map(ranked.map((l, i) => [l.id, i] as [string, number]));
+  const rankCount = ranked.length;
+
+  // ---- 수달이 첫 화면에 놀러 오기 — 언제/왜는 lib/otterCues.ts pickVisit ----
+  const [visit, setVisit] = useState<(Visit & { seq: number }) | null>(null);
+  const lastVisitAt = useRef(0);
+  const newFryRef = useRef<string | null>(null);
+  // 방금 퐁당 들어온 생각이 있으면 기억해둔다 — 다음 판단 때 그 치어 옆으로 구경 온다
+  useEffect(() => {
+    if (!fresh.size || !lineages) return;
+    const freshIds = Array.from(fresh);
+    const owner = lineages.find((l) => l.entryIds.some((id) => freshIds.includes(String(id))));
+    newFryRef.current = owner ? owner.id : school.length ? String(school[0].id) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fresh, lineages]);
+  const visitBusy = !!thinking || sheet !== null || !!recallUnitId || peek !== null;
+  const visitStateRef = useRef({ visitBusy, quiet, night, deepFacts, visible, school });
+  visitStateRef.current = { visitBusy, quiet, night, deepFacts, visible, school };
+  const tryVisit = () => {
+    const st = visitStateRef.current;
+    if (visitActive.current || st.visitBusy || document.hidden) return;
+    let reduce = false;
+    try {
+      reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch {
+      /* 그대로 */
+    }
+    const swimming = st.visible.filter((l) => l.state !== "hidden");
+    const oldest = [...swimming].sort((a, b) => new Date(a.lastAt).getTime() - new Date(b.lastAt).getTime())[0] ?? null;
+    const pool = [...swimming.map((l) => l.id), ...(st.school.length ? [String(st.school[0].id)] : [])];
+    const now = Date.now();
+    const { visit: v, next } = pickVisit(
+      {
+        night: st.night,
+        quiet: st.quiet,
+        sinceLastVisitMs: lastVisitAt.current ? now - lastVisitAt.current : Infinity,
+        nextReminder: st.deepFacts?.nextReminder ?? null,
+        oldFish: oldest ? { id: oldest.id, lastAt: oldest.lastAt } : null,
+        newFryId: newFryRef.current,
+        anyFishId: pool.length ? pool[Math.floor(Math.random() * pool.length)] : null,
+      },
+      loadOtterMemory(),
+      new Date(now),
+      reduce ? 1 : Math.random() // 움직임 줄이기면 그냥 놀러 오지는 않는다(할 일 있을 때만)
+    );
+    if (!v) return;
+    saveOtterMemory(next);
+    if (v.kind === "new_fry") newFryRef.current = null;
+    lastVisitAt.current = now;
+    visitActive.current = true;
+    setVisit({ ...v, seq: now });
+  };
+  const visitActive = useRef(false);
+  // 놀러 와 있는데 바빠지면(녹음 결과 대기, 카드 열림 등) 그냥 집에 간 걸로 — 다음에 다시
+  useEffect(() => {
+    if (visitBusy && visit) {
+      visitActive.current = false;
+      setVisit(null);
+    }
+  }, [visitBusy, visit]);
+  useEffect(() => {
+    // 처음엔 조금 있다가(바다가 먼저 보이게), 그다음엔 20초마다 "올라갈 일 있나?" 한 번씩만 본다.
+    const first = setTimeout(tryVisit, 7000 + Math.random() * 6000);
+    const t = setInterval(tryVisit, 20000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // 대답이 끝나고 새 치어가 들어왔으면 조금 뒤에 바로 구경 온다(20초를 기다리지 않고)
+  useEffect(() => {
+    if (thinking || !fresh.size) return;
+    const t = setTimeout(tryVisit, 2600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fresh, thinking]);
 
   // ---- 가끔 지나가는 손님 — 한 번에 한 마리, 가끔만. 깊이마다 사는 생물이 다르다. ----
   //   거북이: 위쪽을 한 번 가로질러 간다 / 해파리: 중간에서 둥실 올라간다 / 아귀(밤만): 맨 바닥을 불빛 켜고 지나간다
@@ -448,6 +546,7 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
 
       {/* ================= 이번 달 바다 (첫 화면) ================= */}
       <section
+        ref={nowRef}
         className="sea-now"
         style={{ background: `linear-gradient(${water[0]} 0%, ${water[1]} 38%, ${water[2]} 100%)` }}
         aria-label="지금 바다"
@@ -478,6 +577,7 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
           return (
             <div
               className="sea-swim"
+              data-lid={sid}
               style={{
                 left: leftPx,
                 top: `${17 + r(3) * 8}%`,
@@ -528,11 +628,16 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
           const [body, belly] = PALETTE[Math.floor(r(11) * PALETTE.length)];
           const w = STAGE_W[l.stage] ?? 62;
           const days = Math.max(0, (Date.now() - new Date(l.lastAt).getTime()) / 86_400_000);
-          const sink = Math.pow(Math.min(1, days / SINK_DAYS), 0.75); // 0 = 수면, 1 = 바닥 근처
-          const topPct = 24 + sink * 50 + (r(3) - 0.5) * 7;
-          const dx = Math.min(width * (0.5 - sink * 0.3), 210) * (0.6 + r(2) * 0.4);
+          const sink = Math.pow(Math.min(1, days / SINK_DAYS), 0.75); // 0 = 수면, 1 = 바닥 근처 — 느리기/흐리기에만
+          // 높이 = 순서. 가장 최근에 말한 생각이 맨 위, 오래된 순서대로 화면 아래까지 고르게 퍼진다(깊이 = 시간).
+          // (예전엔 날짜로만 정해서 최근 생각들이 전부 위쪽 한 줄에 몰렸다)
+          const rank = rankOf.get(l.id) ?? 0;
+          const frac = rankCount > 1 ? rank / (rankCount - 1) : 0;
+          const topPct = 27 + frac * 44 + (r(3) - 0.5) * 6;
+          const dx = Math.min(width * (0.5 - sink * 0.25), 210) * (0.6 + r(2) * 0.4);
+          const dy = (14 + r(13) * 34) * (r(14) > 0.5 ? 1 : -1); // 헤엄치며 오르내리는 폭
           const leftPx = 12 + r(4) * Math.max(0, width - 24 - w - dx);
-          const dur = (13 + r(6) * 10) * slow * (1 + sink * 1.2);
+          const dur = (15 + r(6) * 12) * slow * (1 + sink * 0.8);
           const isFresh = l.entryIds.some((id) => fresh.has(String(id)));
           const enterCls = isFresh ? "sea-arrive" : emerging === l.id ? "sea-emerge" : "";
           const isRecalled = recallOn && l.id === recalledId;
@@ -540,12 +645,14 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
           return (
             <div
               key={l.id}
-              className="sea-swim"
+              className="sea-swim sea-roam"
+              data-lid={l.id}
               style={{
                 left: lift ? Math.max(12, (width - w * 1.3) / 2 - 10) : leftPx,
                 top: lift ? RECALL_TOP : `${topPct}%`,
                 width: lift ? w * 1.3 : w,
                 ["--dx" as any]: `${lift ? 20 : dx}px`,
+                ["--dy" as any]: `${lift ? 0 : dy}px`,
                 animationDuration: `${dur}s`,
                 animationDelay: `${-(r(5) * dur)}s`,
                 zIndex: isRecalled ? 14 : 6 + l.stage,
@@ -716,6 +823,24 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
           </>
         )}
 
+        {/* 수달이 놀러 옴 — 대답 기다리는 중/카드 열림/기억 회상 중엔 바로 집으로 */}
+        {visit && !visitBusy && (
+          <SeaOtter
+            visit={visit}
+            containerRef={nowRef}
+            onPoke={otterPoke}
+            onTap={(v) => {
+              plop();
+              if (v.kind === "alarm") onOpenAlarms?.();
+              else if (v.kind === "old_fish" && v.targetFishId) setSheet({ kind: "now", id: v.targetFishId });
+            }}
+            onDone={() => {
+              visitActive.current = false;
+              setVisit(null);
+            }}
+          />
+        )}
+
         {/* 아래가 더 있다는 표시 — 글자 없이 화살표만. 아직 못 본 변화가 있으면 노랗게 빛난다. */}
         <div className={growthCue ? "sea-down sea-down-glow" : "sea-down"} aria-hidden>
           <svg width="16" height="16" viewBox="0 0 16 16">
@@ -734,6 +859,7 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
         onSeen={markGrowthSeen}
         noteCount={deepFacts?.noteCount ?? null}
         nextReminder={deepFacts?.nextReminder ?? null}
+        away={!!visit}
       />
 
       {/* 가끔 지나가는 손님 */}
@@ -982,6 +1108,8 @@ const CSS = `
 .sea-bubble::after{content:"";position:absolute;left:22%;top:18%;width:26%;height:26%;border-radius:50%;background:#fff}
 @keyframes sea-rise{0%{transform:translate(0,0) scale(.5);opacity:0}8%{opacity:.9}50%{transform:translate(8px,-34vh) scale(1)}90%{opacity:.8}100%{transform:translate(-6px,-68vh) scale(1.15);opacity:0}}
 .sea-swim{position:absolute;animation-name:sea-swim;animation-timing-function:ease-in-out;animation-iteration-count:infinite;pointer-events:none}
+.sea-roam{animation-name:sea-roam}
+@keyframes sea-roam{0%{transform:translate(0,0) scaleX(1)}16%{transform:translate(calc(var(--dx)*.38),calc(var(--dy)*-1)) scaleX(1)}26%{transform:translate(calc(var(--dx)*.5),calc(var(--dy)*-.9)) scaleX(1)}46%{transform:translate(var(--dx),calc(var(--dy)*.45)) scaleX(1)}50%{transform:translate(var(--dx),calc(var(--dy)*.45)) scaleX(-1)}68%{transform:translate(calc(var(--dx)*.45),var(--dy)) scaleX(-1)}76%{transform:translate(calc(var(--dx)*.38),calc(var(--dy)*.92)) scaleX(-1)}96%{transform:translate(0,0) scaleX(-1)}100%{transform:translate(0,0) scaleX(1)}}
 @keyframes sea-swim{0%{transform:translateX(0) scaleX(1)}46%{transform:translateX(var(--dx)) scaleX(1)}50%{transform:translateX(var(--dx)) scaleX(-1)}96%{transform:translateX(0) scaleX(-1)}100%{transform:translateX(0) scaleX(1)}}
 .sea-bob{animation-name:sea-bob;animation-timing-function:ease-in-out;animation-iteration-count:infinite;animation-direction:alternate}
 @keyframes sea-bob{from{transform:translateY(-5px) rotate(-3deg)}to{transform:translateY(5px) rotate(3deg)}}
@@ -994,8 +1122,8 @@ const CSS = `
 .sea-fry{position:absolute;width:20px}
 .sea-wigA{animation:sea-wigA .7s ease-out}
 .sea-wigB{animation:sea-wigB .7s ease-out}
-@keyframes sea-wigA{0%{transform:none}20%{transform:scale(1.2,.84) rotate(-12deg)}45%{transform:scale(.9,1.12) rotate(9deg)}70%{transform:rotate(-4deg)}100%{transform:none}}
-@keyframes sea-wigB{0%{transform:none}20%{transform:scale(1.2,.84) rotate(-12deg)}45%{transform:scale(.9,1.12) rotate(9deg)}70%{transform:rotate(-4deg)}100%{transform:none}}
+@keyframes sea-wigA{0%{transform:none}15%{transform:scale(1.2,.84) rotate(-12deg)}40%{transform:translateX(26px) scale(.9,1.12) rotate(9deg)}70%{transform:translateX(12px) rotate(-4deg)}100%{transform:none}}
+@keyframes sea-wigB{0%{transform:none}15%{transform:scale(1.2,.84) rotate(-12deg)}40%{transform:translateX(26px) scale(.9,1.12) rotate(9deg)}70%{transform:translateX(12px) rotate(-4deg)}100%{transform:none}}
 .sea-arrive{animation:sea-arrive 1.4s cubic-bezier(.3,1.6,.5,1) .35s both}
 @keyframes sea-arrive{0%{transform:translateY(-220px) scale(.55) rotate(-28deg);opacity:0}30%{opacity:1}100%{transform:none;opacity:1}}
 .sea-emerge{animation:sea-emerge 2.4s cubic-bezier(.3,1.2,.5,1) .3s both}

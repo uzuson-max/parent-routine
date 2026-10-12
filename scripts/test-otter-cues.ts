@@ -1,7 +1,7 @@
 // scripts/test-otter-cues.ts
 // 실행: npx tsx --tsconfig tsconfig.json scripts/test-otter-cues.ts
 // 참견이(수달) 반응 규칙(lib/otterCues.ts) — 순수 함수 테스트. DB/네트워크 없음.
-import { decideCue, deepTapCue, deepTapLines, GREET_GAP_MS, type OtterMemory } from '../lib/otterCues';
+import { decideCue, deepTapCue, deepTapLines, GREET_GAP_MS, pickVisit, WANDER_GAP_MS, type OtterMemory, type VisitState } from '../lib/otterCues';
 
 let fail = 0;
 function check(name: string, cond: boolean, detail?: unknown) {
@@ -11,6 +11,7 @@ function check(name: string, cond: boolean, detail?: unknown) {
 
 const NOW = new Date('2026-10-12T09:00:00Z'); // 18:00 KST
 const DAY = 86_400_000;
+const MIN = 60_000;
 const iso = (msFromNow: number) => new Date(NOW.getTime() + msFromNow).toISOString();
 
 // 1) 처음 홈 안내는 딱 한 번
@@ -100,6 +101,49 @@ const iso = (msFromNow: number) => new Date(NOW.getTime() + msFromNow).toISOStri
   all.push(...deepTapLines({ fishCount: 2, stage: 3, noteCount: 1, nextReminder: { title: 'y', at: iso(DAY) } }, NOW));
   const bad = all.filter((l) => /(해주세요|하세요|세요\.|말해봐|기억해\.|해야 해|잊지 마)/.test(l));
   check('금지 말투 없음', bad.length === 0, bad);
+}
+
+// 9) 첫 화면 방문(수달이 올라오는 일)
+{
+  const base: VisitState = {
+    night: false,
+    quiet: false,
+    sinceLastVisitMs: Infinity,
+    nextReminder: null,
+    oldFish: null,
+    newFryId: null,
+    anyFishId: 'f1',
+  };
+  const alarm = { id: 5, title: '스튜디오', at: iso(40 * MIN) };
+  const a = pickVisit({ ...base, nextReminder: alarm }, {}, NOW, 0.9);
+  check('40분 뒤 알람 → 쪽지 들고 와서 "맞지?"', a.visit?.kind === 'alarm' && a.visit.holding === 'note' && /스튜디오.*맞지\?/.test(a.visit.line ?? ''), a.visit);
+  const a2 = pickVisit({ ...base, nextReminder: alarm }, a.next, NOW, 0.9);
+  check('같은 알람으로 두 번 안 옴', a2.visit?.kind !== 'alarm', a2.visit);
+  const far = pickVisit({ ...base, nextReminder: { ...alarm, at: iso(3 * 60 * MIN) } }, {}, NOW, 0.9);
+  check('3시간 뒤 알람 → 아직 안 옴', far.visit === null, far.visit);
+  const quietAlarm = pickVisit({ ...base, quiet: true, nextReminder: alarm }, {}, NOW, 0.9);
+  check('말풍선 떠 있으면 말하러 안 옴', quietAlarm.visit === null, quietAlarm.visit);
+  const nightAlarm = pickVisit({ ...base, night: true, nextReminder: alarm }, {}, NOW, 0.1);
+  check('밤이어도 알람은 옴', nightAlarm.visit?.kind === 'alarm', nightAlarm.visit);
+
+  const old = pickVisit({ ...base, oldFish: { id: 'L1', lastAt: iso(-30 * DAY) } }, {}, NOW, 0.9);
+  check('30일 안 꺼낸 생각 → 그 물고기 옆 + 언제인지', old.visit?.kind === 'old_fish' && old.visit.targetFishId === 'L1' && /한 달 전쯤/.test(old.visit.line ?? ''), old.visit);
+  const old2 = pickVisit({ ...base, oldFish: { id: 'L1', lastAt: iso(-30 * DAY) } }, old.next, NOW, 0.9);
+  check('같은 주에 같은 물고기 또 안 옴', old2.visit?.kind !== 'old_fish', old2.visit);
+  const young = pickVisit({ ...base, oldFish: { id: 'L2', lastAt: iso(-3 * DAY) } }, {}, NOW, 0.9);
+  check('3일 된 생각 → 안 옴', young.visit === null, young.visit);
+
+  const fry = pickVisit({ ...base, quiet: true, newFryId: 'S9' }, {}, NOW, 0.9);
+  check('새 치어 → 말 없이 구경(말풍선 있어도)', fry.visit?.kind === 'new_fry' && fry.visit.line === null && fry.visit.targetFishId === 'S9', fry.visit);
+
+  const w1 = pickVisit(base, {}, NOW, 0.2);
+  check('할 일 없음 + 가끔 → 말 없이 놀러 옴', w1.visit?.kind === 'wander' && w1.visit.line === null, w1.visit);
+  const w2 = pickVisit(base, {}, NOW, 0.8);
+  check('할 일 없음 + 대부분 → 안 옴', w2.visit === null, w2.visit);
+  const w3 = pickVisit({ ...base, sinceLastVisitMs: WANDER_GAP_MS - 1000 }, {}, NOW, 0.1);
+  check('방금 왔다 갔으면 안 옴', w3.visit === null, w3.visit);
+  const w4 = pickVisit({ ...base, night: true }, {}, NOW, 0.1);
+  check('밤엔 놀러 안 옴(잠)', w4.visit === null, w4.visit);
 }
 
 console.log(fail ? `\n${fail}개 실패` : '\n전부 통과');

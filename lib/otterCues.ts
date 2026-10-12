@@ -39,6 +39,7 @@ export interface OtterMemory {
   firstReminder?: boolean;
   failedSeen?: number[];
   lastGreetAt?: number;
+  visitSeen?: string[]; // 첫 화면 방문으로 이미 말한 것(알람 id, 물고기 id+주) — 같은 걸로 두 번 올라오지 않게
 }
 
 export function loadOtterMemory(): OtterMemory {
@@ -52,7 +53,10 @@ export function loadOtterMemory(): OtterMemory {
 
 export function saveOtterMemory(m: OtterMemory) {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ ...m, failedSeen: (m.failedSeen ?? []).slice(-50) }));
+    localStorage.setItem(
+      KEY,
+      JSON.stringify({ ...m, failedSeen: (m.failedSeen ?? []).slice(-50), visitSeen: (m.visitSeen ?? []).slice(-80) })
+    );
   } catch {
     /* 못 남기면 다음에 한 번 더 말할 뿐 */
   }
@@ -165,4 +169,119 @@ export function deepTapCue(f: DeepFacts, tapIndex: number, now: Date = new Date(
   const lines = deepTapLines(f, now);
   if (tapIndex < lines.length) return { expression: 'tilt', line: lines[tapIndex], ms: 3400 };
   return { expression: 'laugh', line: tapIndex === lines.length ? '간지러워.' : null, ms: 1600 };
+}
+
+// ============================================================================
+// 첫 화면 방문 — 수달이 심해 집에서 첫 화면(이번 달 바다)까지 헤엄쳐 올라오는 일.
+// ----------------------------------------------------------------------------
+// 할 일이 있을 때(실제 데이터)만 말하고, 없으면 가끔 말 없이 놀다 간다.
+//   alarm    1시간 안에 울릴 알람 → 쪽지를 들고 와서 "○시 ○○ 맞지?" (알람마다 한 번)
+//   old_fish 2주 넘게 안 꺼낸 생각 → 그 물고기 옆에 가서 콕 + 언제 꺼낸 건지 (물고기마다 일주일에 한 번)
+//   new_fry  방금 들어온 생각 → 그 치어 옆에 와서 구경만(말 없음)
+//   wander   할 일 없음 → 낮에만, 몇 분에 한 번, 물고기 하나 콕 찌르거나 조약돌 굴리다 내려감(말 없음)
+// 화면에 참견이 말풍선/대답이 떠 있으면(quiet) 말하는 방문은 미룬다 — 끼어들지 않는다.
+// 밤엔 놀러 오지 않는다(집에서 잔다). 알람 방문만 예외.
+// ============================================================================
+export type VisitKind = 'alarm' | 'old_fish' | 'new_fry' | 'wander';
+
+export interface Visit {
+  kind: VisitKind;
+  key: string; // 기억용 키(alarm:12, fish:abc:2026-41 …). wander/new_fry는 기록하지 않는다.
+  line: string | null;
+  expression: OtterExpression;
+  holding: 'none' | 'pebble' | 'note';
+  targetFishId: string | null; // 옆으로 갈 물고기(계보 id, 치어 무리면 그 무리 id)
+  reminderId: number | null;
+}
+
+export interface VisitState {
+  night: boolean;
+  quiet: boolean; // 홈에 대답/참견 말풍선이 떠 있거나 시트가 열려 있음
+  sinceLastVisitMs: number; // 이번 화면에서 마지막 방문 뒤 흐른 시간(처음이면 Infinity)
+  nextReminder: { id: number; title: string; at: string } | null;
+  oldFish: { id: string; lastAt: string } | null; // 가장 오래 안 꺼낸, 헤엄치고 있는 생각
+  newFryId: string | null; // 방금 퐁당 들어온 생각(치어/물고기 id)
+  anyFishId: string | null; // 놀러 왔을 때 콕 찌를 아무 물고기
+}
+
+export const WANDER_GAP_MS = 90 * 1000; // 말 없는 방문도 1분 반에 한 번 이하
+export const ALARM_SOON_MS = 60 * 60 * 1000;
+export const OLD_FISH_DAYS = 14;
+
+/** 2026-41 같은 "해-주차" — 같은 물고기 얘기는 일주일에 한 번만 */
+function weekKey(now: Date): string {
+  const start = Date.UTC(now.getUTCFullYear(), 0, 1);
+  return `${now.getUTCFullYear()}-${Math.floor((now.getTime() - start) / (7 * DAY))}`;
+}
+
+export function pickVisit(s: VisitState, mem: OtterMemory, now: Date = new Date(), wanderRoll: number = Math.random()): { visit: Visit | null; next: OtterMemory } {
+  const seen = mem.visitSeen ?? [];
+  const remember = (key: string): OtterMemory => ({ ...mem, visitSeen: [...seen, key] });
+
+  // 1) 곧 울릴 알람 — 밤이어도 온다(사용자가 직접 부탁한 시각이니까)
+  if (!s.quiet && s.nextReminder) {
+    const left = new Date(s.nextReminder.at).getTime() - now.getTime();
+    const key = `alarm:${s.nextReminder.id}`;
+    if (left > 60 * 1000 && left <= ALARM_SOON_MS && !seen.includes(key)) {
+      return {
+        visit: {
+          kind: 'alarm',
+          key,
+          line: `${kstLabel(s.nextReminder.at, now)}에 “${s.nextReminder.title}” 맞지?`,
+          expression: 'remember',
+          holding: 'note',
+          targetFishId: null,
+          reminderId: s.nextReminder.id,
+        },
+        next: remember(key),
+      };
+    }
+  }
+
+  // 2) 방금 들어온 생각 — 구경만(말 없음). quiet여도 된다(말을 안 하니까).
+  if (s.newFryId && s.sinceLastVisitMs > 20 * 1000) {
+    return {
+      visit: { kind: 'new_fry', key: '', line: null, expression: 'surprise', holding: 'none', targetFishId: s.newFryId, reminderId: null },
+      next: mem,
+    };
+  }
+
+  if (s.night) return { visit: null, next: mem };
+
+  // 3) 오래 안 꺼낸 생각 — 그 물고기 옆에 가서 콕
+  if (!s.quiet && s.oldFish) {
+    const days = (now.getTime() - new Date(s.oldFish.lastAt).getTime()) / DAY;
+    const key = `fish:${s.oldFish.id}:${weekKey(now)}`;
+    if (days >= OLD_FISH_DAYS && !seen.includes(key) && s.sinceLastVisitMs > WANDER_GAP_MS) {
+      return {
+        visit: {
+          kind: 'old_fish',
+          key,
+          line: `이 생각, ${agoWords(s.oldFish.lastAt, now)}에 마지막으로 꺼낸 거야.`,
+          expression: 'tilt',
+          holding: 'none',
+          targetFishId: s.oldFish.id,
+          reminderId: null,
+        },
+        next: remember(key),
+      };
+    }
+  }
+
+  // 4) 그냥 놀러 옴 — 가끔만(부르는 쪽이 몇 분마다 한 번 물어보고, 그중 절반 정도만)
+  if (s.sinceLastVisitMs > WANDER_GAP_MS && wanderRoll < 0.5) {
+    return {
+      visit: {
+        kind: 'wander',
+        key: '',
+        line: null,
+        expression: 'base',
+        holding: s.anyFishId ? 'none' : 'pebble',
+        targetFishId: s.anyFishId,
+        reminderId: null,
+      },
+      next: mem,
+    };
+  }
+  return { visit: null, next: mem };
 }

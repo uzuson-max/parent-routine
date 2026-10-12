@@ -280,9 +280,11 @@ export default function TimelineScreen({
             night={night}
             onOpenMonth={onOpenMonth}
             recallUnitId={recall?.memory_unit_id ?? null}
+            quiet={quietHome}
+            onOpenAlarms={() => openSheet("alarms")}
             deepFacts={{
               noteCount: desk.notes ? desk.notes.length : null,
-              nextReminder: nextReminder ? { title: nextReminder.title, at: nextReminder.remindAt } : null,
+              nextReminder: nextReminder ? { id: nextReminder.id, title: nextReminder.title, at: nextReminder.remindAt } : null,
             }}
           />
         </div>

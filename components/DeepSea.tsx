@@ -60,6 +60,7 @@ export default function DeepSea({
   onSeen,
   noteCount = null,
   nextReminder = null,
+  away = false,
 }: {
   night: boolean;
   topColor: string; // 위 바다의 맨 아래 색 — 이음새 없이 이어지게
@@ -69,6 +70,7 @@ export default function DeepSea({
   onSeen: (stage: number) => void;
   noteCount?: number | null;
   nextReminder?: { title: string; at: string } | null;
+  away?: boolean; // 첫 화면에 놀러 가 있는 중(components/SeaOtter.tsx) — 집이 비어 있다
 }) {
   const stage = growth?.stage ?? 0;
   const pending = !!growth && growth.fresh && growth.stage > growth.seen;
@@ -236,7 +238,7 @@ export default function DeepSea({
       )}
 
       {/* 참견이 */}
-      <div ref={ref} className="ds-otter-zone">
+      <div ref={ref} className={`ds-otter-zone ${mode === "idle" ? "ds-drift" : ""}`} style={{ opacity: away ? 0 : 1, transition: "opacity .5s ease" }} aria-hidden={away}>
         {say && (
           <div key={say.key} className="ds-say" role="status">
             {say.text}
@@ -353,6 +355,9 @@ const CSS = `
 .ds-glow{transform-box:fill-box;transform-origin:50% 50%;animation:ds-glow 2.6s ease-in-out infinite}
 @keyframes ds-glow{0%,100%{opacity:.25;transform:scale(.85)}50%{opacity:.6;transform:scale(1.15)}}
 .ds-otter-zone{position:absolute;left:0;right:0;top:20%;height:240px;z-index:5;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
+/* 집 안에서도 가만히 있지 않는다 — 천천히 이쪽저쪽 떠다니다 잠깐 멈춘다(밤엔 더 느리게는 위 float가 맡음) */
+.ds-drift{animation:ds-drift 34s ease-in-out infinite}
+@keyframes ds-drift{0%,100%{transform:translate(0,0)}18%{transform:translate(-24%,18px)}30%{transform:translate(-26%,22px)}52%{transform:translate(4%,-14px)}64%{transform:translate(22%,10px)}76%{transform:translate(24%,14px)}}
 .ds-otter{display:block;padding:0;margin:0;border:0;background:none;cursor:pointer;-webkit-tap-highlight-color:transparent}
 .ds-otter svg{display:block}
 .ds-otter:focus-visible{outline:3px dashed #fff;outline-offset:4px;border-radius:24px}
@@ -376,7 +381,7 @@ const CSS = `
 .ds-floor{position:absolute;left:0;right:0;bottom:0;height:200px;pointer-events:none}
 .ds-sand{position:absolute;left:-6px;right:-6px;bottom:0;width:calc(100% + 12px);height:90px;display:block}
 @media (prefers-reduced-motion: reduce){
-  .ds-ray,.ds-mote,.ds-sway,.ds-glow,.ds-float,.ds-up,.ds-proud,.ds-zz,.ds-burst span,.ds-otter .otr-wave,.ds-otter .otr-tail{animation:none}
+  .ds-drift,.ds-ray,.ds-mote,.ds-sway,.ds-glow,.ds-float,.ds-up,.ds-proud,.ds-zz,.ds-burst span,.ds-otter .otr-wave,.ds-otter .otr-tail{animation:none}
   .ds-burst{display:none}
 }
 `;
