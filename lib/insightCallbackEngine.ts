@@ -36,7 +36,6 @@ export function insightAutoSendEnabled(): boolean {
   return (process.env.INSIGHT_AUTO_SEND || '').trim().toLowerCase() === 'on';
 }
 
-
 interface InsightCandidateRow {
   id: number;
   user_id: string;
@@ -48,7 +47,7 @@ interface InsightCandidateRow {
 export interface InsightCallbackResult {
   insightId: number;
   userId: string;
-  action: 'sent' | 'skipped_push_gate' | 'skipped_no_phone' | 'send_failed' | 'dry_run';
+  action: 'sent' | 'skipped_push_gate' | 'skipped_no_phone' | 'send_failed' | 'dry_run' | 'paused';
   reason?: string;
   message?: string;
   error?: string;
@@ -129,6 +128,13 @@ export async function sendDueInsightCallbacks(dryRun: boolean = false): Promise<
         if (dryRun) {
           console.log(`[insightCallbackEngine][dry-run] insight#${c.id} (user=${c.user_id}) → "${c.content}"`);
           results.push({ insightId: c.id, userId: c.user_id, action: 'dry_run', message: c.content });
+          continue;
+        }
+
+        // 자동 발송 멈춤 — 무엇을 보냈을지만 남기고 실제 발송/surfaced 처리는 하지 않는다.
+        if (!insightAutoSendEnabled()) {
+          console.log(`[insightCallbackEngine][paused] insight#${c.id} 발송 안 함 (INSIGHT_AUTO_SEND≠on)`);
+          results.push({ insightId: c.id, userId: c.user_id, action: 'paused', message: c.content });
           continue;
         }
 
