@@ -58,6 +58,8 @@ interface SeaProps {
   quiet?: boolean;
   // 놀러 온 수달을 눌렀을 때(곧 울릴 알람 얘기였으면) 알람 탭 열기
   onOpenAlarms?: () => void;
+    // 물고기 속 생각 카드가 열리고 닫힐 때 — 홈이 마이크를 잠깐 숨긴다(카드를 가리지 않게)
+  onCardChange?: (open: boolean) => void;
 }
 
 const NOISE_MAX = 5;
@@ -134,6 +136,7 @@ export default function Sea({
   deepFacts,
   quiet = false,
   onOpenAlarms,
+    onCardChange,
 }: SeaProps) {
   const nowRef = useRef<HTMLElement>(null); // 첫 화면(이번 달 바다) — 수달이 놀러 오는 무대
   const rootRef = useRef<HTMLDivElement>(null);
@@ -336,6 +339,18 @@ export default function Sea({
 
   // ---- 누르기 ----
   const [sheet, setSheet] = useState<Sheet>(null);
+  // 카드가 열려 있는 동안은 홈 마이크를 숨긴다 — 닫으면(×/바깥 누르기) 다시 나온다
+  const cardOpen = sheet !== null;
+  useEffect(() => {
+    onCardChange?.(cardOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardOpen]);
+  // 홈을 떠날 때 카드가 열려 있었으면 "닫힘"으로 돌려놓는다(마이크가 숨은 채로 남지 않게)
+  useEffect(
+    () => () => onCardChange?.(false),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
   // 카드에는 한 번에 한 마디만 크게. 0 = 가장 최근에 한 말, 넘기면 그 전에 한 말.
   const [qi, setQi] = useState(0);
   useEffect(() => setQi(0), [sheet]);
