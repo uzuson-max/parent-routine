@@ -162,6 +162,8 @@ export default function TimelineScreen({
   };
 
   const hasCallback = !!(proactiveLine && proactiveLine.content);
+    // 물고기 속 생각 카드가 열려 있으면 마이크를 숨긴다(카드 아래쪽을 덮지 않게). 카드를 닫으면 다시 나온다.
+  const [fishCardOpen, setFishCardOpen] = useState(false);
 
   // ---- 물 위(메모·알람) — 홈 위로 올라오는 시트. 데이터는 탭을 오가도 남게 모듈 캐시에 둔다. ----
   const [desk, setDesk] = useState<DeskState>(() => deskCache);
@@ -281,6 +283,7 @@ export default function TimelineScreen({
             onOpenMonth={onOpenMonth}
             recallUnitId={recall?.memory_unit_id ?? null}
             quiet={quietHome}
+                        onCardChange={setFishCardOpen}
             onOpenAlarms={() => openSheet("alarms")}
             deepFacts={{
               noteCount: desk.notes ? desk.notes.length : null,
@@ -464,6 +467,7 @@ export default function TimelineScreen({
       </div>
 
       {/* 마이크 — 어디까지 내려가 있어도 늘 같은 자리 */}
+            {!fishCardOpen && (
       <button
         className={thinking ? "tl-mic tl-mic-busy" : "tl-mic tl-mic-idle"}
         onClick={handleMic}
@@ -476,6 +480,7 @@ export default function TimelineScreen({
           <path d="M12 18 V21.5" fill="none" stroke={INK} strokeWidth={2.2} strokeLinecap="round" />
         </svg>
       </button>
+            )}
 
       {/* NAVIGATION — 어항 / 지난 어항 / 편지 */}
       <BottomNav active="home" onNavigate={onNavigate} unreadLetterCount={unreadLetterCount} disabled={thinking} />
