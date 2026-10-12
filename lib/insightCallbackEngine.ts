@@ -25,6 +25,18 @@ const MAX_INSIGHT_AGE_DAYS = 14;
 // 한 번 배치 실행에서 조회할 후보 상한 (사용자당 1개로 좁히기 전 단계의 안전장치).
 const CANDIDATE_POOL_LIMIT = 200;
 
+// ---- 자동 발송 스위치 (2026-10-13) ------------------------------------------------------------
+// 기준선 판정(docs/discovery/baseline-2026-10-13.md)에서 실제로 나간 인사이트 문자 대부분이 "보낼 가치" 기준을
+// 통과하지 못해서, 발견 엔진을 고치는 동안 매일 나가는 인사이트 문자만 멈춘다.
+//   - 기본값 = 멈춤. Vercel 환경변수 INSIGHT_AUTO_SEND=on 이면 다시 보낸다(재배포 필요).
+//   - 멈춰 있어도 인사이트 생성(generate-insights)·기록·dryRun 확인은 그대로 된다.
+//   - 멈춰 있는 동안은 last_surfaced_at을 건드리지 않는다 → 다시 켜도 "보낸 적 있음"으로 잘못 남지 않는다.
+//   - 약속 확인(COMMITMENT_CHECK, interventionEngine)·알람(reminders)·화면 대화는 이 스위치와 무관하다.
+export function insightAutoSendEnabled(): boolean {
+  return (process.env.INSIGHT_AUTO_SEND || '').trim().toLowerCase() === 'on';
+}
+
+
 interface InsightCandidateRow {
   id: number;
   user_id: string;
