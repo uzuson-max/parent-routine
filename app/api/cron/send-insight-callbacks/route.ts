@@ -1,5 +1,6 @@
+
 import { NextResponse } from 'next/server';
-import { sendDueInsightCallbacks, InsightCallbackResult } from '@/lib/insightCallbackEngine';
+import { insightAutoSendEnabled, sendDueInsightCallbacks, InsightCallbackResult } from '@/lib/insightCallbackEngine';
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
@@ -15,10 +16,13 @@ export async function GET(request: Request) {
   const sent = results.filter((r) => r.action === 'sent').length;
   const skippedNoPhone = results.filter((r) => r.action === 'skipped_no_phone').length;
   const failed = results.filter((r) => r.action === 'send_failed').length;
+  // 자동 발송이 멈춰 있으면(기본값) 아무것도 보내지 않는다 — lib/insightCallbackEngine.ts insightAutoSendEnabled
+  const paused = !insightAutoSendEnabled();
 
   return NextResponse.json({
     success: true,
     dryRun,
+    paused,
     count: results.length,
     sent,
     skippedNoPhone,
