@@ -50,6 +50,8 @@ interface SeaProps {
   thinkingPhase?: "listening" | "chewing" | null;
   // 받아쓰기가 도착한 순간(키) — 그 말이 치어로 퐁당 들어오는 연출
   heardKey?: number | null;
+  // 심해 참견이가 말할 수 있는 실제 상태 — 메모 개수(모르면 null), 다음 알람(없으면 null)
+  deepFacts?: { noteCount: number | null; nextReminder: { title: string; at: string } | null };
 }
 
 const NOISE_MAX = 5;
@@ -116,7 +118,7 @@ interface Visitor {
 
 type Sheet = { kind: "now"; id: string } | null;
 
-export default function Sea({ entries, thinking, night, recallUnitId = null, thinkingPhase = null, heardKey = null }: SeaProps) {
+export default function Sea({ entries, thinking, night, recallUnitId = null, thinkingPhase = null, heardKey = null, deepFacts }: SeaProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(375);
   useEffect(() => {
@@ -730,6 +732,8 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
         fishCount={(lineages ?? []).length + (school.length > 0 ? 1 : 0)}
         busy={!!thinking || sheet !== null}
         onSeen={markGrowthSeen}
+        noteCount={deepFacts?.noteCount ?? null}
+        nextReminder={deepFacts?.nextReminder ?? null}
       />
 
       {/* 가끔 지나가는 손님 */}

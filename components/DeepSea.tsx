@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { OtterBody, type OtterExpression, type OtterHolding } from "@/components/Otter";
 import { plop } from "@/lib/seaSound";
+import { decideCue, deepTapCue, loadOtterMemory, saveOtterMemory } from "@/lib/otterCues";
 
 // ============================================================================
 // 심해 — 지금 어항 바로 아래, 참견이(수달)가 사는 곳.
@@ -19,9 +20,11 @@ import { plop } from "@/lib/seaSound";
 //
 // 참견이 상태
 //   idle      배를 위로 하고 둥둥(밤엔 쿨쿨)
-//   discover  내려온 걸 알아채고 일어나서 손 흔들기 — 잠깐
+//   discover  내려온 걸 알아채고 일어나서 손 흔들기 — 6시간에 한 번 이하(lib/otterCues.ts deep_arrive).
+//             곧 울릴 알람이 있으면 인사 대신 그걸 말한다. 그 외엔 내려와도 조용히 둥둥.
 //   growth    실제로 단계가 올라갔고 아직 못 봤을 때만 — 뿌듯하게 보여주고, 본 걸로 기록(onSeen)
-//   curious   누르면 갸우뚱하고 한마디(지금 어항의 실제 물고기 수 등 — 지어낸 기억은 말하지 않는다)
+//   curious   누르면 갸우뚱하고 한마디 — 지금 실제 상태(다음 알람, 물고기, 쪽지, 조약돌)로만, 같은 말 반복 없이.
+//             할 말을 다 하면 더 지어내지 않고 웃기만 한다(lib/otterCues.ts deepTapCue).
 // 기억 회상은 여기서 하지 않는다 — 그건 홈 위쪽 말풍선/기억 캡슐이 기존 데이터로만 한다.
 // ============================================================================
 
@@ -55,6 +58,8 @@ export default function DeepSea({
   fishCount,
   busy,
   onSeen,
+  noteCount = null,
+  nextReminder = null,
 }: {
   night: boolean;
   topColor: string; // 위 바다의 맨 아래 색 — 이음새 없이 이어지게
@@ -62,6 +67,8 @@ export default function DeepSea({
   fishCount: number;
   busy: boolean; // 대답 기다리는 중/카드 열림 — 이땐 연출 안 함
   onSeen: (stage: number) => void;
+  noteCount?: number | null;
+  nextReminder?: { title: string; at: string } | null;
 }) {
   const stage = growth?.stage ?? 0;
   const pending = !!growth && growth.fresh && growth.stage > growth.seen;
@@ -71,6 +78,7 @@ export default function DeepSea({
   const [mode, setMode] = useState<Mode>("idle");
   const [say, setSay] = useState<{ text: string; key: number } | null>(null);
   const [tapN, setTapN] = useState(0);
+  const [face, setFace] = useState<OtterExpression | null>(null); // 지금 반응의 표정(lib/otterCues.ts가 정함)
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const later = (fn: () => void, ms: number) => {
     timers.current.push(setTimeout(fn, ms));
@@ -88,6 +96,8 @@ export default function DeepSea({
   stageRef.current = stage;
   const busyRef = useRef(busy);
   busyRef.current = busy;
+  const nextReminderRef = useRef(nextReminder);
+  nextReminderRef.current = nextReminder;
 
   const speak = (text: string, ms: number) => {
     setSay({ text, key: Date.now() });
@@ -106,27 +116,29 @@ export default function DeepSea({
   // ---- 내려와서 참견이가 보이면 ----
   const ref = useRef<HTMLDivElement>(null);
   const inView = useRef(false);
-  const lastMet = useRef(0);
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof IntersectionObserver === "undefined") return;
     const io = new IntersectionObserver(
       (es) => {
         const e = es[0];
-        const now = Date.now();
         if (e.isIntersecting && e.intersectionRatio >= 0.5) {
           if (inView.current) return;
           inView.current = true;
           if (busyRef.current) return;
           if (pendingRef.current) {
             showGrowth();
-          } else if (now - lastMet.current > 20000) {
-            clearAll();
-            setMode("discover");
-            speak(night ? "…음? 이 시간에 왔어?" : "어, 왔어?", 2600);
-            later(() => setMode("idle"), 2800);
+            return;
           }
-          lastMet.current = now;
+          // 내려올 때마다 인사하지 않는다 — 언제 말할지는 lib/otterCues.ts가 정한다(6시간에 한 번 이하).
+          const { cue, next } = decideCue({ type: "deep_arrive", night, nextReminder: nextReminderRef.current }, loadOtterMemory());
+          if (!cue) return;
+          saveOtterMemory(next);
+          clearAll();
+          setFace(cue.expression);
+          setMode("discover");
+          if (cue.line) speak(cue.line, cue.ms);
+          later(() => setMode("idle"), cue.ms + 200);
         } else if (!e.isIntersecting || e.intersectionRatio < 0.2) {
           inView.current = false;
         }
@@ -150,25 +162,23 @@ export default function DeepSea({
     clearAll();
     const n = tapN + 1;
     setTapN(n);
-    if (n % 4 === 0) {
+    // 지금 실제 상태로만 말한다. 할 말을 다 하면 더 지어내지 않고 웃기만(말 없음).
+    const cue = deepTapCue({ fishCount, stage, noteCount, nextReminder }, n - 1);
+    setFace(cue.expression);
+    if (cue.expression === "laugh") {
       setMode("discover");
-      speak("간지러워.", 1800);
-      later(() => setMode("idle"), 2000);
+      if (cue.line) speak(cue.line, cue.ms);
+      later(() => setMode("idle"), cue.ms + 200);
       return;
     }
-    const lines = [
-      fishCount > 0 ? `위에 사는 물고기 ${fishCount}마리, 전부 니 생각이야.` : "위에 아직 물고기가 없네. 뭐라도 말해봐.",
-      stage === 0 ? "여기 이사 온 지 얼마 안 됐어. 니가 말할수록 넓어져." : "여기 내 집. 니가 말할수록 넓어져.",
-      stage >= 2 ? "이 조약돌? 니가 다시 꺼낸 얘기들이야." : "같은 얘기를 다른 날 또 하면, 그게 조약돌이 돼.",
-    ];
     setMode("curious");
-    speak(lines[(n - 1) % lines.length], 3400);
-    later(() => setMode("idle"), 3600);
+    if (cue.line) speak(cue.line, cue.ms);
+    later(() => setMode("idle"), cue.ms + 200);
   };
 
   const upright = mode === "discover" || mode === "growth";
   const expr: OtterExpression =
-    mode === "growth" ? "proud" : mode === "discover" ? (tapN % 4 === 0 && tapN > 0 ? "laugh" : "surprise") : mode === "curious" ? "tilt" : night ? "sleep" : "base";
+    mode === "growth" ? "proud" : mode !== "idle" && face ? face : night ? "sleep" : "base";
 
   return (
     <section

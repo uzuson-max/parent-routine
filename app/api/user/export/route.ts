@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   if (!userId) return new Response(JSON.stringify({ success: false, error: '인증 세션이 없습니다.' }), { status: 401 });
 
   try {
-    const [me, entries, letters, insights] = await Promise.all([
+    const [me, entries, letters, insights, notes, reminders] = await Promise.all([
       supabase.from('user_memory').select('nickname').eq('user_id', userId).maybeSingle(),
       supabase
         .from('voice_entries')
@@ -38,6 +38,14 @@ export async function GET(request: Request) {
         .select('content, created_at, status')
         .eq('user_id', userId)
         .order('created_at', { ascending: true }),
+      // 바다 위 메모/알람 — 테이블이 아직 없으면(SQL 실행 전) error로 오고, 아래에서 건너뛴다.
+      supabase.from('sea_notes').select('body, created_at').eq('user_id', userId).order('created_at', { ascending: true }),
+      supabase
+        .from('reminders')
+        .select('title, remind_at, status')
+        .eq('user_id', userId)
+        .neq('status', 'canceled')
+        .order('remind_at', { ascending: true }),
     ]);
     if (entries.error) throw new Error(entries.error.message);
 
@@ -68,6 +76,23 @@ export async function GET(request: Request) {
       lines.push('==== 참견이가 알아챈 거 ====');
       for (const i of insights.data ?? []) {
         lines.push(`[${kst(i.created_at as string)}] ${i.content}`);
+      }
+      lines.push('');
+    }
+
+    if (!notes.error && (notes.data ?? []).length) {
+      lines.push('==== 물 위에 적어둔 메모 ====');
+      for (const n of notes.data ?? []) {
+        lines.push(`[${kst(n.created_at as string)}]`);
+        lines.push(String(n.body ?? ''));
+        lines.push('');
+      }
+    }
+    if (!reminders.error && (reminders.data ?? []).length) {
+      lines.push('==== 알람 ====');
+      const label: Record<string, string> = { scheduled: '예정', sending: '보내는 중', sent: '알려줌', failed: '못 알려줌' };
+      for (const r of reminders.data ?? []) {
+        lines.push(`[${kst(r.remind_at as string)}] ${r.title} (${label[r.status as string] ?? r.status})`);
       }
       lines.push('');
     }

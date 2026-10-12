@@ -24,7 +24,7 @@ import type { WorldTab } from "@/components/WorldNav";
 import TankRecordingScreen from "./screens/TankRecordingScreen";
 import { BRAND, pageBackground } from "@/lib/theme";
 import { acquireMicStream, releaseMicStream } from "@/lib/micStream";
-import { pushOfferDismissed, pushSupport, shouldOfferPush } from "@/lib/pushClient";
+import { suggestFromEvent } from "@/lib/reminders/rules";
   import { playFx } from "@/lib/fx";
 
 // 어항 ↔ 지난 어항 사이 물결 막, 편지 탭 페이드. transform은 막(별도 fixed 요소)에만 써서
@@ -331,26 +331,19 @@ export default function Home() {
 
       const state = body.data.call_state;
       if (state === "no_action" || state === "saved_only") {
-        // 날짜가 정해진 일정을 말했으면 — 이 기기에서 아직 알림을 안 켰을 때만 "그날 알려줄까?"를 한 번 붙인다.
-        // 대답은 기다리지 않고 바로 띄우고, 알림 제안은 확인되는 대로 그 말풍선에 붙인다.
+        // 날짜·시각이 정해진 일정을 말했으면(분석이 scheduled_event로 확인한 것만) 대답 아래에 "알람 걸어둘까?"를 한 번 붙인다.
+        // 제안만 한다 — 실제 알람은 사용자가 [응]을 눌러야 생긴다(app/screens/TimelineScreen.tsx AlarmOffer).
+        // 생각 저장/기억/인사이트 흐름은 서버에서 원래대로 끝났고, 이건 화면 쪽 제안일 뿐이다.
         const ev = body.data.scheduled_event as { what: string; at: string } | null | undefined;
         if (!isCurrent()) return;
         const replyText = body.data.response?.response || "일단 들어뒀어.";
-        setHomeBubble({ kind: "reply", text: replyText, recall: body.data.response?.recalled ?? null, askPush: null });
-        if (ev?.what && ev?.at) {
-          // 여기서 await 하지 않는다 — 업로드 마무리(finally)가 늦어지면 말풍선도 같이 늦게 뜬다.
-          void shouldOfferPush().then((ask) => {
-            const mode: "ask" | "install" | null = ask
-              ? "ask"
-              : pushSupport() === "needs_install" && !pushOfferDismissed()
-              ? "install"
-              : null;
-            if (!mode || !isCurrent()) return;
-            setHomeBubble((b) =>
-              b && b.kind === "reply" && b.text === replyText ? { ...b, askPush: { what: ev.what, at: ev.at, mode } } : b
-            );
-          });
-        }
+        const suggestAt = ev?.what && ev?.at ? suggestFromEvent(ev.at, new Date()) : null;
+        setHomeBubble({
+          kind: "reply",
+          text: replyText,
+          recall: body.data.response?.recalled ?? null,
+          alarmOffer: ev && suggestAt ? { what: ev.what, eventAt: ev.at, suggestAt, entryId: String(body.data.id) } : null,
+        });
         return;
       }
 

@@ -1,14 +1,19 @@
 // app/screens/TimelineScreen.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Sea from "@/components/Sea";
 import { OtterFace } from "@/components/Otter";
 import { BottomNav, MyButton, type WorldTab } from "@/components/WorldNav";
 import { acquireMicStream } from "@/lib/micStream";
 import { playFx } from "@/lib/fx";
 import { seaSoundPref, setSeaSoundPref, startSea, stopSea, recallChime } from "@/lib/seaSound";
-import { dismissPushOffer, subscribePush } from "@/lib/pushClient";
+import dynamic from "next/dynamic";
+import type { AlarmPrefill, DeskState, SurfaceTab } from "@/components/SurfaceSheet";
+import OtterCueView from "@/components/OtterCueView";
+import { decideCue, loadOtterMemory, saveOtterMemory, type OtterCue } from "@/lib/otterCues";
+import { likelyChannel, notesApi, remindersApi } from "@/lib/deskClient";
+import { isOverdue, kstLabel } from "@/lib/reminders/rules";
 
 export interface RecordEntry {
   id: string;
@@ -46,8 +51,9 @@ export interface HomeBubble {
   text: string;
   // reply가 과거 기억을 꺼내 온 대답이면 그 기억(voice/upload → response.recalled)
   recall?: Recall | null;
-  // 날짜가 정해진 일정을 말했을 때 — "그날 알려줄까?" (ask) / 아이폰 사파리 탭이면 "홈 화면에 추가하면…" (install)
-  askPush?: { what: string; at: string; mode: "ask" | "install" } | null;
+  // 날짜·시각이 정해진 일정을 말했을 때 — "○시에 알람 걸어둘까?" 제안(누를 때만 실제로 만든다).
+  //   what/eventAt: 분석이 뽑은 일정(lib/analysis.ts scheduled_event), suggestAt: 제안 시각(30분 전), entryId: 그 녹음
+  alarmOffer?: { what: string; eventAt: string; suggestAt: string; entryId: string } | null;
 }
 
 interface TimelineScreenProps {
@@ -77,8 +83,13 @@ interface TimelineScreenProps {
   onOpenMonth?: (month: string) => void;
 }
 
+// 물 위(메모·알람) 시트 — 누를 때만 받아온다(홈 첫 화면을 무겁게 하지 않게)
+const SurfaceSheet = dynamic(() => import("@/components/SurfaceSheet"), { ssr: false });
+
 const INK = "#1B1630";
-const DEEP = "#1B5A96"; // 화면 끝(노치/홈 인디케이터, 바운스 스크롤)에 비치는 깊은 물색
+const DEEP = "#1B5A96";
+// 메모·알람 — 홈을 떠났다 돌아와도 바로 보이게(서버 값으로 곧 다시 맞춘다)
+let deskCache: DeskState = { notes: null, reminders: null, delivery: null, notesError: null, remindersError: null }; // 화면 끝(노치/홈 인디케이터, 바운스 스크롤)에 비치는 깊은 물색
 
 // ============================================================================
 // Home — 참견이 바다. 화면 전체가 물속이고, 깊이 = 시간.
@@ -152,6 +163,70 @@ export default function TimelineScreen({
 
   const hasCallback = !!(proactiveLine && proactiveLine.content);
 
+  // ---- 물 위(메모·알람) — 홈 위로 올라오는 시트. 데이터는 탭을 오가도 남게 모듈 캐시에 둔다. ----
+  const [desk, setDesk] = useState<DeskState>(() => deskCache);
+  const patchDesk = useCallback((p: Partial<DeskState>) => {
+    setDesk((d) => {
+      const next = { ...d, ...p };
+      deskCache = next;
+      return next;
+    });
+  }, []);
+  const reloadDesk = useCallback(() => {
+    notesApi.list().then((r) => patchDesk(r.ok ? { notes: r.data.notes, notesError: null } : { notesError: r.error }));
+    remindersApi
+      .list()
+      .then((r) =>
+        patchDesk(r.ok ? { reminders: r.data.reminders, delivery: r.data.delivery, remindersError: null } : { remindersError: r.error })
+      );
+  }, [patchDesk]);
+  useEffect(() => {
+    // 홈 첫 그림(바다/대답)이 먼저 — 메모·알람 요약은 조금 뒤에 조용히
+    const t = setTimeout(reloadDesk, 1200);
+    return () => clearTimeout(t);
+  }, [reloadDesk]);
+  const [sheet, setSheet] = useState<{ open: boolean; tab: SurfaceTab; prefill: AlarmPrefill | null }>({ open: false, tab: "notes", prefill: null });
+  const openSheet = (tab: SurfaceTab, prefill: AlarmPrefill | null = null) => {
+    playFx("buttonPress");
+    setHomeCue(null);
+    setSheet({ open: true, tab, prefill });
+  };
+  const closeSheet = useCallback(() => setSheet((s) => ({ ...s, open: false, prefill: null })), []);
+  const now = new Date();
+  const nextReminder =
+    (desk.reminders ?? []).find((r) => r.status === "scheduled" && new Date(r.remindAt).getTime() > now.getTime()) ?? null;
+  // 버튼 위 작은 점 — 못 알려준 알람이 있을 때만(알려줄 게 있어서가 아니라, 실패를 숨기지 않으려고)
+  const needsLook = (desk.reminders ?? []).some((r) => r.status === "failed" || isOverdue(r.status, r.remindAt, now));
+
+  // ---- 홈에서의 참견이 반응 — 무엇을 할지는 lib/otterCues.ts. 처음 한 번 안내 / 못 알려준 알람만. ----
+  const [homeCue, setHomeCue] = useState<{ cue: OtterCue; key: number } | null>(null);
+  const homeCueTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showHomeCue = (c: OtterCue) => {
+    setHomeCue({ cue: c, key: Date.now() });
+    if (homeCueTimer.current) clearTimeout(homeCueTimer.current);
+    homeCueTimer.current = setTimeout(() => setHomeCue(null), c.ms);
+  };
+  useEffect(() => () => {
+    if (homeCueTimer.current) clearTimeout(homeCueTimer.current);
+  }, []);
+  const quietHome = !!bubble || hasCallback || thinking || sheet.open;
+  useEffect(() => {
+    // 참견이가 할 말(대답/먼저 꺼낸 말)이 떠 있으면 끼어들지 않는다 — 기록도 안 해서 다음에 다시 기회가 있다.
+    if (quietHome || entries === null) return;
+    const t = setTimeout(() => {
+      const mem = loadOtterMemory();
+      const failed = (desk.reminders ?? []).find((r) => r.status === "failed" && !(mem.failedSeen ?? []).includes(r.id));
+      const { cue, next } = failed
+        ? decideCue({ type: "reminder_failed", id: failed.id, title: failed.title }, mem)
+        : decideCue({ type: "home_first_visit" }, mem);
+      if (!cue) return;
+      saveOtterMemory(next);
+      showHomeCue(cue);
+    }, 1800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quietHome, entries === null, desk.reminders]);
+
   const handleMic = () => {
     if (thinking) return;
     // 물소리가 마이크로 들어가지 않게 먼저 끈다(돌아오면 다시 켜진다).
@@ -205,25 +280,60 @@ export default function TimelineScreen({
             night={night}
             onOpenMonth={onOpenMonth}
             recallUnitId={recall?.memory_unit_id ?? null}
+            deepFacts={{
+              noteCount: desk.notes ? desk.notes.length : null,
+              nextReminder: nextReminder ? { title: nextReminder.title, at: nextReminder.remindAt } : null,
+            }}
           />
         </div>
       )}
 
       {/* HEADER — 소라(물속 소리) · 로고 · MY. 바다 위에 떠 있다. */}
       <div style={styles.header}>
-        <button
-          className={`tl-shell wn-sticker ${soundOn ? "tl-shell-on" : ""}`}
-          onClick={toggleSound}
-          aria-label={soundOn ? "물속 소리 끄기" : "물속 소리 켜기"}
-          aria-pressed={soundOn}
-        >
-          <ShellIcon on={soundOn} />
-        </button>
+        <span style={styles.headLeft}>
+          <button
+            className={`tl-shell wn-sticker ${soundOn ? "tl-shell-on" : ""}`}
+            onClick={toggleSound}
+            aria-label={soundOn ? "물속 소리 끄기" : "물속 소리 켜기"}
+            aria-pressed={soundOn}
+          >
+            <ShellIcon on={soundOn} />
+          </button>
+          <button
+            className="tl-shell wn-sticker"
+            style={{ position: "relative" }}
+            onClick={() => openSheet(needsLook ? "alarms" : "notes")}
+            disabled={thinking}
+            aria-label={needsLook ? "물 위 메모와 알람 — 못 알려준 알람 있음" : "물 위 메모와 알람"}
+          >
+            <SlipIcon />
+            {needsLook && <span style={styles.lookDot} aria-hidden />}
+          </button>
+        </span>
         <span style={styles.logo}>참견이</span>
         <span style={{ pointerEvents: "auto" }}>
           <MyButton onClick={onOpenMyPage} disabled={thinking} />
         </span>
       </div>
+
+      {/* 참견이 한마디 — 처음 한 번 메모 안내, 못 알려준 알람. 메모 버튼 바로 아래. */}
+      {homeCue && !quietHome && (
+        <button className="tl-cue" style={styles.cueSlot} onClick={() => openSheet(homeCue.cue.expression === "surprise" ? "alarms" : "notes")}>
+          <OtterCueView cue={homeCue.cue} cueKey={homeCue.key} size={46} />
+        </button>
+      )}
+
+      {sheet.open && (
+      <SurfaceSheet
+        open={sheet.open}
+        initialTab={sheet.tab}
+        prefill={sheet.prefill}
+        desk={desk}
+        onDeskChange={patchDesk}
+        onReload={reloadDesk}
+        onClose={closeSheet}
+      />
+      )}
 
       {/* 말풍선 — 참견이의 대답 / 먼저 꺼낸 말 / 짧은 안내 */}
       <div style={styles.bubbleSlot}>
@@ -327,7 +437,17 @@ export default function TimelineScreen({
             <div key={shown.text} className={recall ? "tl-bubble tl-bubble-late" : "tl-bubble"} style={styles.bubble} role="status">
               {shown.stamp && <span style={styles.bubbleStamp}>{shown.stamp}</span>}
               <span style={styles.bubbleText}>{shown.text}</span>
-              {bubble?.kind === "reply" && bubble.askPush && <PushOffer key={bubble.askPush.at} offer={bubble.askPush} />}
+              {bubble?.kind === "reply" && bubble.alarmOffer && (
+                <AlarmOffer
+                  key={bubble.alarmOffer.entryId}
+                  offer={bubble.alarmOffer}
+                  onCreated={(r) => {
+                    // 확인 문장은 제안 칸 안에 바로 뜬다("○시에 알려줄게.") — 수달이 따로 또 말하지 않는다.
+                    patchDesk({ reminders: [...(desk.reminders ?? []).filter((x) => x.id !== r.id), r] });
+                  }}
+                  onAdjust={() => openSheet("alarms", { title: bubble.alarmOffer!.what, remindAt: bubble.alarmOffer!.suggestAt })}
+                />
+              )}
               {shown.closable && (
                 <button className="tl-close" style={styles.bubbleClose} aria-label="말풍선 닫기" onClick={() => onBubbleChange(null)}>
                   <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
@@ -361,26 +481,31 @@ export default function TimelineScreen({
   );
 }
 
-// "그날 알려줄까?" — 일정을 처음 말했을 때 대답 아래에 한 번. 누르는 순간(사용자 제스처)에 알림 허용 창을 띄운다.
-function PushOffer({ offer }: { offer: { what: string; at: string; mode: "ask" | "install" } }) {
-  const [state, setState] = useState<"ask" | "busy" | "ok" | "denied" | "failed" | "hidden">("ask");
+// "내일 오전 10시 30분에 알람 걸어둘까?" — 날짜·시각이 정해진 일정을 말했을 때 대답 아래에 한 번.
+// 단순히 미래 얘기를 했다고 만들지 않는다: 분석이 일정(scheduled_event)으로 확인한 것만 오고, 실제 생성은 [응]을 눌러야 한다.
+function AlarmOffer({
+  offer,
+  onCreated,
+  onAdjust,
+}: {
+  offer: { what: string; eventAt: string; suggestAt: string; entryId: string };
+  onCreated: (r: import("@/lib/deskClient").ReminderItem, channel: "push" | "sms" | null) => void;
+  onAdjust: () => void;
+}) {
+  const [state, setState] = useState<"ask" | "busy" | "ok" | "hidden">("ask");
+  const [msg, setMsg] = useState<string | null>(null);
   if (state === "hidden") return null;
-  const when = dayWord(offer.at);
+  const when = kstLabel(offer.suggestAt);
+  const early = new Date(offer.eventAt).getTime() - new Date(offer.suggestAt).getTime() >= 60_000;
   const line =
-    offer.mode === "install"
-      ? `홈 화면에 추가해두면 ${when} ${offer.what} 날 찾아갈 수 있어.`
-      : state === "ok"
-      ? `${when} 그날 찾아갈게.`
-      : state === "denied"
-      ? "알림이 꺼져 있네. 폰 설정에서 켜주면 찾아갈게."
-      : state === "failed"
-      ? "지금은 안 되네. MY에서 다시 켤 수 있어."
-      : `${when} ${offer.what}, 그날 알려줄까?`;
+    state === "ok"
+      ? msg ?? `${when}에 알려줄게.`
+      : msg ?? `${offer.what}${early ? " 30분 전," : ","} ${when}에 알람 걸어둘까?`;
   return (
     <div style={styles.pushOffer}>
       <span style={styles.pushOfferText}>{line}</span>
-      {offer.mode === "ask" && (state === "ask" || state === "busy") && (
-        <div style={styles.confirmRow}>
+      {(state === "ask" || state === "busy") && (
+        <div style={{ ...styles.confirmRow, flexWrap: "wrap", justifyContent: "center" }}>
           <button
             className="tl-sticker"
             style={{ ...styles.pushBtn, background: "#FFD23F" }}
@@ -388,11 +513,28 @@ function PushOffer({ offer }: { offer: { what: string; at: string; mode: "ask" |
             onClick={async () => {
               playFx("buttonPress");
               setState("busy");
-              const r = await subscribePush();
-              setState(r);
+              setMsg(null);
+              const r = await remindersApi.create({
+                title: offer.what,
+                remind_at: offer.suggestAt,
+                source: "voice",
+                source_entry_id: offer.entryId,
+              });
+              if (!r.ok) {
+                setState("ask");
+                setMsg(r.code === "no_channel" ? "지금은 알려줄 방법이 없어. 앱 알림이나 전화번호 인증이 필요해." : r.error);
+                return;
+              }
+              const channel = likelyChannel(r.data.delivery);
+              setMsg(`${kstLabel(r.data.reminder.remindAt)}에 ${channel === "sms" ? "문자로 " : channel === "push" ? "알림으로 " : ""}알려줄게.`);
+              setState("ok");
+              onCreated(r.data.reminder, channel);
             }}
           >
-            {state === "busy" ? "잠깐만…" : "응, 알려줘"}
+            {state === "busy" ? "거는 중…" : "응, 걸어줘"}
+          </button>
+          <button className="tl-sticker" style={styles.pushBtn} disabled={state === "busy"} onClick={onAdjust}>
+            시간 바꾸기
           </button>
           <button
             className="tl-sticker"
@@ -400,7 +542,6 @@ function PushOffer({ offer }: { offer: { what: string; at: string; mode: "ask" |
             disabled={state === "busy"}
             onClick={() => {
               playFx("buttonPress");
-              dismissPushOffer();
               setState("hidden");
             }}
           >
@@ -408,32 +549,8 @@ function PushOffer({ offer }: { offer: { what: string; at: string; mode: "ask" |
           </button>
         </div>
       )}
-      {offer.mode === "install" && (
-        <button
-          className="tl-sticker"
-          style={styles.pushBtn}
-          onClick={() => {
-            dismissPushOffer();
-            setState("hidden");
-          }}
-        >
-          알겠어
-        </button>
-      )}
     </div>
   );
-}
-
-// "오늘 / 내일 / 모레 / 금요일 / 10월 24일" — 일정 날짜를 사람 말로
-function dayWord(iso: string): string {
-  const d = new Date(iso);
-  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
-  const diff = Math.round((day(d) - day(new Date())) / 86_400_000);
-  if (diff <= 0) return "오늘";
-  if (diff === 1) return "내일";
-  if (diff === 2) return "모레";
-  if (diff < 7) return `${"일월화수목금토"[d.getDay()]}요일`;
-  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
 }
 
 // 기억 캡슐 위 작은 글씨 — 언제 한 말인지. 일주일 안쪽은 흐리게, 그보다 오래되면 날짜로.
@@ -444,6 +561,16 @@ function recallWhen(iso: string): string {
   if (days < 2) return "어제 니가 한 말";
   if (days < 7) return "며칠 전에 니가 한 말";
   return `${d.getMonth() + 1}월 ${d.getDate()}일에 니가 한 말`;
+}
+
+// 물 위 쪽지 — 메모/알람 버튼
+function SlipIcon() {
+  return (
+    <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden>
+      <path d="M7 5 H21 L25 9 V24 Q20 21.5 15.5 24 Q11 26.5 6 24 Z" fill="#FFFDF6" stroke={INK} strokeWidth={2.4} strokeLinejoin="round" />
+      <path d="M10 11 H20 M10 15 H20 M10 19 H16" stroke={INK} strokeWidth={2} strokeLinecap="round" />
+    </svg>
+  );
 }
 
 function ShellIcon({ on }: { on: boolean }) {
@@ -542,6 +669,36 @@ const styles: { [key: string]: React.CSSProperties } = {
     paddingLeft: 16,
     paddingRight: 16,
     pointerEvents: "none",
+  },
+  headLeft: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    pointerEvents: "auto",
+  },
+  lookDot: {
+    position: "absolute",
+    top: -3,
+    right: -3,
+    width: 14,
+    height: 14,
+    borderRadius: "50%",
+    background: "#FF5B4A",
+    border: `2px solid ${INK}`,
+  },
+  cueSlot: {
+    position: "fixed",
+    top: "calc(70px + env(safe-area-inset-top, 0px))",
+    left: "max(12px, calc(50% - 228px))",
+    zIndex: 85,
+    maxWidth: "min(330px, calc(100% - 24px))",
+    padding: 0,
+    border: 0,
+    background: "none",
+    fontFamily: "'Jua', sans-serif",
+    color: INK,
+    textAlign: "left",
+    cursor: "pointer",
   },
   logo: {
     fontSize: 26,

@@ -1,0 +1,3328 @@
+diff --git a/app/api/cron/send-reminders/route.ts b/app/api/cron/send-reminders/route.ts
+new file mode 100644
+index 0000000..5859ad5
+--- /dev/null
++++ b/app/api/cron/send-reminders/route.ts
+@@ -0,0 +1,30 @@
++// app/api/cron/send-reminders/route.ts
++import { NextResponse } from 'next/server';
++import { processDueReminders } from '@/lib/reminders/deliver';
++
++export const dynamic = 'force-dynamic';
++export const maxDuration = 60;
++
++// ============================================================================
++// 알람 발송 — 1분마다 호출된다(Supabase pg_cron + pg_net, docs/sql/2026-10-12_reminder_cron.sql).
++// Vercel Cron은 Hobby 요금제에서 하루 1번까지라(지금 vercel.json 크론도 전부 하루 1번) 분 단위 알람에는 못 쓴다.
++// 다른 크론과 같은 방식으로 Authorization: Bearer CRON_SECRET 을 확인한다.
++//   GET ?dryRun=true → 보낼 대상만 보고 아무것도 바꾸지 않는다.
++// ============================================================================
++async function handle(request: Request) {
++  const authHeader = request.headers.get('authorization');
++  if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
++    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
++  }
++  const dryRun = new URL(request.url).searchParams.get('dryRun') === 'true';
++  try {
++    const { recovered, results } = await processDueReminders(new Date(), { dryRun });
++    return NextResponse.json({ success: true, dryRun, recovered, count: results.length, results });
++  } catch (err: any) {
++    console.error('[cron/send-reminders] 실패:', err?.message);
++    return NextResponse.json({ success: false, error: err?.message ?? 'failed' }, { status: 500 });
++  }
++}
++
++export const GET = handle;
++export const POST = handle;
+diff --git a/app/api/user/delete/route.ts b/app/api/user/delete/route.ts
+index 426ab64..e68dd64 100644
+--- a/app/api/user/delete/route.ts
++++ b/app/api/user/delete/route.ts
+@@ -16,6 +16,8 @@ export const dynamic = 'force-dynamic';
+ // ============================================================================
+ 
+ const TABLES_IN_ORDER = [
++  'reminders', // 알람(메모를 가리킬 수 있어 메모보다 먼저)
++  'sea_notes', // 바다 위 메모
+   'intervention_log',
+   'letters',
+   'monthly_reflections',
+diff --git a/app/api/user/export/route.ts b/app/api/user/export/route.ts
+index 85f4040..bb8efa4 100644
+--- a/app/api/user/export/route.ts
++++ b/app/api/user/export/route.ts
+@@ -19,7 +19,7 @@ export async function GET(request: Request) {
+   if (!userId) return new Response(JSON.stringify({ success: false, error: '인증 세션이 없습니다.' }), { status: 401 });
+ 
+   try {
+-    const [me, entries, letters, insights] = await Promise.all([
++    const [me, entries, letters, insights, notes, reminders] = await Promise.all([
+       supabase.from('user_memory').select('nickname').eq('user_id', userId).maybeSingle(),
+       supabase
+         .from('voice_entries')
+@@ -38,6 +38,14 @@ export async function GET(request: Request) {
+         .select('content, created_at, status')
+         .eq('user_id', userId)
+         .order('created_at', { ascending: true }),
++      // 바다 위 메모/알람 — 테이블이 아직 없으면(SQL 실행 전) error로 오고, 아래에서 건너뛴다.
++      supabase.from('sea_notes').select('body, created_at').eq('user_id', userId).order('created_at', { ascending: true }),
++      supabase
++        .from('reminders')
++        .select('title, remind_at, status')
++        .eq('user_id', userId)
++        .neq('status', 'canceled')
++        .order('remind_at', { ascending: true }),
+     ]);
+     if (entries.error) throw new Error(entries.error.message);
+ 
+@@ -72,6 +80,23 @@ export async function GET(request: Request) {
+       lines.push('');
+     }
+ 
++    if (!notes.error && (notes.data ?? []).length) {
++      lines.push('==== 물 위에 적어둔 메모 ====');
++      for (const n of notes.data ?? []) {
++        lines.push(`[${kst(n.created_at as string)}]`);
++        lines.push(String(n.body ?? ''));
++        lines.push('');
++      }
++    }
++    if (!reminders.error && (reminders.data ?? []).length) {
++      lines.push('==== 알람 ====');
++      const label: Record<string, string> = { scheduled: '예정', sending: '보내는 중', sent: '알려줌', failed: '못 알려줌' };
++      for (const r of reminders.data ?? []) {
++        lines.push(`[${kst(r.remind_at as string)}] ${r.title} (${label[r.status as string] ?? r.status})`);
++      }
++      lines.push('');
++    }
++
+     const today = kst(new Date().toISOString()).slice(0, 10);
+     return new Response(lines.join('\n'), {
+       status: 200,
+diff --git a/app/api/user/notes/[id]/route.ts b/app/api/user/notes/[id]/route.ts
+new file mode 100644
+index 0000000..c6d4f11
+--- /dev/null
++++ b/app/api/user/notes/[id]/route.ts
+@@ -0,0 +1,62 @@
++// app/api/user/notes/[id]/route.ts
++import { NextResponse } from 'next/server';
++import { getUserIdFromRequest } from '@/lib/auth';
++import { deleteNote, isMissingTable, markNoteOpened, normalizeNoteBody, updateNote } from '@/lib/seaNotes';
++
++export const dynamic = 'force-dynamic';
++
++// ============================================================================
++// 메모 하나.
++//   PATCH { body }          → 고치기
++//   PATCH { opened: true }  → 다시 열어봤다고 기록. 직전에 연 시각(previousOpenedAt)을 같이 돌려준다.
++//   DELETE                  → 지우기(되돌릴 수 없음 — 화면에서 한 번 더 묻는다)
++// 남의 메모 id를 넣으면 404 — user_id로 직접 거른다.
++// ============================================================================
++
++function parseId(raw: string): number | null {
++  const n = Number(raw);
++  return Number.isSafeInteger(n) && n > 0 ? n : null;
++}
++
++const NOT_READY = { success: false, code: 'not_ready', error: '메모장이 아직 준비 안 됐어.' };
++const NOT_FOUND = { success: false, error: '그 메모가 없어.' };
++
++export async function PATCH(request: Request, { params }: { params: { id: string } }) {
++  const userId = await getUserIdFromRequest(request);
++  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
++  const id = parseId(params.id);
++  if (!id) return NextResponse.json(NOT_FOUND, { status: 404 });
++  const payload = await request.json().catch(() => ({}));
++  try {
++    if (payload?.opened === true) {
++      const r = await markNoteOpened(userId, id);
++      if (!r) return NextResponse.json(NOT_FOUND, { status: 404 });
++      return NextResponse.json({ success: true, data: r });
++    }
++    const v = normalizeNoteBody(payload?.body);
++    if (!v.ok) return NextResponse.json({ success: false, error: v.error }, { status: 400 });
++    const note = await updateNote(userId, id, v.body);
++    if (!note) return NextResponse.json(NOT_FOUND, { status: 404 });
++    return NextResponse.json({ success: true, data: { note } });
++  } catch (err: any) {
++    if (isMissingTable(err)) return NextResponse.json(NOT_READY, { status: 503 });
++    console.error('[api/user/notes/id] 수정 실패:', err?.message);
++    return NextResponse.json({ success: false, error: '고친 게 저장이 안 됐어.' }, { status: 500 });
++  }
++}
++
++export async function DELETE(request: Request, { params }: { params: { id: string } }) {
++  const userId = await getUserIdFromRequest(request);
++  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
++  const id = parseId(params.id);
++  if (!id) return NextResponse.json(NOT_FOUND, { status: 404 });
++  try {
++    const ok = await deleteNote(userId, id);
++    if (!ok) return NextResponse.json(NOT_FOUND, { status: 404 });
++    return NextResponse.json({ success: true });
++  } catch (err: any) {
++    if (isMissingTable(err)) return NextResponse.json(NOT_READY, { status: 503 });
++    console.error('[api/user/notes/id] 삭제 실패:', err?.message);
++    return NextResponse.json({ success: false, error: '지우는 게 안 됐어.' }, { status: 500 });
++  }
++}
+diff --git a/app/api/user/notes/route.ts b/app/api/user/notes/route.ts
+new file mode 100644
+index 0000000..aba72b4
+--- /dev/null
++++ b/app/api/user/notes/route.ts
+@@ -0,0 +1,45 @@
++// app/api/user/notes/route.ts
++import { NextResponse } from 'next/server';
++import { getUserIdFromRequest } from '@/lib/auth';
++import { createNote, isMissingTable, listNotes, normalizeNoteBody } from '@/lib/seaNotes';
++
++export const dynamic = 'force-dynamic';
++
++// ============================================================================
++// 바다 위 메모 목록/쓰기.
++//   GET  ?q=검색어 → { notes }      (최근 것부터, 최대 300개)
++//   POST { body }   → { note }
++// 테이블이 아직 없으면(SQL 실행 전) 503 + code:'not_ready' — 화면이 숨기지 않고 그대로 알려준다.
++// ============================================================================
++
++const NOT_READY = { success: false, code: 'not_ready', error: '메모장이 아직 준비 안 됐어.' };
++
++export async function GET(request: Request) {
++  const userId = await getUserIdFromRequest(request);
++  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
++  try {
++    const q = new URL(request.url).searchParams.get('q');
++    const notes = await listNotes(userId, q);
++    return NextResponse.json({ success: true, data: { notes } });
++  } catch (err: any) {
++    if (isMissingTable(err)) return NextResponse.json(NOT_READY, { status: 503 });
++    console.error('[api/user/notes] 목록 실패:', err?.message);
++    return NextResponse.json({ success: false, error: '메모를 못 불러왔어.' }, { status: 500 });
++  }
++}
++
++export async function POST(request: Request) {
++  const userId = await getUserIdFromRequest(request);
++  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
++  const payload = await request.json().catch(() => ({}));
++  const v = normalizeNoteBody(payload?.body);
++  if (!v.ok) return NextResponse.json({ success: false, error: v.error }, { status: 400 });
++  try {
++    const note = await createNote(userId, v.body);
++    return NextResponse.json({ success: true, data: { note } });
++  } catch (err: any) {
++    if (isMissingTable(err)) return NextResponse.json(NOT_READY, { status: 503 });
++    console.error('[api/user/notes] 저장 실패:', err?.message);
++    return NextResponse.json({ success: false, error: '저장이 안 됐어. 적은 건 그대로 있어.' }, { status: 500 });
++  }
++}
+diff --git a/app/api/user/reminders/[id]/route.ts b/app/api/user/reminders/[id]/route.ts
+new file mode 100644
+index 0000000..a0280c3
+--- /dev/null
++++ b/app/api/user/reminders/[id]/route.ts
+@@ -0,0 +1,68 @@
++// app/api/user/reminders/[id]/route.ts
++import { NextResponse } from 'next/server';
++import { getUserIdFromRequest } from '@/lib/auth';
++import { isMissingTable } from '@/lib/seaNotes';
++import { normalizeRemindAt, normalizeTitle } from '@/lib/reminders/core';
++import { cancelForUser, ReminderError, updateForUser } from '@/lib/reminders/store';
++
++export const dynamic = 'force-dynamic';
++
++// ============================================================================
++// 알람 하나.
++//   PATCH  { title?, remind_at? } → 고치기(아직 안 울렸거나 실패한 것만). 고치면 다시 예약된다.
++//   DELETE                        → 취소(기록은 남고 목록에서 빠진다). 취소한 알람은 크론이 절대 집지 않는다.
++// ============================================================================
++
++function parseId(raw: string): number | null {
++  const n = Number(raw);
++  return Number.isSafeInteger(n) && n > 0 ? n : null;
++}
++
++const NOT_READY = { success: false, code: 'not_ready', error: '알람이 아직 준비 안 됐어.' };
++
++export async function PATCH(request: Request, { params }: { params: { id: string } }) {
++  const userId = await getUserIdFromRequest(request);
++  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
++  const id = parseId(params.id);
++  if (!id) return NextResponse.json({ success: false, error: '그 알람이 없어.' }, { status: 404 });
++  const p = await request.json().catch(() => ({}));
++  const patch: { title?: string; remindAt?: Date } = {};
++  if (p?.title !== undefined) {
++    const t = normalizeTitle(p.title);
++    if (!t.ok) return NextResponse.json({ success: false, error: t.error }, { status: 400 });
++    patch.title = t.value;
++  }
++  if (p?.remind_at !== undefined) {
++    const a = normalizeRemindAt(p.remind_at, new Date());
++    if (!a.ok) return NextResponse.json({ success: false, error: a.error }, { status: 400 });
++    patch.remindAt = a.value;
++  }
++  if (patch.title === undefined && patch.remindAt === undefined) {
++    return NextResponse.json({ success: false, error: '바꾼 게 없어.' }, { status: 400 });
++  }
++  try {
++    const reminder = await updateForUser(userId, id, patch);
++    return NextResponse.json({ success: true, data: { reminder } });
++  } catch (err: any) {
++    if (err instanceof ReminderError) return NextResponse.json({ success: false, code: err.code, error: err.message }, { status: err.status });
++    if (isMissingTable(err)) return NextResponse.json(NOT_READY, { status: 503 });
++    console.error('[api/user/reminders/id] 수정 실패:', err?.message);
++    return NextResponse.json({ success: false, error: '고친 게 저장이 안 됐어.' }, { status: 500 });
++  }
++}
++
++export async function DELETE(request: Request, { params }: { params: { id: string } }) {
++  const userId = await getUserIdFromRequest(request);
++  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
++  const id = parseId(params.id);
++  if (!id) return NextResponse.json({ success: false, error: '그 알람이 없어.' }, { status: 404 });
++  try {
++    await cancelForUser(userId, id);
++    return NextResponse.json({ success: true });
++  } catch (err: any) {
++    if (err instanceof ReminderError) return NextResponse.json({ success: false, code: err.code, error: err.message }, { status: err.status });
++    if (isMissingTable(err)) return NextResponse.json(NOT_READY, { status: 503 });
++    console.error('[api/user/reminders/id] 취소 실패:', err?.message);
++    return NextResponse.json({ success: false, error: '취소가 안 됐어.' }, { status: 500 });
++  }
++}
+diff --git a/app/api/user/reminders/route.ts b/app/api/user/reminders/route.ts
+new file mode 100644
+index 0000000..a17a997
+--- /dev/null
++++ b/app/api/user/reminders/route.ts
+@@ -0,0 +1,66 @@
++// app/api/user/reminders/route.ts
++import { NextResponse } from 'next/server';
++import { getUserIdFromRequest } from '@/lib/auth';
++import { isMissingTable } from '@/lib/seaNotes';
++import { normalizeRemindAt, normalizeSource, normalizeTitle } from '@/lib/reminders/core';
++import { createForUser, deliveryAbility, listForUser, ReminderError } from '@/lib/reminders/store';
++
++export const dynamic = 'force-dynamic';
++
++// ============================================================================
++// 알람 목록/만들기.
++//   GET  → { reminders, delivery: { push, sms } }
++//          delivery = 지금 이 계정에 실제로 알려줄 수단이 있는지. 둘 다 false면 화면이 숨기지 않고 알려준다.
++//   POST { title, remind_at(ISO), source?, source_entry_id?, note_id? } → { reminder, existed, delivery }
++//          알려줄 수단이 하나도 없으면 만들지 않는다(409 no_channel) — 울리지 않을 알람을 걸어두는 건 거짓말이다.
++// ============================================================================
++
++const NOT_READY = { success: false, code: 'not_ready', error: '알람이 아직 준비 안 됐어.' };
++
++export async function GET(request: Request) {
++  const userId = await getUserIdFromRequest(request);
++  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
++  try {
++    const [reminders, delivery] = await Promise.all([listForUser(userId), deliveryAbility(userId)]);
++    return NextResponse.json({ success: true, data: { reminders, delivery } });
++  } catch (err: any) {
++    if (isMissingTable(err)) return NextResponse.json(NOT_READY, { status: 503 });
++    console.error('[api/user/reminders] 목록 실패:', err?.message);
++    return NextResponse.json({ success: false, error: '알람을 못 불러왔어.' }, { status: 500 });
++  }
++}
++
++export async function POST(request: Request) {
++  const userId = await getUserIdFromRequest(request);
++  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
++  const p = await request.json().catch(() => ({}));
++  const title = normalizeTitle(p?.title);
++  if (!title.ok) return NextResponse.json({ success: false, error: title.error }, { status: 400 });
++  const at = normalizeRemindAt(p?.remind_at, new Date());
++  if (!at.ok) return NextResponse.json({ success: false, error: at.error }, { status: 400 });
++  const sourceEntryId = typeof p?.source_entry_id === 'string' && /^[0-9a-f-]{36}$/i.test(p.source_entry_id) ? p.source_entry_id : null;
++  const noteId = Number.isSafeInteger(p?.note_id) && p.note_id > 0 ? Number(p.note_id) : null;
++
++  try {
++    const delivery = await deliveryAbility(userId);
++    if (!delivery.push && !delivery.sms) {
++      return NextResponse.json(
++        { success: false, code: 'no_channel', error: '지금은 알려줄 방법이 없어. 앱 알림을 켜거나 전화번호 인증이 필요해.', data: { delivery } },
++        { status: 409 }
++      );
++    }
++    const { reminder, existed } = await createForUser(userId, {
++      title: title.value,
++      remindAt: at.value,
++      source: normalizeSource(p?.source),
++      sourceEntryId,
++      noteId,
++    });
++    return NextResponse.json({ success: true, data: { reminder, existed, delivery } });
++  } catch (err: any) {
++    if (err instanceof ReminderError) return NextResponse.json({ success: false, code: err.code, error: err.message }, { status: err.status });
++    if (isMissingTable(err)) return NextResponse.json(NOT_READY, { status: 503 });
++    console.error('[api/user/reminders] 만들기 실패:', err?.message);
++    return NextResponse.json({ success: false, error: '알람이 안 걸렸어.' }, { status: 500 });
++  }
++}
+diff --git a/app/page.tsx b/app/page.tsx
+index eeb3309..7b76c33 100644
+--- a/app/page.tsx
++++ b/app/page.tsx
+@@ -24,7 +24,7 @@ import type { WorldTab } from "@/components/WorldNav";
+ import TankRecordingScreen from "./screens/TankRecordingScreen";
+ import { BRAND, pageBackground } from "@/lib/theme";
+ import { acquireMicStream, releaseMicStream } from "@/lib/micStream";
+-import { pushOfferDismissed, pushSupport, shouldOfferPush } from "@/lib/pushClient";
++import { suggestFromEvent } from "@/lib/reminders/rules";
+   import { playFx } from "@/lib/fx";
+ 
+ // 어항 ↔ 지난 어항 사이 물결 막, 편지 탭 페이드. transform은 막(별도 fixed 요소)에만 써서
+@@ -331,26 +331,19 @@ export default function Home() {
+ 
+       const state = body.data.call_state;
+       if (state === "no_action" || state === "saved_only") {
+-        // 날짜가 정해진 일정을 말했으면 — 이 기기에서 아직 알림을 안 켰을 때만 "그날 알려줄까?"를 한 번 붙인다.
+-        // 대답은 기다리지 않고 바로 띄우고, 알림 제안은 확인되는 대로 그 말풍선에 붙인다.
++        // 날짜·시각이 정해진 일정을 말했으면(분석이 scheduled_event로 확인한 것만) 대답 아래에 "알람 걸어둘까?"를 한 번 붙인다.
++        // 제안만 한다 — 실제 알람은 사용자가 [응]을 눌러야 생긴다(app/screens/TimelineScreen.tsx AlarmOffer).
++        // 생각 저장/기억/인사이트 흐름은 서버에서 원래대로 끝났고, 이건 화면 쪽 제안일 뿐이다.
+         const ev = body.data.scheduled_event as { what: string; at: string } | null | undefined;
+         if (!isCurrent()) return;
+         const replyText = body.data.response?.response || "일단 들어뒀어.";
+-        setHomeBubble({ kind: "reply", text: replyText, recall: body.data.response?.recalled ?? null, askPush: null });
+-        if (ev?.what && ev?.at) {
+-          // 여기서 await 하지 않는다 — 업로드 마무리(finally)가 늦어지면 말풍선도 같이 늦게 뜬다.
+-          void shouldOfferPush().then((ask) => {
+-            const mode: "ask" | "install" | null = ask
+-              ? "ask"
+-              : pushSupport() === "needs_install" && !pushOfferDismissed()
+-              ? "install"
+-              : null;
+-            if (!mode || !isCurrent()) return;
+-            setHomeBubble((b) =>
+-              b && b.kind === "reply" && b.text === replyText ? { ...b, askPush: { what: ev.what, at: ev.at, mode } } : b
+-            );
+-          });
+-        }
++        const suggestAt = ev?.what && ev?.at ? suggestFromEvent(ev.at, new Date()) : null;
++        setHomeBubble({
++          kind: "reply",
++          text: replyText,
++          recall: body.data.response?.recalled ?? null,
++          alarmOffer: ev && suggestAt ? { what: ev.what, eventAt: ev.at, suggestAt, entryId: String(body.data.id) } : null,
++        });
+         return;
+       }
+ 
+diff --git a/app/screens/TimelineScreen.tsx b/app/screens/TimelineScreen.tsx
+index a7f8d82..b355a72 100644
+--- a/app/screens/TimelineScreen.tsx
++++ b/app/screens/TimelineScreen.tsx
+@@ -1,14 +1,19 @@
+ // app/screens/TimelineScreen.tsx
+ "use client";
+ 
+-import { useEffect, useState } from "react";
++import { useCallback, useEffect, useRef, useState } from "react";
+ import Sea from "@/components/Sea";
+ import { OtterFace } from "@/components/Otter";
+ import { BottomNav, MyButton, type WorldTab } from "@/components/WorldNav";
+ import { acquireMicStream } from "@/lib/micStream";
+ import { playFx } from "@/lib/fx";
+ import { seaSoundPref, setSeaSoundPref, startSea, stopSea, recallChime } from "@/lib/seaSound";
+-import { dismissPushOffer, subscribePush } from "@/lib/pushClient";
++import dynamic from "next/dynamic";
++import type { AlarmPrefill, DeskState, SurfaceTab } from "@/components/SurfaceSheet";
++import OtterCueView from "@/components/OtterCueView";
++import { decideCue, loadOtterMemory, saveOtterMemory, type OtterCue } from "@/lib/otterCues";
++import { likelyChannel, notesApi, remindersApi } from "@/lib/deskClient";
++import { isOverdue, kstLabel } from "@/lib/reminders/rules";
+ 
+ export interface RecordEntry {
+   id: string;
+@@ -46,8 +51,9 @@ export interface HomeBubble {
+   text: string;
+   // reply가 과거 기억을 꺼내 온 대답이면 그 기억(voice/upload → response.recalled)
+   recall?: Recall | null;
+-  // 날짜가 정해진 일정을 말했을 때 — "그날 알려줄까?" (ask) / 아이폰 사파리 탭이면 "홈 화면에 추가하면…" (install)
+-  askPush?: { what: string; at: string; mode: "ask" | "install" } | null;
++  // 날짜·시각이 정해진 일정을 말했을 때 — "○시에 알람 걸어둘까?" 제안(누를 때만 실제로 만든다).
++  //   what/eventAt: 분석이 뽑은 일정(lib/analysis.ts scheduled_event), suggestAt: 제안 시각(30분 전), entryId: 그 녹음
++  alarmOffer?: { what: string; eventAt: string; suggestAt: string; entryId: string } | null;
+ }
+ 
+ interface TimelineScreenProps {
+@@ -77,8 +83,13 @@ interface TimelineScreenProps {
+   onOpenMonth?: (month: string) => void;
+ }
+ 
++// 물 위(메모·알람) 시트 — 누를 때만 받아온다(홈 첫 화면을 무겁게 하지 않게)
++const SurfaceSheet = dynamic(() => import("@/components/SurfaceSheet"), { ssr: false });
++
+ const INK = "#1B1630";
+-const DEEP = "#1B5A96"; // 화면 끝(노치/홈 인디케이터, 바운스 스크롤)에 비치는 깊은 물색
++const DEEP = "#1B5A96";
++// 메모·알람 — 홈을 떠났다 돌아와도 바로 보이게(서버 값으로 곧 다시 맞춘다)
++let deskCache: DeskState = { notes: null, reminders: null, delivery: null, notesError: null, remindersError: null }; // 화면 끝(노치/홈 인디케이터, 바운스 스크롤)에 비치는 깊은 물색
+ 
+ // ============================================================================
+ // Home — 참견이 바다. 화면 전체가 물속이고, 깊이 = 시간.
+@@ -152,6 +163,70 @@ export default function TimelineScreen({
+ 
+   const hasCallback = !!(proactiveLine && proactiveLine.content);
+ 
++  // ---- 물 위(메모·알람) — 홈 위로 올라오는 시트. 데이터는 탭을 오가도 남게 모듈 캐시에 둔다. ----
++  const [desk, setDesk] = useState<DeskState>(() => deskCache);
++  const patchDesk = useCallback((p: Partial<DeskState>) => {
++    setDesk((d) => {
++      const next = { ...d, ...p };
++      deskCache = next;
++      return next;
++    });
++  }, []);
++  const reloadDesk = useCallback(() => {
++    notesApi.list().then((r) => patchDesk(r.ok ? { notes: r.data.notes, notesError: null } : { notesError: r.error }));
++    remindersApi
++      .list()
++      .then((r) =>
++        patchDesk(r.ok ? { reminders: r.data.reminders, delivery: r.data.delivery, remindersError: null } : { remindersError: r.error })
++      );
++  }, [patchDesk]);
++  useEffect(() => {
++    // 홈 첫 그림(바다/대답)이 먼저 — 메모·알람 요약은 조금 뒤에 조용히
++    const t = setTimeout(reloadDesk, 1200);
++    return () => clearTimeout(t);
++  }, [reloadDesk]);
++  const [sheet, setSheet] = useState<{ open: boolean; tab: SurfaceTab; prefill: AlarmPrefill | null }>({ open: false, tab: "notes", prefill: null });
++  const openSheet = (tab: SurfaceTab, prefill: AlarmPrefill | null = null) => {
++    playFx("buttonPress");
++    setHomeCue(null);
++    setSheet({ open: true, tab, prefill });
++  };
++  const closeSheet = useCallback(() => setSheet((s) => ({ ...s, open: false, prefill: null })), []);
++  const now = new Date();
++  const nextReminder =
++    (desk.reminders ?? []).find((r) => r.status === "scheduled" && new Date(r.remindAt).getTime() > now.getTime()) ?? null;
++  // 버튼 위 작은 점 — 못 알려준 알람이 있을 때만(알려줄 게 있어서가 아니라, 실패를 숨기지 않으려고)
++  const needsLook = (desk.reminders ?? []).some((r) => r.status === "failed" || isOverdue(r.status, r.remindAt, now));
++
++  // ---- 홈에서의 참견이 반응 — 무엇을 할지는 lib/otterCues.ts. 처음 한 번 안내 / 못 알려준 알람만. ----
++  const [homeCue, setHomeCue] = useState<{ cue: OtterCue; key: number } | null>(null);
++  const homeCueTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
++  const showHomeCue = (c: OtterCue) => {
++    setHomeCue({ cue: c, key: Date.now() });
++    if (homeCueTimer.current) clearTimeout(homeCueTimer.current);
++    homeCueTimer.current = setTimeout(() => setHomeCue(null), c.ms);
++  };
++  useEffect(() => () => {
++    if (homeCueTimer.current) clearTimeout(homeCueTimer.current);
++  }, []);
++  const quietHome = !!bubble || hasCallback || thinking || sheet.open;
++  useEffect(() => {
++    // 참견이가 할 말(대답/먼저 꺼낸 말)이 떠 있으면 끼어들지 않는다 — 기록도 안 해서 다음에 다시 기회가 있다.
++    if (quietHome || entries === null) return;
++    const t = setTimeout(() => {
++      const mem = loadOtterMemory();
++      const failed = (desk.reminders ?? []).find((r) => r.status === "failed" && !(mem.failedSeen ?? []).includes(r.id));
++      const { cue, next } = failed
++        ? decideCue({ type: "reminder_failed", id: failed.id, title: failed.title }, mem)
++        : decideCue({ type: "home_first_visit" }, mem);
++      if (!cue) return;
++      saveOtterMemory(next);
++      showHomeCue(cue);
++    }, 1800);
++    return () => clearTimeout(t);
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [quietHome, entries === null, desk.reminders]);
++
+   const handleMic = () => {
+     if (thinking) return;
+     // 물소리가 마이크로 들어가지 않게 먼저 끈다(돌아오면 다시 켜진다).
+@@ -205,26 +280,61 @@ export default function TimelineScreen({
+             night={night}
+             onOpenMonth={onOpenMonth}
+             recallUnitId={recall?.memory_unit_id ?? null}
++            deepFacts={{
++              noteCount: desk.notes ? desk.notes.length : null,
++              nextReminder: nextReminder ? { title: nextReminder.title, at: nextReminder.remindAt } : null,
++            }}
+           />
+         </div>
+       )}
+ 
+       {/* HEADER — 소라(물속 소리) · 로고 · MY. 바다 위에 떠 있다. */}
+       <div style={styles.header}>
+-        <button
+-          className={`tl-shell wn-sticker ${soundOn ? "tl-shell-on" : ""}`}
+-          onClick={toggleSound}
+-          aria-label={soundOn ? "물속 소리 끄기" : "물속 소리 켜기"}
+-          aria-pressed={soundOn}
+-        >
+-          <ShellIcon on={soundOn} />
+-        </button>
++        <span style={styles.headLeft}>
++          <button
++            className={`tl-shell wn-sticker ${soundOn ? "tl-shell-on" : ""}`}
++            onClick={toggleSound}
++            aria-label={soundOn ? "물속 소리 끄기" : "물속 소리 켜기"}
++            aria-pressed={soundOn}
++          >
++            <ShellIcon on={soundOn} />
++          </button>
++          <button
++            className="tl-shell wn-sticker"
++            style={{ position: "relative" }}
++            onClick={() => openSheet(needsLook ? "alarms" : "notes")}
++            disabled={thinking}
++            aria-label={needsLook ? "물 위 메모와 알람 — 못 알려준 알람 있음" : "물 위 메모와 알람"}
++          >
++            <SlipIcon />
++            {needsLook && <span style={styles.lookDot} aria-hidden />}
++          </button>
++        </span>
+         <span style={styles.logo}>참견이</span>
+         <span style={{ pointerEvents: "auto" }}>
+           <MyButton onClick={onOpenMyPage} disabled={thinking} />
+         </span>
+       </div>
+ 
++      {/* 참견이 한마디 — 처음 한 번 메모 안내, 못 알려준 알람. 메모 버튼 바로 아래. */}
++      {homeCue && !quietHome && (
++        <button className="tl-cue" style={styles.cueSlot} onClick={() => openSheet(homeCue.cue.expression === "surprise" ? "alarms" : "notes")}>
++          <OtterCueView cue={homeCue.cue} cueKey={homeCue.key} size={46} />
++        </button>
++      )}
++
++      {sheet.open && (
++      <SurfaceSheet
++        open={sheet.open}
++        initialTab={sheet.tab}
++        prefill={sheet.prefill}
++        desk={desk}
++        onDeskChange={patchDesk}
++        onReload={reloadDesk}
++        onClose={closeSheet}
++      />
++      )}
++
+       {/* 말풍선 — 참견이의 대답 / 먼저 꺼낸 말 / 짧은 안내 */}
+       <div style={styles.bubbleSlot}>
+         {/* 대답을 기다리는 동안 — 받아쓴 내 말을 먼저 보여준다(참견이 대답처럼 보이지 않게 내 말 모양으로) */}
+@@ -327,7 +437,17 @@ export default function TimelineScreen({
+             <div key={shown.text} className={recall ? "tl-bubble tl-bubble-late" : "tl-bubble"} style={styles.bubble} role="status">
+               {shown.stamp && <span style={styles.bubbleStamp}>{shown.stamp}</span>}
+               <span style={styles.bubbleText}>{shown.text}</span>
+-              {bubble?.kind === "reply" && bubble.askPush && <PushOffer key={bubble.askPush.at} offer={bubble.askPush} />}
++              {bubble?.kind === "reply" && bubble.alarmOffer && (
++                <AlarmOffer
++                  key={bubble.alarmOffer.entryId}
++                  offer={bubble.alarmOffer}
++                  onCreated={(r) => {
++                    // 확인 문장은 제안 칸 안에 바로 뜬다("○시에 알려줄게.") — 수달이 따로 또 말하지 않는다.
++                    patchDesk({ reminders: [...(desk.reminders ?? []).filter((x) => x.id !== r.id), r] });
++                  }}
++                  onAdjust={() => openSheet("alarms", { title: bubble.alarmOffer!.what, remindAt: bubble.alarmOffer!.suggestAt })}
++                />
++              )}
+               {shown.closable && (
+                 <button className="tl-close" style={styles.bubbleClose} aria-label="말풍선 닫기" onClick={() => onBubbleChange(null)}>
+                   <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+@@ -361,26 +481,31 @@ export default function TimelineScreen({
+   );
+ }
+ 
+-// "그날 알려줄까?" — 일정을 처음 말했을 때 대답 아래에 한 번. 누르는 순간(사용자 제스처)에 알림 허용 창을 띄운다.
+-function PushOffer({ offer }: { offer: { what: string; at: string; mode: "ask" | "install" } }) {
+-  const [state, setState] = useState<"ask" | "busy" | "ok" | "denied" | "failed" | "hidden">("ask");
++// "내일 오전 10시 30분에 알람 걸어둘까?" — 날짜·시각이 정해진 일정을 말했을 때 대답 아래에 한 번.
++// 단순히 미래 얘기를 했다고 만들지 않는다: 분석이 일정(scheduled_event)으로 확인한 것만 오고, 실제 생성은 [응]을 눌러야 한다.
++function AlarmOffer({
++  offer,
++  onCreated,
++  onAdjust,
++}: {
++  offer: { what: string; eventAt: string; suggestAt: string; entryId: string };
++  onCreated: (r: import("@/lib/deskClient").ReminderItem, channel: "push" | "sms" | null) => void;
++  onAdjust: () => void;
++}) {
++  const [state, setState] = useState<"ask" | "busy" | "ok" | "hidden">("ask");
++  const [msg, setMsg] = useState<string | null>(null);
+   if (state === "hidden") return null;
+-  const when = dayWord(offer.at);
++  const when = kstLabel(offer.suggestAt);
++  const early = new Date(offer.eventAt).getTime() - new Date(offer.suggestAt).getTime() >= 60_000;
+   const line =
+-    offer.mode === "install"
+-      ? `홈 화면에 추가해두면 ${when} ${offer.what} 날 찾아갈 수 있어.`
+-      : state === "ok"
+-      ? `${when} 그날 찾아갈게.`
+-      : state === "denied"
+-      ? "알림이 꺼져 있네. 폰 설정에서 켜주면 찾아갈게."
+-      : state === "failed"
+-      ? "지금은 안 되네. MY에서 다시 켤 수 있어."
+-      : `${when} ${offer.what}, 그날 알려줄까?`;
++    state === "ok"
++      ? msg ?? `${when}에 알려줄게.`
++      : msg ?? `${offer.what}${early ? " 30분 전," : ","} ${when}에 알람 걸어둘까?`;
+   return (
+     <div style={styles.pushOffer}>
+       <span style={styles.pushOfferText}>{line}</span>
+-      {offer.mode === "ask" && (state === "ask" || state === "busy") && (
+-        <div style={styles.confirmRow}>
++      {(state === "ask" || state === "busy") && (
++        <div style={{ ...styles.confirmRow, flexWrap: "wrap", justifyContent: "center" }}>
+           <button
+             className="tl-sticker"
+             style={{ ...styles.pushBtn, background: "#FFD23F" }}
+@@ -388,11 +513,28 @@ function PushOffer({ offer }: { offer: { what: string; at: string; mode: "ask" |
+             onClick={async () => {
+               playFx("buttonPress");
+               setState("busy");
+-              const r = await subscribePush();
+-              setState(r);
++              setMsg(null);
++              const r = await remindersApi.create({
++                title: offer.what,
++                remind_at: offer.suggestAt,
++                source: "voice",
++                source_entry_id: offer.entryId,
++              });
++              if (!r.ok) {
++                setState("ask");
++                setMsg(r.code === "no_channel" ? "지금은 알려줄 방법이 없어. 앱 알림이나 전화번호 인증이 필요해." : r.error);
++                return;
++              }
++              const channel = likelyChannel(r.data.delivery);
++              setMsg(`${kstLabel(r.data.reminder.remindAt)}에 ${channel === "sms" ? "문자로 " : channel === "push" ? "알림으로 " : ""}알려줄게.`);
++              setState("ok");
++              onCreated(r.data.reminder, channel);
+             }}
+           >
+-            {state === "busy" ? "잠깐만…" : "응, 알려줘"}
++            {state === "busy" ? "거는 중…" : "응, 걸어줘"}
++          </button>
++          <button className="tl-sticker" style={styles.pushBtn} disabled={state === "busy"} onClick={onAdjust}>
++            시간 바꾸기
+           </button>
+           <button
+             className="tl-sticker"
+@@ -400,7 +542,6 @@ function PushOffer({ offer }: { offer: { what: string; at: string; mode: "ask" |
+             disabled={state === "busy"}
+             onClick={() => {
+               playFx("buttonPress");
+-              dismissPushOffer();
+               setState("hidden");
+             }}
+           >
+@@ -408,34 +549,10 @@ function PushOffer({ offer }: { offer: { what: string; at: string; mode: "ask" |
+           </button>
+         </div>
+       )}
+-      {offer.mode === "install" && (
+-        <button
+-          className="tl-sticker"
+-          style={styles.pushBtn}
+-          onClick={() => {
+-            dismissPushOffer();
+-            setState("hidden");
+-          }}
+-        >
+-          알겠어
+-        </button>
+-      )}
+     </div>
+   );
+ }
+ 
+-// "오늘 / 내일 / 모레 / 금요일 / 10월 24일" — 일정 날짜를 사람 말로
+-function dayWord(iso: string): string {
+-  const d = new Date(iso);
+-  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+-  const diff = Math.round((day(d) - day(new Date())) / 86_400_000);
+-  if (diff <= 0) return "오늘";
+-  if (diff === 1) return "내일";
+-  if (diff === 2) return "모레";
+-  if (diff < 7) return `${"일월화수목금토"[d.getDay()]}요일`;
+-  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+-}
+-
+ // 기억 캡슐 위 작은 글씨 — 언제 한 말인지. 일주일 안쪽은 흐리게, 그보다 오래되면 날짜로.
+ function recallWhen(iso: string): string {
+   const d = new Date(iso);
+@@ -446,6 +563,16 @@ function recallWhen(iso: string): string {
+   return `${d.getMonth() + 1}월 ${d.getDate()}일에 니가 한 말`;
+ }
+ 
++// 물 위 쪽지 — 메모/알람 버튼
++function SlipIcon() {
++  return (
++    <svg width="30" height="30" viewBox="0 0 30 30" aria-hidden>
++      <path d="M7 5 H21 L25 9 V24 Q20 21.5 15.5 24 Q11 26.5 6 24 Z" fill="#FFFDF6" stroke={INK} strokeWidth={2.4} strokeLinejoin="round" />
++      <path d="M10 11 H20 M10 15 H20 M10 19 H16" stroke={INK} strokeWidth={2} strokeLinecap="round" />
++    </svg>
++  );
++}
++
+ function ShellIcon({ on }: { on: boolean }) {
+   return (
+     <svg width="34" height="34" viewBox="0 0 34 34" aria-hidden>
+@@ -543,6 +670,36 @@ const styles: { [key: string]: React.CSSProperties } = {
+     paddingRight: 16,
+     pointerEvents: "none",
+   },
++  headLeft: {
++    display: "flex",
++    alignItems: "center",
++    gap: 8,
++    pointerEvents: "auto",
++  },
++  lookDot: {
++    position: "absolute",
++    top: -3,
++    right: -3,
++    width: 14,
++    height: 14,
++    borderRadius: "50%",
++    background: "#FF5B4A",
++    border: `2px solid ${INK}`,
++  },
++  cueSlot: {
++    position: "fixed",
++    top: "calc(70px + env(safe-area-inset-top, 0px))",
++    left: "max(12px, calc(50% - 228px))",
++    zIndex: 85,
++    maxWidth: "min(330px, calc(100% - 24px))",
++    padding: 0,
++    border: 0,
++    background: "none",
++    fontFamily: "'Jua', sans-serif",
++    color: INK,
++    textAlign: "left",
++    cursor: "pointer",
++  },
+   logo: {
+     fontSize: 26,
+     letterSpacing: "-0.5px",
+diff --git a/components/DeepSea.tsx b/components/DeepSea.tsx
+index 4f31f07..839c062 100644
+--- a/components/DeepSea.tsx
++++ b/components/DeepSea.tsx
+@@ -4,6 +4,7 @@
+ import { useEffect, useRef, useState } from "react";
+ import { OtterBody, type OtterExpression, type OtterHolding } from "@/components/Otter";
+ import { plop } from "@/lib/seaSound";
++import { decideCue, deepTapCue, loadOtterMemory, saveOtterMemory } from "@/lib/otterCues";
+ 
+ // ============================================================================
+ // 심해 — 지금 어항 바로 아래, 참견이(수달)가 사는 곳.
+@@ -19,9 +20,11 @@ import { plop } from "@/lib/seaSound";
+ //
+ // 참견이 상태
+ //   idle      배를 위로 하고 둥둥(밤엔 쿨쿨)
+-//   discover  내려온 걸 알아채고 일어나서 손 흔들기 — 잠깐
++//   discover  내려온 걸 알아채고 일어나서 손 흔들기 — 6시간에 한 번 이하(lib/otterCues.ts deep_arrive).
++//             곧 울릴 알람이 있으면 인사 대신 그걸 말한다. 그 외엔 내려와도 조용히 둥둥.
+ //   growth    실제로 단계가 올라갔고 아직 못 봤을 때만 — 뿌듯하게 보여주고, 본 걸로 기록(onSeen)
+-//   curious   누르면 갸우뚱하고 한마디(지금 어항의 실제 물고기 수 등 — 지어낸 기억은 말하지 않는다)
++//   curious   누르면 갸우뚱하고 한마디 — 지금 실제 상태(다음 알람, 물고기, 쪽지, 조약돌)로만, 같은 말 반복 없이.
++//             할 말을 다 하면 더 지어내지 않고 웃기만 한다(lib/otterCues.ts deepTapCue).
+ // 기억 회상은 여기서 하지 않는다 — 그건 홈 위쪽 말풍선/기억 캡슐이 기존 데이터로만 한다.
+ // ============================================================================
+ 
+@@ -55,6 +58,8 @@ export default function DeepSea({
+   fishCount,
+   busy,
+   onSeen,
++  noteCount = null,
++  nextReminder = null,
+ }: {
+   night: boolean;
+   topColor: string; // 위 바다의 맨 아래 색 — 이음새 없이 이어지게
+@@ -62,6 +67,8 @@ export default function DeepSea({
+   fishCount: number;
+   busy: boolean; // 대답 기다리는 중/카드 열림 — 이땐 연출 안 함
+   onSeen: (stage: number) => void;
++  noteCount?: number | null;
++  nextReminder?: { title: string; at: string } | null;
+ }) {
+   const stage = growth?.stage ?? 0;
+   const pending = !!growth && growth.fresh && growth.stage > growth.seen;
+@@ -71,6 +78,7 @@ export default function DeepSea({
+   const [mode, setMode] = useState<Mode>("idle");
+   const [say, setSay] = useState<{ text: string; key: number } | null>(null);
+   const [tapN, setTapN] = useState(0);
++  const [face, setFace] = useState<OtterExpression | null>(null); // 지금 반응의 표정(lib/otterCues.ts가 정함)
+   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+   const later = (fn: () => void, ms: number) => {
+     timers.current.push(setTimeout(fn, ms));
+@@ -88,6 +96,8 @@ export default function DeepSea({
+   stageRef.current = stage;
+   const busyRef = useRef(busy);
+   busyRef.current = busy;
++  const nextReminderRef = useRef(nextReminder);
++  nextReminderRef.current = nextReminder;
+ 
+   const speak = (text: string, ms: number) => {
+     setSay({ text, key: Date.now() });
+@@ -106,27 +116,29 @@ export default function DeepSea({
+   // ---- 내려와서 참견이가 보이면 ----
+   const ref = useRef<HTMLDivElement>(null);
+   const inView = useRef(false);
+-  const lastMet = useRef(0);
+   useEffect(() => {
+     const el = ref.current;
+     if (!el || typeof IntersectionObserver === "undefined") return;
+     const io = new IntersectionObserver(
+       (es) => {
+         const e = es[0];
+-        const now = Date.now();
+         if (e.isIntersecting && e.intersectionRatio >= 0.5) {
+           if (inView.current) return;
+           inView.current = true;
+           if (busyRef.current) return;
+           if (pendingRef.current) {
+             showGrowth();
+-          } else if (now - lastMet.current > 20000) {
+-            clearAll();
+-            setMode("discover");
+-            speak(night ? "…음? 이 시간에 왔어?" : "어, 왔어?", 2600);
+-            later(() => setMode("idle"), 2800);
++            return;
+           }
+-          lastMet.current = now;
++          // 내려올 때마다 인사하지 않는다 — 언제 말할지는 lib/otterCues.ts가 정한다(6시간에 한 번 이하).
++          const { cue, next } = decideCue({ type: "deep_arrive", night, nextReminder: nextReminderRef.current }, loadOtterMemory());
++          if (!cue) return;
++          saveOtterMemory(next);
++          clearAll();
++          setFace(cue.expression);
++          setMode("discover");
++          if (cue.line) speak(cue.line, cue.ms);
++          later(() => setMode("idle"), cue.ms + 200);
+         } else if (!e.isIntersecting || e.intersectionRatio < 0.2) {
+           inView.current = false;
+         }
+@@ -150,25 +162,23 @@ export default function DeepSea({
+     clearAll();
+     const n = tapN + 1;
+     setTapN(n);
+-    if (n % 4 === 0) {
++    // 지금 실제 상태로만 말한다. 할 말을 다 하면 더 지어내지 않고 웃기만(말 없음).
++    const cue = deepTapCue({ fishCount, stage, noteCount, nextReminder }, n - 1);
++    setFace(cue.expression);
++    if (cue.expression === "laugh") {
+       setMode("discover");
+-      speak("간지러워.", 1800);
+-      later(() => setMode("idle"), 2000);
++      if (cue.line) speak(cue.line, cue.ms);
++      later(() => setMode("idle"), cue.ms + 200);
+       return;
+     }
+-    const lines = [
+-      fishCount > 0 ? `위에 사는 물고기 ${fishCount}마리, 전부 니 생각이야.` : "위에 아직 물고기가 없네. 뭐라도 말해봐.",
+-      stage === 0 ? "여기 이사 온 지 얼마 안 됐어. 니가 말할수록 넓어져." : "여기 내 집. 니가 말할수록 넓어져.",
+-      stage >= 2 ? "이 조약돌? 니가 다시 꺼낸 얘기들이야." : "같은 얘기를 다른 날 또 하면, 그게 조약돌이 돼.",
+-    ];
+     setMode("curious");
+-    speak(lines[(n - 1) % lines.length], 3400);
+-    later(() => setMode("idle"), 3600);
++    if (cue.line) speak(cue.line, cue.ms);
++    later(() => setMode("idle"), cue.ms + 200);
+   };
+ 
+   const upright = mode === "discover" || mode === "growth";
+   const expr: OtterExpression =
+-    mode === "growth" ? "proud" : mode === "discover" ? (tapN % 4 === 0 && tapN > 0 ? "laugh" : "surprise") : mode === "curious" ? "tilt" : night ? "sleep" : "base";
++    mode === "growth" ? "proud" : mode !== "idle" && face ? face : night ? "sleep" : "base";
+ 
+   return (
+     <section
+diff --git a/components/OtterCueView.tsx b/components/OtterCueView.tsx
+new file mode 100644
+index 0000000..c645e12
+--- /dev/null
++++ b/components/OtterCueView.tsx
+@@ -0,0 +1,57 @@
++// components/OtterCueView.tsx
++"use client";
++
++import { OtterFace } from "@/components/Otter";
++import type { OtterCue } from "@/lib/otterCues";
++
++// ============================================================================
++// 참견이 반응 하나를 그린다 — 무엇을 할지는 lib/otterCues.ts가 정하고, 여기는 그림/움직임만.
++// 말이 없는 반응(line=null)은 표정과 짧은 움직임(끄덕/깡총/두리번)만 보인다.
++// ============================================================================
++
++export default function OtterCueView({
++  cue,
++  cueKey,
++  idleExpression = "base",
++  size = 54,
++  side = "right",
++}: {
++  cue: OtterCue | null;
++  cueKey: number;
++  idleExpression?: OtterCue["expression"];
++  size?: number;
++  side?: "right" | "left"; // 말풍선이 얼굴의 어느 쪽에 뜨는지
++}) {
++  const expr = cue?.expression ?? idleExpression;
++  const motion = cue?.motion ? `oc-${cue.motion}` : "";
++  return (
++    <div className="oc-root" style={{ flexDirection: side === "right" ? "row" : "row-reverse" }}>
++      <style dangerouslySetInnerHTML={{ __html: CSS }} />
++      <span key={"f" + cueKey} className={`oc-face ${motion}`} aria-hidden>
++        <OtterFace expression={expr} size={size} />
++      </span>
++      {cue?.line && (
++        <span key={"s" + cueKey} className={`oc-say oc-say-${side}`} role="status">
++          {cue.line}
++        </span>
++      )}
++    </div>
++  );
++}
++
++const CSS = `
++.oc-root{display:flex;align-items:center;gap:6px;min-width:0}
++.oc-face{display:block;flex-shrink:0}
++.oc-face svg{display:block}
++.oc-nod{animation:oc-nod .5s ease-in-out 2}
++@keyframes oc-nod{0%,100%{transform:none}50%{transform:translateY(4px) rotate(-4deg)}}
++.oc-hop{animation:oc-hop .6s cubic-bezier(.3,1.6,.5,1)}
++@keyframes oc-hop{0%{transform:translateY(0)}40%{transform:translateY(-12px) rotate(6deg)}100%{transform:none}}
++.oc-peek{animation:oc-peek .6s cubic-bezier(.3,1.5,.5,1) both}
++@keyframes oc-peek{from{transform:translateY(16px) scale(.6);opacity:0}to{transform:none;opacity:1}}
++.oc-look{animation:oc-look 1.2s ease-in-out}
++@keyframes oc-look{0%,100%{transform:none}30%{transform:rotate(-10deg)}65%{transform:rotate(8deg)}}
++.oc-say{min-width:0;max-width:240px;padding:7px 12px;background:#fff;border:2.5px solid #1B1630;border-radius:16px;box-shadow:2px 2px 0 #1B1630;font-size:15px;line-height:1.35;word-break:keep-all;animation:oc-say .3s cubic-bezier(.3,1.5,.5,1) both}
++@keyframes oc-say{from{transform:scale(.7);opacity:0}to{transform:none;opacity:1}}
++@media (prefers-reduced-motion: reduce){.oc-nod,.oc-hop,.oc-peek,.oc-look,.oc-say{animation:none}}
++`;
+diff --git a/components/Sea.tsx b/components/Sea.tsx
+index 574faf1..5654258 100644
+--- a/components/Sea.tsx
++++ b/components/Sea.tsx
+@@ -50,6 +50,8 @@ interface SeaProps {
+   thinkingPhase?: "listening" | "chewing" | null;
+   // 받아쓰기가 도착한 순간(키) — 그 말이 치어로 퐁당 들어오는 연출
+   heardKey?: number | null;
++  // 심해 참견이가 말할 수 있는 실제 상태 — 메모 개수(모르면 null), 다음 알람(없으면 null)
++  deepFacts?: { noteCount: number | null; nextReminder: { title: string; at: string } | null };
+ }
+ 
+ const NOISE_MAX = 5;
+@@ -116,7 +118,7 @@ interface Visitor {
+ 
+ type Sheet = { kind: "now"; id: string } | null;
+ 
+-export default function Sea({ entries, thinking, night, recallUnitId = null, thinkingPhase = null, heardKey = null }: SeaProps) {
++export default function Sea({ entries, thinking, night, recallUnitId = null, thinkingPhase = null, heardKey = null, deepFacts }: SeaProps) {
+   const rootRef = useRef<HTMLDivElement>(null);
+   const [width, setWidth] = useState(375);
+   useEffect(() => {
+@@ -730,6 +732,8 @@ export default function Sea({ entries, thinking, night, recallUnitId = null, thi
+         fishCount={(lineages ?? []).length + (school.length > 0 ? 1 : 0)}
+         busy={!!thinking || sheet !== null}
+         onSeen={markGrowthSeen}
++        noteCount={deepFacts?.noteCount ?? null}
++        nextReminder={deepFacts?.nextReminder ?? null}
+       />
+ 
+       {/* 가끔 지나가는 손님 */}
+diff --git a/components/SurfaceSheet.tsx b/components/SurfaceSheet.tsx
+new file mode 100644
+index 0000000..7d54785
+--- /dev/null
++++ b/components/SurfaceSheet.tsx
+@@ -0,0 +1,897 @@
++// components/SurfaceSheet.tsx
++"use client";
++
++import { useEffect, useMemo, useRef, useState } from "react";
++import OtterCueView from "@/components/OtterCueView";
++import { decideCue, loadOtterMemory, saveOtterMemory, type OtterCue, type OtterEvent } from "@/lib/otterCues";
++import { likelyChannel, notesApi, remindersApi, type Delivery, type NoteItem, type ReminderItem } from "@/lib/deskClient";
++import {
++  REMINDER_TITLE_MAX,
++  failureText,
++  isOverdue,
++  kstInputParts,
++  kstInputToIso,
++  kstLabel,
++  quickPicks,
++} from "@/lib/reminders/rules";
++import { notificationPermission, pushSupport, subscribePush } from "@/lib/pushClient";
++import { playFx } from "@/lib/fx";
++
++// ============================================================================
++// 물 위 — 바다 위에 적어두는 메모와 알람. 홈(바다) 위로 올라오는 시트라 어항을 떠나지 않는다.
++// ----------------------------------------------------------------------------
++// 메모 : 쓰고 바로 띄우기. 카테고리/태그/날짜를 묻지 않는다. 쪽지가 물 위에 떠 있는 모양.
++// 알람 : 무엇을 + 언제(한국 시간). 실제로 알려줄 수단(앱 알림/문자)이 있는지 숨기지 않고 보여준다.
++// 두 기능은 따로 쓴다. 메모에서 [알람 걸기]를 누르면 알람 탭으로 넘어가 그 내용을 채워줄 뿐.
++// 참견이 반응은 lib/otterCues.ts가 정한다(처음 한 번만 말하고, 그 뒤엔 끄덕이기만).
++// ============================================================================
++
++export type SurfaceTab = "notes" | "alarms";
++
++export interface AlarmPrefill {
++  title: string;
++  remindAt?: string | null;
++  noteId?: number | null;
++}
++
++export interface DeskState {
++  notes: NoteItem[] | null; // null = 아직 못 불러옴
++  reminders: ReminderItem[] | null;
++  delivery: Delivery | null;
++  notesError: string | null; // 불러오기 실패(준비 안 됨 포함) — 화면에 그대로
++  remindersError: string | null;
++}
++
++const INK = "#1B1630";
++const DRAFT_KEY = "ganseobi_note_draft";
++const NOTE_MAX = 1000;
++
++export default function SurfaceSheet({
++  open,
++  initialTab = "notes",
++  prefill = null,
++  desk,
++  onDeskChange,
++  onReload,
++  onClose,
++}: {
++  open: boolean;
++  initialTab?: SurfaceTab;
++  prefill?: AlarmPrefill | null;
++  desk: DeskState;
++  onDeskChange: (patch: Partial<DeskState>) => void;
++  onReload: () => void;
++  onClose: () => void;
++}) {
++  const [tab, setTab] = useState<SurfaceTab>(initialTab);
++  const [cue, setCue] = useState<{ cue: OtterCue | null; key: number }>({ cue: null, key: 0 });
++  const cueTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
++  const react = (ev: OtterEvent) => {
++    const { cue: c, next } = decideCue(ev, loadOtterMemory());
++    saveOtterMemory(next);
++    if (!c) return;
++    setCue({ cue: c, key: Date.now() });
++    if (cueTimer.current) clearTimeout(cueTimer.current);
++    cueTimer.current = setTimeout(() => setCue((x) => ({ ...x, cue: null })), c.ms);
++  };
++  useEffect(() => () => {
++    if (cueTimer.current) clearTimeout(cueTimer.current);
++  }, []);
++
++  // 열릴 때마다 탭/채움값을 맞추고 최신으로 다시 불러온다.
++  const [alarmSeed, setAlarmSeed] = useState<AlarmPrefill | null>(null);
++  useEffect(() => {
++    if (!open) return;
++    setTab(prefill ? "alarms" : initialTab);
++    setAlarmSeed(prefill);
++    onReload();
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [open]);
++
++  // 시트가 떠 있는 동안 뒤 바다가 같이 스크롤되지 않게 + Esc로 닫기
++  useEffect(() => {
++    if (!open) return;
++    const prev = document.body.style.overflow;
++    document.body.style.overflow = "hidden";
++    const onKey = (e: KeyboardEvent) => {
++      if (e.key === "Escape") onClose();
++    };
++    window.addEventListener("keydown", onKey);
++    return () => {
++      document.body.style.overflow = prev;
++      window.removeEventListener("keydown", onKey);
++    };
++  }, [open, onClose]);
++
++  // 실패한 알람이 있으면 참견이가 한 번(알람마다 한 번) 말해준다
++  useEffect(() => {
++    if (!open || !desk.reminders) return;
++    const seen = loadOtterMemory().failedSeen ?? [];
++    const failed = desk.reminders.find((r) => r.status === "failed" && !seen.includes(r.id));
++    if (failed) react({ type: "reminder_failed", id: failed.id, title: failed.title });
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [open, desk.reminders]);
++
++  if (!open) return null;
++
++  const goAlarmFromNote = (n: NoteItem) => {
++    const firstLine = n.body.split("\n")[0].trim();
++    setAlarmSeed({ title: firstLine.slice(0, REMINDER_TITLE_MAX), noteId: n.id });
++    setTab("alarms");
++  };
++
++  return (
++    <div className="ss-wrap" role="dialog" aria-modal="true" aria-label="물 위 — 메모와 알람">
++      <style dangerouslySetInnerHTML={{ __html: CSS }} />
++      <div className="ss-panel">
++        <header className="ss-head">
++          <div className="ss-otter">
++            <OtterCueView cue={cue.cue} cueKey={cue.key} size={50} />
++          </div>
++          <button
++            className="ss-x"
++            aria-label="닫기"
++            onClick={() => {
++              playFx("buttonPress");
++              onClose();
++            }}
++          >
++            <svg width="16" height="16" viewBox="0 0 14 14" aria-hidden>
++              <path d="M3 3 L11 11 M11 3 L3 11" stroke={INK} strokeWidth={2.6} strokeLinecap="round" />
++            </svg>
++          </button>
++        </header>
++
++        {/* 수면 — 여기 위에 적어둔 것들이 떠 있다 */}
++        <svg className="ss-surface" viewBox="0 0 480 14" preserveAspectRatio="none" aria-hidden>
++          <path d="M0 8 Q30 1 60 8 T120 8 T180 8 T240 8 T300 8 T360 8 T420 8 T480 8" fill="none" stroke="#FFFFFF" strokeWidth={3} strokeLinecap="round" />
++        </svg>
++        <div className="ss-tabs" role="tablist">
++          <button role="tab" aria-selected={tab === "notes"} className={tab === "notes" ? "ss-tab ss-tab-on" : "ss-tab"} onClick={() => setTab("notes")}>
++            메모
++          </button>
++          <button role="tab" aria-selected={tab === "alarms"} className={tab === "alarms" ? "ss-tab ss-tab-on" : "ss-tab"} onClick={() => setTab("alarms")}>
++            알람
++          </button>
++        </div>
++
++        <div className="ss-body">
++          {tab === "notes" ? (
++            <NotesPane desk={desk} onDeskChange={onDeskChange} onReload={onReload} react={react} onAlarm={goAlarmFromNote} />
++          ) : (
++            <AlarmsPane
++              key={alarmSeed ? `seed-${alarmSeed.noteId ?? ""}-${alarmSeed.title}` : "plain"}
++              desk={desk}
++              onDeskChange={onDeskChange}
++              onReload={onReload}
++              react={react}
++              seed={alarmSeed}
++              clearSeed={() => setAlarmSeed(null)}
++            />
++          )}
++        </div>
++      </div>
++    </div>
++  );
++}
++
++// =============================================================================
++// 메모
++// =============================================================================
++function NotesPane({
++  desk,
++  onDeskChange,
++  onReload,
++  react,
++  onAlarm,
++}: {
++  desk: DeskState;
++  onDeskChange: (p: Partial<DeskState>) => void;
++  onReload: () => void;
++  react: (ev: OtterEvent) => void;
++  onAlarm: (n: NoteItem) => void;
++}) {
++  const [text, setText] = useState("");
++  const [saving, setSaving] = useState(false);
++  const [err, setErr] = useState<string | null>(null);
++  const [justSaved, setJustSaved] = useState<number | null>(null);
++  const [q, setQ] = useState("");
++  const [openId, setOpenId] = useState<number | null>(null);
++
++  // 쓰다 만 메모는 기기에 잠깐 남겨둔다(시트를 닫았다 열어도 그대로)
++  useEffect(() => {
++    try {
++      const d = localStorage.getItem(DRAFT_KEY);
++      if (d) setText(d);
++    } catch {
++      /* 없으면 빈칸 */
++    }
++  }, []);
++  const changeText = (v: string) => {
++    setText(v);
++    setErr(null);
++    try {
++      if (v) localStorage.setItem(DRAFT_KEY, v);
++      else localStorage.removeItem(DRAFT_KEY);
++    } catch {
++      /* 못 남겨도 그만 */
++    }
++  };
++
++  const save = async () => {
++    const body = text.trim();
++    if (!body || saving) return;
++    setSaving(true);
++    setErr(null);
++    const r = await notesApi.create(body);
++    setSaving(false);
++    if (!r.ok) {
++      setErr(r.error); // 적은 글은 그대로 둔다
++      return;
++    }
++    playFx("buttonPress");
++    changeText("");
++    onDeskChange({ notes: [r.data.note, ...(desk.notes ?? [])], notesError: null });
++    setJustSaved(r.data.note.id);
++    react({ type: "note_saved" });
++  };
++
++  const notes = desk.notes;
++  const shown = useMemo(() => {
++    if (!notes) return null;
++    const term = q.trim().toLowerCase();
++    return term ? notes.filter((n) => n.body.toLowerCase().includes(term)) : notes;
++  }, [notes, q]);
++
++  return (
++    <div>
++      <div className="ss-compose">
++        <label htmlFor="ss-note" className="ss-sr">
++          메모
++        </label>
++        <textarea
++          id="ss-note"
++          className="ss-ta"
++          value={text}
++          maxLength={NOTE_MAX}
++          rows={3}
++          placeholder="떠오른 거, 사고 싶은 거, 물어볼 거… 여기 띄워도 돼."
++          onChange={(e) => changeText(e.target.value)}
++          onKeyDown={(e) => {
++            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
++          }}
++        />
++        <div className="ss-row ss-row-end">
++          {text.length > NOTE_MAX * 0.8 && <span className="ss-muted">{text.length}/{NOTE_MAX}</span>}
++          <button className="ss-btn ss-btn-main" disabled={!text.trim() || saving} onClick={save}>
++            {saving ? "띄우는 중…" : "띄우기"}
++          </button>
++        </div>
++        {err && (
++          <p className="ss-err" role="alert">
++            {err}
++          </p>
++        )}
++      </div>
++
++      {desk.notesError && (
++        <div className="ss-err-box" role="alert">
++          <span>{desk.notesError}</span>
++          <button className="ss-btn" onClick={onReload}>
++            다시 불러오기
++          </button>
++        </div>
++      )}
++
++      {notes && notes.length >= 6 && (
++        <div className="ss-search">
++          <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden>
++            <circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke={INK} strokeWidth={2.4} />
++            <path d="M13 13 L18 18" stroke={INK} strokeWidth={2.4} strokeLinecap="round" />
++          </svg>
++          <input className="ss-search-in" value={q} onChange={(e) => setQ(e.target.value)} placeholder="쪽지 찾기" aria-label="메모 찾기" />
++          {q && (
++            <button className="ss-link" onClick={() => setQ("")}>
++              지우기
++            </button>
++          )}
++        </div>
++      )}
++
++      {shown === null && !desk.notesError && <p className="ss-muted ss-center">물 위를 보는 중…</p>}
++
++      {shown && shown.length === 0 && !q && (
++        <div className="ss-empty">
++          <svg width="120" height="56" viewBox="0 0 120 56" aria-hidden>
++            <path d="M6 40 Q21 30 36 40 T66 40 T96 40 T120 40" fill="none" stroke="#fff" strokeWidth={4} strokeLinecap="round" opacity={0.9} />
++            <path d="M40 34 L60 18 L80 34 Z" fill="#fff" stroke={INK} strokeWidth={2.6} strokeLinejoin="round" />
++            <path d="M60 18 V34" stroke={INK} strokeWidth={2} />
++          </svg>
++          <p>아직 아무것도 안 떠 있어.</p>
++        </div>
++      )}
++      {shown && shown.length === 0 && q && <p className="ss-muted ss-center">“{q}” 들어간 쪽지가 없어.</p>}
++
++      <ul className="ss-list">
++        {(shown ?? []).map((n, i) => (
++          <NoteSlip
++            key={n.id}
++            note={n}
++            tilt={i % 2 ? 0.8 : -0.8}
++            fresh={justSaved === n.id}
++            open={openId === n.id}
++            onToggle={async () => {
++              if (openId === n.id) {
++                setOpenId(null);
++                return;
++              }
++              setOpenId(n.id);
++              const r = await notesApi.opened(n.id);
++              if (r.ok) {
++                react({ type: "note_reopened", createdAt: n.createdAt, previousOpenedAt: r.data.previousOpenedAt });
++                onDeskChange({ notes: (desk.notes ?? []).map((x) => (x.id === n.id ? r.data.note : x)) });
++              }
++            }}
++            onSaved={(note) => onDeskChange({ notes: (desk.notes ?? []).map((x) => (x.id === note.id ? note : x)) })}
++            onDeleted={() => {
++              setOpenId(null);
++              onDeskChange({ notes: (desk.notes ?? []).filter((x) => x.id !== n.id) });
++            }}
++            onAlarm={() => onAlarm(n)}
++          />
++        ))}
++      </ul>
++    </div>
++  );
++}
++
++function NoteSlip({
++  note,
++  tilt,
++  fresh,
++  open,
++  onToggle,
++  onSaved,
++  onDeleted,
++  onAlarm,
++}: {
++  note: NoteItem;
++  tilt: number;
++  fresh: boolean;
++  open: boolean;
++  onToggle: () => void;
++  onSaved: (n: NoteItem) => void;
++  onDeleted: () => void;
++  onAlarm: () => void;
++}) {
++  const [edit, setEdit] = useState(note.body);
++  const [busy, setBusy] = useState(false);
++  const [err, setErr] = useState<string | null>(null);
++  const [confirmDel, setConfirmDel] = useState(false);
++  const [saved, setSaved] = useState(false);
++  useEffect(() => {
++    if (open) {
++      setEdit(note.body);
++      setErr(null);
++      setConfirmDel(false);
++      setSaved(false);
++    }
++  }, [open, note.body]);
++
++  const changed = edit.trim() !== note.body.trim();
++  return (
++    <li className={`ss-slip ${fresh ? "ss-slip-in" : ""}`} style={{ transform: `rotate(${open ? 0 : tilt}deg)` }}>
++      {!open ? (
++        <button className="ss-slip-btn" onClick={onToggle} aria-expanded={false}>
++          <span className="ss-slip-text">{note.body}</span>
++          <span className="ss-slip-when">{agoLabel(note.createdAt)}</span>
++        </button>
++      ) : (
++        <div className="ss-slip-open">
++          <textarea
++            className="ss-ta ss-ta-edit"
++            value={edit}
++            maxLength={NOTE_MAX}
++            rows={Math.min(10, Math.max(3, edit.split("\n").length + 1))}
++            onChange={(e) => {
++              setEdit(e.target.value);
++              setErr(null);
++              setSaved(false);
++            }}
++            aria-label="메모 고치기"
++          />
++          <div className="ss-row">
++            <span className="ss-muted">{agoLabel(note.createdAt)} 띄움{note.updatedAt !== note.createdAt ? " · 고친 적 있음" : ""}</span>
++          </div>
++          {err && (
++            <p className="ss-err" role="alert">
++              {err}
++            </p>
++          )}
++          {saved && !changed && <p className="ss-ok" role="status">고쳐뒀어.</p>}
++          {!confirmDel ? (
++            <div className="ss-row ss-wrap-row">
++              <button
++                className="ss-btn ss-btn-main"
++                disabled={!changed || !edit.trim() || busy}
++                onClick={async () => {
++                  setBusy(true);
++                  const r = await notesApi.update(note.id, edit);
++                  setBusy(false);
++                  if (!r.ok) return setErr(r.error);
++                  setSaved(true);
++                  onSaved(r.data.note);
++                }}
++              >
++                {busy ? "저장 중…" : "고친 거 저장"}
++              </button>
++              <button className="ss-btn" onClick={onAlarm}>
++                알람 걸기
++              </button>
++              <button className="ss-btn ss-btn-ghost" onClick={() => setConfirmDel(true)}>
++                지우기
++              </button>
++              <button className="ss-link ss-push-right" onClick={onToggle}>
++                접기
++              </button>
++            </div>
++          ) : (
++            <div className="ss-row ss-wrap-row" role="group" aria-label="지울지 확인">
++              <span className="ss-ask">지우면 다시 못 꺼내. 지울까?</span>
++              <button
++                className="ss-btn ss-btn-danger"
++                disabled={busy}
++                onClick={async () => {
++                  setBusy(true);
++                  const r = await notesApi.remove(note.id);
++                  setBusy(false);
++                  if (!r.ok) {
++                    setConfirmDel(false);
++                    return setErr(r.error);
++                  }
++                  onDeleted();
++                }}
++              >
++                {busy ? "지우는 중…" : "응, 지워"}
++              </button>
++              <button className="ss-btn" onClick={() => setConfirmDel(false)}>
++                아니
++              </button>
++            </div>
++          )}
++        </div>
++      )}
++    </li>
++  );
++}
++
++// =============================================================================
++// 알람
++// =============================================================================
++function AlarmsPane({
++  desk,
++  onDeskChange,
++  onReload,
++  react,
++  seed,
++  clearSeed,
++}: {
++  desk: DeskState;
++  onDeskChange: (p: Partial<DeskState>) => void;
++  onReload: () => void;
++  react: (ev: OtterEvent) => void;
++  seed: AlarmPrefill | null;
++  clearSeed: () => void;
++}) {
++  const [editingId, setEditingId] = useState<number | null>(null);
++  const [formOpen, setFormOpen] = useState(!!seed);
++  const delivery = desk.delivery;
++  const channel = likelyChannel(delivery);
++  const reminders = desk.reminders;
++  const now = new Date();
++
++  const upcoming = (reminders ?? []).filter((r) => r.status === "scheduled" || r.status === "sending");
++  const failed = (reminders ?? []).filter((r) => r.status === "failed");
++  const sent = (reminders ?? []).filter((r) => r.status === "sent").reverse();
++
++  const replace = (r: ReminderItem) => {
++    const list = reminders ?? [];
++    const exists = list.some((x) => x.id === r.id);
++    const next = (exists ? list.map((x) => (x.id === r.id ? r : x)) : [...list, r]).sort(
++      (a, b) => new Date(a.remindAt).getTime() - new Date(b.remindAt).getTime()
++    );
++    onDeskChange({ reminders: next });
++  };
++
++  return (
++    <div>
++      <DeliveryLine delivery={delivery} onChanged={onReload} />
++
++      {desk.remindersError && (
++        <div className="ss-err-box" role="alert">
++          <span>{desk.remindersError}</span>
++          <button className="ss-btn" onClick={onReload}>
++            다시 불러오기
++          </button>
++        </div>
++      )}
++
++      {formOpen && editingId === null ? (
++        <AlarmForm
++          seed={seed}
++          channel={channel}
++          disabled={!!delivery && !channel}
++          onCancel={() => {
++            setFormOpen(false);
++            clearSeed();
++          }}
++          onSubmit={async (title, iso) => {
++            const r = await remindersApi.create({
++              title,
++              remind_at: iso,
++              source: seed?.noteId ? "note" : "manual",
++              ...(seed?.noteId ? { note_id: seed.noteId } : {}),
++            });
++            if (!r.ok) return r.error;
++            replace(r.data.reminder);
++            onDeskChange({ delivery: r.data.delivery });
++            react({ type: "reminder_set", remindAt: r.data.reminder.remindAt, channel: likelyChannel(r.data.delivery) });
++            setFormOpen(false);
++            clearSeed();
++            return null;
++          }}
++        />
++      ) : (
++        editingId === null && (
++          <button className="ss-btn ss-btn-main ss-full" disabled={!!delivery && !channel} onClick={() => setFormOpen(true)}>
++            ＋ 알람 걸기
++          </button>
++        )
++      )}
++
++      {reminders === null && !desk.remindersError && <p className="ss-muted ss-center">알람 보는 중…</p>}
++      {reminders && reminders.length === 0 && !formOpen && <p className="ss-muted ss-center">걸어둔 알람이 없어.</p>}
++
++      {failed.length > 0 && <h3 className="ss-h">못 알려준 거</h3>}
++      <ul className="ss-alist">
++        {failed.map((r) => (
++          <ReminderRow key={r.id} r={r} now={now} editing={editingId === r.id} onEdit={() => setEditingId(r.id)} onDone={() => setEditingId(null)} channel={channel} replace={replace} remove={(id) => onDeskChange({ reminders: (reminders ?? []).filter((x) => x.id !== id) })} />
++        ))}
++      </ul>
++
++      {upcoming.length > 0 && <h3 className="ss-h">걸어둔 알람</h3>}
++      <ul className="ss-alist">
++        {upcoming.map((r) => (
++          <ReminderRow key={r.id} r={r} now={now} editing={editingId === r.id} onEdit={() => setEditingId(r.id)} onDone={() => setEditingId(null)} channel={channel} replace={replace} remove={(id) => onDeskChange({ reminders: (reminders ?? []).filter((x) => x.id !== id) })} />
++        ))}
++      </ul>
++
++      {sent.length > 0 && <h3 className="ss-h ss-h-muted">알려준 거</h3>}
++      <ul className="ss-alist">
++        {sent.map((r) => (
++          <li key={r.id} className="ss-arow ss-arow-done">
++            <span className="ss-atitle">{r.title}</span>
++            <span className="ss-muted">
++              {kstLabel(r.remindAt, now)} · {r.channel === "sms" ? "문자로" : "앱 알림으로"} 알려줬어
++            </span>
++          </li>
++        ))}
++      </ul>
++    </div>
++  );
++}
++
++function DeliveryLine({ delivery, onChanged }: { delivery: Delivery | null; onChanged: () => void }) {
++  const [state, setState] = useState<"idle" | "busy" | "denied" | "failed">("idle");
++  if (!delivery) return null;
++  const support = pushSupport();
++  const canEnablePush = !delivery.push && support === "ok" && notificationPermission() !== "denied";
++  const line = delivery.push
++    ? "앱 알림으로 알려줄게."
++    : delivery.sms
++    ? "지금은 문자로 알려줄게."
++    : "지금은 알려줄 방법이 없어. 앱 알림을 켜거나 전화번호 인증이 필요해.";
++  return (
++    <div className={delivery.push || delivery.sms ? "ss-deliv" : "ss-deliv ss-deliv-warn"} role={delivery.push || delivery.sms ? "note" : "alert"}>
++      <span>{line}</span>
++      {canEnablePush && (
++        <button
++          className="ss-btn"
++          disabled={state === "busy"}
++          onClick={async () => {
++            setState("busy");
++            const r = await subscribePush(); // 버튼 누른 순간에만 허용 창을 띄울 수 있다(아이폰)
++            setState(r === "ok" ? "idle" : r);
++            if (r === "ok") onChanged();
++          }}
++        >
++          {state === "busy" ? "잠깐만…" : "앱 알림 켜기"}
++        </button>
++      )}
++      {state === "denied" && <span className="ss-muted">알림이 꺼져 있어. 폰 설정에서 켜야 해.</span>}
++      {state === "failed" && <span className="ss-muted">앱 알림 켜기가 안 됐어.</span>}
++      {!delivery.push && support === "needs_install" && <span className="ss-muted">아이폰은 홈 화면에 추가하면 앱 알림도 받을 수 있어.</span>}
++    </div>
++  );
++}
++
++function ReminderRow({
++  r,
++  now,
++  editing,
++  onEdit,
++  onDone,
++  channel,
++  replace,
++  remove,
++}: {
++  r: ReminderItem;
++  now: Date;
++  editing: boolean;
++  onEdit: () => void;
++  onDone: () => void;
++  channel: "push" | "sms" | null;
++  replace: (r: ReminderItem) => void;
++  remove: (id: number) => void;
++}) {
++  const [confirm, setConfirm] = useState(false);
++  const [busy, setBusy] = useState(false);
++  const [err, setErr] = useState<string | null>(null);
++  const overdue = isOverdue(r.status, r.remindAt, now);
++
++  if (editing) {
++    return (
++      <li className="ss-arow">
++        <AlarmForm
++          seed={{ title: r.title, remindAt: r.remindAt }}
++          channel={channel}
++          submitLabel={r.status === "failed" ? "다시 걸기" : "고친 거 저장"}
++          onCancel={onDone}
++          onSubmit={async (title, iso) => {
++            const res = await remindersApi.update(r.id, { title, remind_at: iso });
++            if (!res.ok) return res.error;
++            replace(res.data.reminder);
++            onDone();
++            return null;
++          }}
++        />
++      </li>
++    );
++  }
++  return (
++    <li className={r.status === "failed" ? "ss-arow ss-arow-fail" : "ss-arow"}>
++      <div className="ss-arow-top">
++        <span className="ss-bell" aria-hidden>
++          <svg width="18" height="18" viewBox="0 0 20 20">
++            <path d="M5 14 V9 a5 5 0 0 1 10 0 V14 L16.5 15.5 H3.5 Z" fill={r.status === "failed" ? "#FFB0A8" : "#FFD23F"} stroke={INK} strokeWidth={2} strokeLinejoin="round" />
++            <path d="M8 17.5 a2 2 0 0 0 4 0" fill="none" stroke={INK} strokeWidth={2} strokeLinecap="round" />
++          </svg>
++        </span>
++        <span className="ss-atitle">{r.title}</span>
++      </div>
++      <span className="ss-awhen">{kstLabel(r.remindAt, now)}</span>
++      {r.status === "sending" && <span className="ss-muted">지금 알려주는 중…</span>}
++      {overdue && <span className="ss-warn">시간이 지났는데 아직 못 알려줬어. 알람 발송기가 안 돌고 있는 것 같아.</span>}
++      {r.status === "failed" && <span className="ss-warn">{failureText(r.lastError)}</span>}
++      {r.source === "voice" && <span className="ss-muted">말한 일정에서 건 알람</span>}
++      {err && (
++        <p className="ss-err" role="alert">
++          {err}
++        </p>
++      )}
++      {r.status !== "sending" &&
++        (!confirm ? (
++          <div className="ss-row ss-wrap-row">
++            <button className="ss-btn" onClick={onEdit}>
++              {r.status === "failed" ? "시간 바꿔서 다시 걸기" : "고치기"}
++            </button>
++            <button className="ss-btn ss-btn-ghost" onClick={() => setConfirm(true)}>
++              {r.status === "failed" ? "치우기" : "취소"}
++            </button>
++          </div>
++        ) : (
++          <div className="ss-row ss-wrap-row" role="group" aria-label="취소 확인">
++            <span className="ss-ask">{r.status === "failed" ? "목록에서 치울까?" : "이 알람 취소할까?"}</span>
++            <button
++              className="ss-btn ss-btn-danger"
++              disabled={busy}
++              onClick={async () => {
++                setBusy(true);
++                const res = await remindersApi.cancel(r.id);
++                setBusy(false);
++                if (!res.ok) {
++                  setConfirm(false);
++                  return setErr(res.error);
++                }
++                remove(r.id);
++              }}
++            >
++              {busy ? "…" : "응"}
++            </button>
++            <button className="ss-btn" onClick={() => setConfirm(false)}>
++              아니
++            </button>
++          </div>
++        ))}
++    </li>
++  );
++}
++
++function AlarmForm({
++  seed,
++  channel,
++  disabled = false,
++  submitLabel = "알람 걸기",
++  onSubmit,
++  onCancel,
++}: {
++  seed: AlarmPrefill | null;
++  channel: "push" | "sms" | null;
++  disabled?: boolean;
++  submitLabel?: string;
++  onSubmit: (title: string, iso: string) => Promise<string | null>;
++  onCancel: () => void;
++}) {
++  const init = seed?.remindAt ? kstInputParts(seed.remindAt) : kstInputParts(quickPicks()[0].iso);
++  const [title, setTitle] = useState(seed?.title ?? "");
++  const [date, setDate] = useState(init.date);
++  const [time, setTime] = useState(init.time);
++  const [busy, setBusy] = useState(false);
++  const [err, setErr] = useState<string | null>(null);
++  const iso = kstInputToIso(date, time);
++  const picks = quickPicks();
++
++  return (
++    <form
++      className="ss-form"
++      onSubmit={async (e) => {
++        e.preventDefault();
++        if (!iso) return setErr("시간을 다시 골라줘.");
++        if (new Date(iso).getTime() < Date.now() + 60_000) return setErr("이미 지난 시간이야.");
++        setBusy(true);
++        setErr(null);
++        const msg = await onSubmit(title.trim(), iso);
++        setBusy(false);
++        if (msg) setErr(msg);
++      }}
++    >
++      <label className="ss-label" htmlFor="ss-a-title">
++        뭘 알려줄까
++      </label>
++      <input
++        id="ss-a-title"
++        className="ss-in"
++        value={title}
++        maxLength={REMINDER_TITLE_MAX}
++        placeholder="예: 스튜디오 가기"
++        onChange={(e) => {
++          setTitle(e.target.value);
++          setErr(null);
++        }}
++      />
++      <span className="ss-label">언제 (한국 시간)</span>
++      <div className="ss-chips">
++        {picks.map((p) => {
++          const parts = kstInputParts(p.iso);
++          const on = parts.date === date && parts.time === time;
++          return (
++            <button
++              type="button"
++              key={p.label}
++              className={on ? "ss-chip ss-chip-on" : "ss-chip"}
++              aria-pressed={on}
++              onClick={() => {
++                setDate(parts.date);
++                setTime(parts.time);
++                setErr(null);
++              }}
++            >
++              {p.label}
++            </button>
++          );
++        })}
++      </div>
++      <div className="ss-row">
++        <input className="ss-in ss-in-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="날짜" />
++        <input className="ss-in ss-in-time" type="time" value={time} onChange={(e) => setTime(e.target.value)} aria-label="시각" />
++      </div>
++      {iso && <p className="ss-muted">{kstLabel(iso)}에 {channel === "sms" ? "문자로" : channel === "push" ? "앱 알림으로" : ""} 알려줄게.</p>}
++      {err && (
++        <p className="ss-err" role="alert">
++          {err}
++        </p>
++      )}
++      <div className="ss-row ss-row-end">
++        <button type="button" className="ss-btn ss-btn-ghost" onClick={onCancel}>
++          그만
++        </button>
++        <button type="submit" className="ss-btn ss-btn-main" disabled={disabled || busy || !title.trim() || !iso}>
++          {busy ? "거는 중…" : submitLabel}
++        </button>
++      </div>
++    </form>
++  );
++}
++
++function agoLabel(iso: string): string {
++  const d = new Date(iso);
++  const days = (Date.now() - d.getTime()) / 86_400_000;
++  if (days < 1 && new Date().getDate() === d.getDate()) return "오늘";
++  if (days < 2) return "어제";
++  if (days < 7) return `${Math.floor(days)}일 전`;
++  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
++}
++
++const CSS = `
++.ss-wrap{position:fixed;inset:0;z-index:150;display:flex;justify-content:center;background:rgba(15,46,87,.35);animation:ss-fade .2s ease-out}
++@keyframes ss-fade{from{opacity:0}to{opacity:1}}
++.ss-panel{position:relative;width:100%;max-width:480px;height:100%;display:flex;flex-direction:column;background:linear-gradient(#8BE0FA 0%,#5CCBF0 45%,#45BFEC 100%);font-family:'Jua',sans-serif;color:${INK};animation:ss-rise .38s cubic-bezier(.25,1.2,.4,1) both;padding-top:env(safe-area-inset-top,0px)}
++@keyframes ss-rise{from{transform:translateY(40px);opacity:.3}to{transform:none;opacity:1}}
++.ss-surface{display:block;width:100%;height:14px;margin:-2px 0 6px;opacity:.9}
++.ss-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px 4px;min-height:62px}
++.ss-otter{min-width:0;flex:1}
++.ss-x{width:42px;height:42px;flex-shrink:0;border-radius:50%;border:3px solid ${INK};background:#fff;box-shadow:3px 3px 0 ${INK};display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
++.ss-tabs{display:flex;gap:8px;padding:4px 16px 10px}
++.ss-tab{flex:1;min-height:44px;border-radius:14px;border:3px solid ${INK};background:rgba(255,255,255,.55);font-family:inherit;font-size:17px;color:${INK};cursor:pointer}
++.ss-tab-on{background:#FFD23F;box-shadow:3px 3px 0 ${INK}}
++.ss-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:4px 16px calc(28px + env(safe-area-inset-bottom,0px))}
++.ss-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
++.ss-compose{background:#fff;border:3px solid ${INK};border-radius:20px;box-shadow:4px 4px 0 ${INK};padding:12px;margin-bottom:14px}
++.ss-ta{width:100%;box-sizing:border-box;border:0;outline:0;resize:none;font-family:inherit;font-size:17px;line-height:1.45;color:${INK};background:transparent}
++.ss-ta::placeholder{color:rgba(27,22,48,.4)}
++.ss-ta-edit{border:2px dashed rgba(27,22,48,.25);border-radius:12px;padding:8px}
++.ss-row{display:flex;align-items:center;gap:8px;margin-top:8px}
++.ss-row-end{justify-content:flex-end}
++.ss-wrap-row{flex-wrap:wrap}
++.ss-push-right{margin-left:auto}
++.ss-btn{min-height:40px;padding:0 14px;border-radius:12px;border:2.5px solid ${INK};background:#fff;box-shadow:2px 2px 0 ${INK};font-family:inherit;font-size:15px;color:${INK};cursor:pointer}
++.ss-btn:disabled{opacity:.45;cursor:default}
++.ss-btn:not(:disabled):active{transform:translate(2px,2px);box-shadow:0 0 0 ${INK}}
++.ss-btn-main{background:#FFD23F}
++.ss-btn-ghost{background:transparent;box-shadow:none}
++.ss-btn-danger{background:#FF8F80}
++.ss-full{width:100%;min-height:48px;font-size:17px;margin-bottom:12px}
++.ss-link{border:0;background:none;font-family:inherit;font-size:15px;color:${INK};text-decoration:underline;cursor:pointer;padding:4px}
++.ss-btn:focus-visible,.ss-tab:focus-visible,.ss-x:focus-visible,.ss-link:focus-visible,.ss-chip:focus-visible,.ss-slip-btn:focus-visible{outline:3px dashed #fff;outline-offset:3px}
++.ss-muted{font-size:14px;color:rgba(27,22,48,.6)}
++.ss-center{text-align:center;margin:18px 0}
++.ss-err{margin:8px 0 0;font-size:15px;color:#B42318}
++.ss-ok{margin:6px 0 0;font-size:15px;color:#1F7A4D}
++.ss-err-box{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#FFE3DE;border:2.5px solid ${INK};border-radius:14px;padding:10px 12px;margin-bottom:12px;font-size:15px}
++.ss-search{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.75);border:2.5px solid ${INK};border-radius:14px;padding:4px 10px;margin-bottom:12px}
++.ss-search-in{flex:1;min-width:0;border:0;outline:0;background:transparent;font-family:inherit;font-size:16px;color:${INK};min-height:36px}
++.ss-empty{display:flex;flex-direction:column;align-items:center;gap:4px;margin:26px 0;font-size:16px;color:rgba(27,22,48,.7)}
++.ss-empty p{margin:0}
++.ss-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
++.ss-slip{background:#FFFDF6;border:3px solid ${INK};border-radius:6px 18px 6px 18px;box-shadow:3px 4px 0 rgba(27,22,48,.85);transition:transform .25s ease}
++.ss-slip-in{animation:ss-drop .55s cubic-bezier(.3,1.5,.5,1) both}
++@keyframes ss-drop{from{transform:translateY(-26px) rotate(-4deg);opacity:0}to{opacity:1}}
++.ss-slip-btn{display:flex;flex-direction:column;align-items:flex-start;gap:6px;width:100%;padding:12px 14px;border:0;background:none;text-align:left;font-family:inherit;color:${INK};cursor:pointer}
++.ss-slip-text{font-size:17px;line-height:1.45;white-space:pre-line;word-break:keep-all;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
++.ss-slip-when{font-size:13px;color:rgba(27,22,48,.5)}
++.ss-slip-open{padding:12px}
++.ss-ask{font-size:15px}
++.ss-deliv{display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:rgba(255,255,255,.7);border:2.5px solid ${INK};border-radius:14px;padding:10px 12px;margin-bottom:12px;font-size:15px}
++.ss-deliv-warn{background:#FFE3DE}
++.ss-h{margin:14px 2px 8px;font-size:16px;font-weight:400}
++.ss-h-muted{color:rgba(27,22,48,.6)}
++.ss-alist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
++.ss-arow{display:flex;flex-direction:column;gap:4px;background:#fff;border:3px solid ${INK};border-radius:16px;box-shadow:3px 3px 0 ${INK};padding:10px 12px}
++.ss-arow-fail{background:#FFF1EE}
++.ss-arow-done{background:rgba(255,255,255,.55);box-shadow:none;border-width:2px}
++.ss-arow-top{display:flex;align-items:center;gap:8px}
++.ss-bell{display:flex}
++.ss-atitle{font-size:17px;word-break:keep-all;overflow-wrap:anywhere}
++.ss-awhen{font-size:15px;color:rgba(27,22,48,.75)}
++.ss-warn{font-size:14px;color:#B42318}
++.ss-form{display:flex;flex-direction:column;gap:6px;background:#fff;border:3px solid ${INK};border-radius:18px;box-shadow:4px 4px 0 ${INK};padding:12px;margin-bottom:12px}
++.ss-arow .ss-form{border:0;box-shadow:none;padding:0;margin:0}
++.ss-label{font-size:14px;color:rgba(27,22,48,.65);margin-top:4px}
++.ss-in{min-height:44px;box-sizing:border-box;border:2.5px solid ${INK};border-radius:12px;padding:0 10px;font-family:inherit;font-size:16px;color:${INK};background:#fff;width:100%}
++.ss-in-date{flex:1.4;min-width:0}
++.ss-in-time{flex:1;min-width:0}
++.ss-chips{display:flex;flex-wrap:wrap;gap:6px}
++.ss-chip{min-height:36px;padding:0 12px;border-radius:999px;border:2px solid ${INK};background:#fff;font-family:inherit;font-size:14px;color:${INK};cursor:pointer}
++.ss-chip-on{background:#FFD23F}
++@media (prefers-reduced-motion: reduce){.ss-wrap,.ss-panel,.ss-slip-in{animation:none}.ss-slip{transition:none}}
++`;
+diff --git a/docs/sql/2026-10-12_notes_reminders.sql b/docs/sql/2026-10-12_notes_reminders.sql
+new file mode 100644
+index 0000000..718dbd1
+--- /dev/null
++++ b/docs/sql/2026-10-12_notes_reminders.sql
+@@ -0,0 +1,62 @@
++-- docs/sql/2026-10-12_notes_reminders.sql
++-- 바다 위 메모(sea_notes) + 알람(reminders). Supabase SQL Editor에서 한 번 실행.
++-- 여러 번 실행해도 안전하다(IF NOT EXISTS / DROP POLICY IF EXISTS). 기존 테이블은 건드리지 않는다.
++--
++-- 앱 서버(API)는 service role로 접근하고 매 요청마다 user_id를 직접 확인한다(lib/auth.ts).
++-- RLS는 "앱에서 anon 키로 직접 읽는 일이 생겨도 남의 것은 안 보이게" 하는 두 번째 잠금이다.
++
++-- ---------------------------------------------------------------------------
++-- 1) 바다 위 메모 — 짧은 글. 기억 엔진/인사이트/SMS 대상이 아니다.
++-- ---------------------------------------------------------------------------
++create table if not exists public.sea_notes (
++  id bigint generated always as identity primary key,
++  user_id uuid not null references auth.users(id) on delete cascade,
++  body text not null check (char_length(btrim(body)) between 1 and 1000),
++  created_at timestamptz not null default now(),
++  updated_at timestamptz not null default now(),
++  last_opened_at timestamptz -- 메모를 다시 열어본 마지막 시각(수달이 "오랜만이네" 할 근거)
++);
++create index if not exists sea_notes_user_created_idx on public.sea_notes (user_id, created_at desc);
++
++alter table public.sea_notes enable row level security;
++drop policy if exists sea_notes_owner on public.sea_notes;
++create policy sea_notes_owner on public.sea_notes
++  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
++
++-- ---------------------------------------------------------------------------
++-- 2) 알람 — 사용자가 직접 정한 시각에 한 번 알려준다.
++--    status 흐름: scheduled → sending → sent | failed   (취소하면 canceled)
++--    sending은 발송 크론이 "내가 보낼게"라고 잡아둔 상태 — 두 번 보내지 않기 위한 잠금이다.
++-- ---------------------------------------------------------------------------
++create table if not exists public.reminders (
++  id bigint generated always as identity primary key,
++  user_id uuid not null references auth.users(id) on delete cascade,
++  title text not null check (char_length(btrim(title)) between 1 and 40),
++  remind_at timestamptz not null,
++  status text not null default 'scheduled'
++    check (status in ('scheduled', 'sending', 'sent', 'failed', 'canceled')),
++  source text not null default 'manual' check (source in ('manual', 'voice', 'note')),
++  source_entry_id uuid,                 -- 음성 일정에서 만든 알람이면 그 voice_entries.id
++  note_id bigint references public.sea_notes(id) on delete set null, -- 메모에서 만든 알람이면 그 메모
++  channel text check (channel in ('push', 'sms')), -- 실제로 전달된 수단
++  attempts smallint not null default 0,
++  last_error text,
++  sent_at timestamptz,
++  created_at timestamptz not null default now(),
++  updated_at timestamptz not null default now()
++);
++-- 발송 크론이 "지금 보낼 것"을 빨리 찾게
++create index if not exists reminders_due_idx on public.reminders (remind_at) where status = 'scheduled';
++create index if not exists reminders_user_idx on public.reminders (user_id, remind_at desc);
++-- 같은 녹음에서 알람이 두 번 만들어지지 않게(버튼 두 번 누름 등)
++create unique index if not exists reminders_one_per_entry on public.reminders (user_id, source_entry_id)
++  where source_entry_id is not null and status <> 'canceled';
++
++alter table public.reminders enable row level security;
++drop policy if exists reminders_owner on public.reminders;
++create policy reminders_owner on public.reminders
++  for all using (user_id = auth.uid()) with check (user_id = auth.uid());
++
++-- 되돌리기(필요할 때만):
++-- drop table if exists public.reminders;
++-- drop table if exists public.sea_notes;
+diff --git a/docs/sql/2026-10-12_reminder_cron.sql b/docs/sql/2026-10-12_reminder_cron.sql
+new file mode 100644
+index 0000000..07203e4
+--- /dev/null
++++ b/docs/sql/2026-10-12_reminder_cron.sql
+@@ -0,0 +1,54 @@
++-- docs/sql/2026-10-12_reminder_cron.sql
++-- 알람 발송 스케줄러 — Supabase가 1분마다 /api/cron/send-reminders 를 부른다.
++-- 먼저 docs/sql/2026-10-12_notes_reminders.sql 을 실행한 뒤에 실행할 것.
++--
++-- 왜 Supabase인가: Vercel Cron은 Hobby 요금제에서 하루 1번까지만 돌아서 "11시에 알려줘"를 지킬 수 없다.
++-- pg_cron(스케줄) + pg_net(HTTP 호출)은 Supabase에 기본으로 들어 있는 확장이고 추가 비용이 없다.
++--
++-- ⚠️ 실행 전에 아래 두 값을 바꿀 것 (CRON_SECRET은 Vercel 환경변수의 그 값 그대로)
++--   <APP_URL>      예: https://parent-routine.vercel.app   (끝에 / 없이)
++--   <CRON_SECRET>  Vercel → Settings → Environment Variables → CRON_SECRET
++-- 비밀값은 SQL 본문이 아니라 Vault에 넣어두고 꺼내 쓴다(크론 목록에 비밀이 그대로 보이지 않게).
++
++create extension if not exists pg_cron;
++create extension if not exists pg_net;
++
++-- 비밀값 보관 (이미 있으면 갱신)
++do $$
++begin
++  if exists (select 1 from vault.secrets where name = 'chamgyeoni_app_url') then
++    perform vault.update_secret((select id from vault.secrets where name = 'chamgyeoni_app_url'), '<APP_URL>');
++  else
++    perform vault.create_secret('<APP_URL>', 'chamgyeoni_app_url');
++  end if;
++  if exists (select 1 from vault.secrets where name = 'chamgyeoni_cron_secret') then
++    perform vault.update_secret((select id from vault.secrets where name = 'chamgyeoni_cron_secret'), '<CRON_SECRET>');
++  else
++    perform vault.create_secret('<CRON_SECRET>', 'chamgyeoni_cron_secret');
++  end if;
++end $$;
++
++-- 같은 이름의 작업이 있으면 지우고 다시 등록(여러 번 실행해도 하나만 남는다)
++select cron.unschedule(jobid) from cron.job where jobname = 'chamgyeoni-send-reminders';
++
++select cron.schedule(
++  'chamgyeoni-send-reminders',
++  '* * * * *',
++  $$
++  select net.http_get(
++    url := (select decrypted_secret from vault.decrypted_secrets where name = 'chamgyeoni_app_url') || '/api/cron/send-reminders',
++    headers := jsonb_build_object(
++      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'chamgyeoni_cron_secret')
++    ),
++    timeout_milliseconds := 55000
++  );
++  $$
++);
++
++-- 잘 도는지 확인:
++--   select jobid, jobname, schedule, active from cron.job;
++--   select status, return_message, start_time from cron.job_run_details order by start_time desc limit 5;
++--   select status_code, content::text, created from net._http_response order by created desc limit 5;
++--
++-- 끄기:
++--   select cron.unschedule('chamgyeoni-send-reminders');
+diff --git a/lib/deskClient.ts b/lib/deskClient.ts
+new file mode 100644
+index 0000000..7ee6d2f
+--- /dev/null
++++ b/lib/deskClient.ts
+@@ -0,0 +1,85 @@
++// lib/deskClient.ts
++"use client";
++// ============================================================================
++// 바다 위 메모/알람 — 브라우저 쪽 API 호출. 결과는 항상 { ok, data | error, code }로 돌려준다(throw 안 함).
++// 화면은 실패를 숨기지 않고 error 문장을 그대로 보여준다.
++// ============================================================================
++import { supabaseClient } from "@/lib/supabaseClient";
++
++export interface NoteItem {
++  id: number;
++  body: string;
++  createdAt: string;
++  updatedAt: string;
++  lastOpenedAt: string | null;
++}
++
++export interface ReminderItem {
++  id: number;
++  title: string;
++  remindAt: string;
++  status: "scheduled" | "sending" | "sent" | "failed" | "canceled";
++  source: "manual" | "voice" | "note";
++  sourceEntryId: string | null;
++  noteId: number | null;
++  channel: "push" | "sms" | null;
++  attempts: number;
++  lastError: string | null;
++  sentAt: string | null;
++  createdAt: string;
++}
++
++export interface Delivery {
++  push: boolean;
++  sms: boolean;
++}
++
++export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string; status: number };
++
++async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<T>> {
++  try {
++    const {
++      data: { session },
++    } = await supabaseClient.auth.getSession();
++    if (!session) return { ok: false, error: "로그인이 아직 안 됐어. 새로고침하면 돼.", status: 401 };
++    const res = await fetch(path, {
++      ...init,
++      headers: {
++        ...(init.body ? { "Content-Type": "application/json" } : {}),
++        Authorization: `Bearer ${session.access_token}`,
++        ...(init.headers || {}),
++      },
++    });
++    const body = await res.json().catch(() => ({}));
++    if (!res.ok || !body?.success) {
++      return { ok: false, error: body?.error || `문제가 생겼어 (${res.status})`, code: body?.code, status: res.status };
++    }
++    return { ok: true, data: body.data as T };
++  } catch {
++    return { ok: false, error: "인터넷이 끊긴 것 같아.", status: 0 };
++  }
++}
++
++export const notesApi = {
++  list: (q?: string) => call<{ notes: NoteItem[] }>(`/api/user/notes${q ? `?q=${encodeURIComponent(q)}` : ""}`),
++  create: (body: string) => call<{ note: NoteItem }>("/api/user/notes", { method: "POST", body: JSON.stringify({ body }) }),
++  update: (id: number, body: string) => call<{ note: NoteItem }>(`/api/user/notes/${id}`, { method: "PATCH", body: JSON.stringify({ body }) }),
++  opened: (id: number) =>
++    call<{ note: NoteItem; previousOpenedAt: string | null }>(`/api/user/notes/${id}`, { method: "PATCH", body: JSON.stringify({ opened: true }) }),
++  remove: (id: number) => call<unknown>(`/api/user/notes/${id}`, { method: "DELETE" }),
++};
++
++export const remindersApi = {
++  list: () => call<{ reminders: ReminderItem[]; delivery: Delivery }>("/api/user/reminders"),
++  create: (input: { title: string; remind_at: string; source?: "manual" | "voice" | "note"; source_entry_id?: string; note_id?: number }) =>
++    call<{ reminder: ReminderItem; existed: boolean; delivery: Delivery }>("/api/user/reminders", { method: "POST", body: JSON.stringify(input) }),
++  update: (id: number, patch: { title?: string; remind_at?: string }) =>
++    call<{ reminder: ReminderItem }>(`/api/user/reminders/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
++  cancel: (id: number) => call<unknown>(`/api/user/reminders/${id}`, { method: "DELETE" }),
++};
++
++/** 지금 쓸 수 있는 채널 — 앱 알림 우선(발송기와 같은 순서) */
++export function likelyChannel(d: Delivery | null): "push" | "sms" | null {
++  if (!d) return null;
++  return d.push ? "push" : d.sms ? "sms" : null;
++}
+diff --git a/lib/otterCues.ts b/lib/otterCues.ts
+new file mode 100644
+index 0000000..b9a2060
+--- /dev/null
++++ b/lib/otterCues.ts
+@@ -0,0 +1,168 @@
++// lib/otterCues.ts
++// ============================================================================
++// 참견이(수달)가 언제, 어떻게 반응할지 — 한 곳에서만 정한다. 화면 컴포넌트는 이벤트만 넘기고 결과를 그린다.
++// ----------------------------------------------------------------------------
++// 원칙
++//   1) 실제 상태에서만 말한다. 저장 안 된 걸 아는 척하지 않고, 새 인사이트를 지어내지 않는다.
++//      (기억 회상은 기존 경로 그대로 — 홈 말풍선/기억 캡슐이 서버 데이터로만 한다. 여기서 만들지 않는다.)
++//   2) 기능 안내는 처음 한 번만. 이미 쓴 기능은 다시 설명하지 않는다(기기에 기억).
++//   3) 할 말 없으면 조용히. 대부분의 반응은 표정/움직임만이고 말은 null이다.
++//   4) AI를 부르지 않는다. 전부 규칙 + 이미 있는 데이터.
++//   5) 출석·연속 기록·개수 자랑·평가 없음.
++// 말투: 반말, 명령형 종결/과공손체 없음(질문형·제안형 "~해도 돼"·혼잣말).
++// 테스트: scripts/test-otter-cues.ts
++// ============================================================================
++import type { OtterExpression } from '@/components/Otter';
++import { kstLabel } from '@/lib/reminders/rules';
++
++export interface OtterCue {
++  expression: OtterExpression;
++  line: string | null; // null = 말 없이 표정/움직임만
++  ms: number; // 얼마나 보여줄지
++  motion?: 'nod' | 'hop' | 'peek' | 'look'; // 바깥 CSS가 쓰는 짧은 움직임 이름
++}
++
++export type OtterEvent =
++  | { type: 'home_first_visit' }
++  | { type: 'note_saved' }
++  | { type: 'note_reopened'; createdAt: string; previousOpenedAt: string | null }
++  | { type: 'reminder_set'; remindAt: string; channel: 'push' | 'sms' | null }
++  | { type: 'reminder_failed'; id: number; title: string }
++  | { type: 'deep_arrive'; night: boolean; nextReminder: { title: string; at: string } | null }
++  | { type: 'idle' };
++
++// ---- 기기에 남기는 "이미 겪은 것" — 첫 안내를 한 번만 하기 위한 기록 ----
++const KEY = 'ganseobi_otter_v1';
++export interface OtterMemory {
++  homeIntro?: boolean;
++  firstNote?: boolean;
++  firstReminder?: boolean;
++  failedSeen?: number[];
++  lastGreetAt?: number;
++}
++
++export function loadOtterMemory(): OtterMemory {
++  try {
++    const raw = localStorage.getItem(KEY);
++    return raw ? (JSON.parse(raw) as OtterMemory) : {};
++  } catch {
++    return {};
++  }
++}
++
++export function saveOtterMemory(m: OtterMemory) {
++  try {
++    localStorage.setItem(KEY, JSON.stringify({ ...m, failedSeen: (m.failedSeen ?? []).slice(-50) }));
++  } catch {
++    /* 못 남기면 다음에 한 번 더 말할 뿐 */
++  }
++}
++
++const DAY = 86_400_000;
++export const GREET_GAP_MS = 6 * 60 * 60 * 1000; // 심해 인사는 6시간에 한 번 이하
++export const REOPEN_GAP_DAYS = 14; // 2주 넘게 안 본 메모를 열었을 때만 "오랜만이네"
++
++/** 얼마 전인지 — 숫자를 들이밀지 않는 말로 */
++export function agoWords(iso: string, now: Date): string {
++  const days = (now.getTime() - new Date(iso).getTime()) / DAY;
++  if (days < 21) return '2주도 더 전';
++  if (days < 45) return '한 달 전쯤';
++  if (days < 75) return '두 달 전쯤';
++  return '꽤 오래전';
++}
++
++/**
++ * 이벤트 → 반응. mem은 읽기만 하고, 바뀐 기록을 next로 돌려준다(저장은 부르는 쪽이 saveOtterMemory로).
++ * 반응할 게 없으면 cue: null.
++ */
++export function decideCue(ev: OtterEvent, mem: OtterMemory, now: Date = new Date()): { cue: OtterCue | null; next: OtterMemory } {
++  switch (ev.type) {
++    case 'home_first_visit': {
++      if (mem.homeIntro) return { cue: null, next: mem };
++      return {
++        cue: { expression: 'tilt', line: '말로 하기 애매한 건 위에 적어둬도 돼.', ms: 5200, motion: 'peek' },
++        next: { ...mem, homeIntro: true },
++      };
++    }
++    case 'note_saved': {
++      if (!mem.firstNote) {
++        return {
++          cue: { expression: 'laugh', line: '띄워놨어. 여기 계속 떠 있어.', ms: 3200, motion: 'hop' },
++          next: { ...mem, firstNote: true },
++        };
++      }
++      // 두 번째부터는 말 없이 끄덕 — 저장됐다는 건 목록에 새 쪽지가 떨어지는 걸로 보인다.
++      return { cue: { expression: 'base', line: null, ms: 1200, motion: 'nod' }, next: mem };
++    }
++    case 'note_reopened': {
++      const last = ev.previousOpenedAt && new Date(ev.previousOpenedAt) > new Date(ev.createdAt) ? ev.previousOpenedAt : ev.createdAt;
++      const gapDays = (now.getTime() - new Date(last).getTime()) / DAY;
++      if (gapDays < REOPEN_GAP_DAYS) return { cue: null, next: mem };
++      const what = ev.previousOpenedAt ? '마지막으로 본 게' : '이거 띄운 게';
++      return {
++        cue: { expression: 'surprise', line: `어, ${what} ${agoWords(last, now)}네.`, ms: 3600, motion: 'look' },
++        next: mem,
++      };
++    }
++    case 'reminder_set': {
++      const when = kstLabel(ev.remindAt, now);
++      if (!mem.firstReminder) {
++        const how = ev.channel === 'sms' ? ' 문자로 갈게.' : ev.channel === 'push' ? ' 알림으로 갈게.' : '';
++        return {
++          cue: { expression: 'remember', line: `${when}에 찾아갈게.${how}`, ms: 4200, motion: 'hop' },
++          next: { ...mem, firstReminder: true },
++        };
++      }
++      return { cue: { expression: 'base', line: null, ms: 1200, motion: 'nod' }, next: mem };
++    }
++    case 'reminder_failed': {
++      const seen = mem.failedSeen ?? [];
++      if (seen.includes(ev.id)) return { cue: null, next: mem };
++      return {
++        cue: { expression: 'surprise', line: `“${ev.title}” 알람, 그때 못 알려줬어.`, ms: 4800, motion: 'look' },
++        next: { ...mem, failedSeen: [...seen, ev.id] },
++      };
++    }
++    case 'deep_arrive': {
++      // 심해에 내려올 때마다 인사하지 않는다 — 6시간에 한 번 이하.
++      if (mem.lastGreetAt && now.getTime() - mem.lastGreetAt < GREET_GAP_MS) return { cue: null, next: mem };
++      const soon = ev.nextReminder && new Date(ev.nextReminder.at).getTime() - now.getTime() < 3 * 60 * 60 * 1000;
++      const line = soon && ev.nextReminder
++        ? `${kstLabel(ev.nextReminder.at, now)}에 “${ev.nextReminder.title}” 알려줄 거 있어.`
++        : ev.night
++        ? '…음? 이 시간에 왔어?'
++        : '어, 왔어?';
++      return { cue: { expression: 'surprise', line, ms: 2800, motion: 'hop' }, next: { ...mem, lastGreetAt: now.getTime() } };
++    }
++    case 'idle':
++    default:
++      return { cue: null, next: mem };
++  }
++}
++
++export interface DeepFacts {
++  fishCount: number;
++  stage: number;
++  noteCount: number | null; // 모르면 null(아직 못 불러옴)
++  nextReminder: { title: string; at: string } | null;
++}
++
++/**
++ * 심해에서 참견이를 눌렀을 때 할 수 있는 말 — 지금 실제 상태로만 만든다. 같은 말을 연달아 하지 않고,
++ * 할 말을 다 하면 n이 넘어가도 더 만들어내지 않는다(null → 말 없이 웃기만).
++ */
++export function deepTapLines(f: DeepFacts, now: Date = new Date()): string[] {
++  const lines: string[] = [];
++  if (f.nextReminder) lines.push(`${kstLabel(f.nextReminder.at, now)}에 “${f.nextReminder.title}” 알려줄게.`);
++  if (f.fishCount > 0) lines.push('위에 헤엄치는 애들, 전부 니가 한 생각이야.');
++  else lines.push('위에 아직 물고기가 없네. 뭐라도 말해도 돼.');
++  if (f.noteCount !== null && f.noteCount > 0) lines.push('적어둔 쪽지들은 위에 떠 있어.');
++  lines.push(f.stage >= 2 ? '이 조약돌? 니가 다시 꺼낸 얘기들이야.' : '같은 얘기를 다른 날 또 하면, 그게 조약돌이 돼.');
++  return lines;
++}
++
++export function deepTapCue(f: DeepFacts, tapIndex: number, now: Date = new Date()): OtterCue {
++  const lines = deepTapLines(f, now);
++  if (tapIndex < lines.length) return { expression: 'tilt', line: lines[tapIndex], ms: 3400 };
++  return { expression: 'laugh', line: tapIndex === lines.length ? '간지러워.' : null, ms: 1600 };
++}
+diff --git a/lib/reminders/core.ts b/lib/reminders/core.ts
+new file mode 100644
+index 0000000..a450a76
+--- /dev/null
++++ b/lib/reminders/core.ts
+@@ -0,0 +1,39 @@
++// lib/reminders/core.ts
++// ============================================================================
++// 알람 입력 검증 — 서버 전용(문자 바이트 계산 때문에 lib/solapi를 쓴다). 테스트: scripts/test-reminders.ts
++// 브라우저에서도 쓰는 규칙/표시는 lib/reminders/rules.ts.
++// ----------------------------------------------------------------------------
++// 알람은 "생각 재발견(참견)"과 다른 기능이다.
++//   참견 : 참견이가 의미 있다고 판단한 걸 먼저 꺼낸다 — 쿨다운/조용한 시간/하루 상한(pushGate)을 탄다.
++//   알람 : 사용자가 정한 시각에 한 번 알려준다 — 사용자가 직접 부탁한 거라 게이트를 타지 않는다.
++// 그래서 알람 발송은 intervention_log/편지에 남기지 않는다(참견 쿨다운을 건드리지 않게).
++// ============================================================================
++import { composeSms } from '@/lib/solapi';
++import { MAX_AHEAD_MS, MIN_LEAD_MS, REMINDER_HEADER, REMINDER_TITLE_MAX, type ReminderSource } from '@/lib/reminders/rules';
++
++export * from '@/lib/reminders/rules';
++
++export type Check<T> = { ok: true; value: T } | { ok: false; error: string };
++
++export function normalizeTitle(raw: unknown): Check<string> {
++  if (typeof raw !== 'string') return { ok: false, error: '뭘 알려줄지 적어줘.' };
++  const title = raw.replace(/\s+/g, ' ').trim();
++  if (!title) return { ok: false, error: '뭘 알려줄지 적어줘.' };
++  if (title.length > REMINDER_TITLE_MAX) return { ok: false, error: `${REMINDER_TITLE_MAX}자까지만 돼.` };
++  // 앱 알림이 실패하면 문자로 간다 — 그때도 장문(LMS)으로 새지 않게 미리 막는다(이모지 등 큰 글자 대비).
++  if (composeSms(title, REMINDER_HEADER).type !== 'SMS') return { ok: false, error: '조금만 짧게 적어줘.' };
++  return { ok: true, value: title };
++}
++
++export function normalizeRemindAt(raw: unknown, now: Date): Check<Date> {
++  if (typeof raw !== 'string' || !raw.trim()) return { ok: false, error: '언제 알려줄지 골라줘.' };
++  const d = new Date(raw);
++  if (Number.isNaN(d.getTime())) return { ok: false, error: '시간을 못 읽었어.' };
++  if (d.getTime() < now.getTime() + MIN_LEAD_MS) return { ok: false, error: '이미 지난 시간이야.' };
++  if (d.getTime() > now.getTime() + MAX_AHEAD_MS) return { ok: false, error: '1년 안쪽으로만 돼.' };
++  return { ok: true, value: d };
++}
++
++export function normalizeSource(raw: unknown): ReminderSource {
++  return raw === 'voice' || raw === 'note' ? raw : 'manual';
++}
+diff --git a/lib/reminders/deliver.ts b/lib/reminders/deliver.ts
+new file mode 100644
+index 0000000..29f5490
+--- /dev/null
++++ b/lib/reminders/deliver.ts
+@@ -0,0 +1,168 @@
++// lib/reminders/deliver.ts
++// ============================================================================
++// 알람 발송 — 서버 전용. /api/cron/send-reminders가 1분마다 부른다(Supabase pg_cron → SQL: docs/sql/2026-10-12_reminder_cron.sql).
++// ----------------------------------------------------------------------------
++// 두 번 보내지 않기
++//   1) 보낼 알람을 "scheduled → sending"으로 바꾸는 조건부 UPDATE에 성공한 쪽만 보낸다.
++//      크론이 겹쳐 돌아도 같은 줄을 두 군데서 잡을 수 없다(Postgres 행 잠금).
++//   2) 보낸 뒤 sent로 바꾼다. 앱 알림에는 tag=reminder-{id}를 달아 기기에서도 같은 알림이 겹치지 않는다.
++// 실패
++//   - 일시적 실패(네트워크 등): 다음 크론에서 다시. 최대 3번, 2시간 넘게 늦으면 포기.
++//   - 영구 실패(알려줄 수단 없음, 문자 길이 초과): 바로 failed. 화면에 이유가 보인다.
++//   - sending에서 10분 넘게 멈춤(크론이 중간에 죽음): 위 규칙대로 다시 시도/포기.
++// 채널
++//   앱 알림 기기가 있으면 앱 알림(무료). 없거나 전부 실패하면 인증된 번호로 문자(기존 Solapi, 90바이트 SMS 전용).
++//   참견 개입(lib/intervention/dispatch.ts)과는 일부러 분리 — 쿨다운 기록(intervention_log)/편지를 남기지 않는다.
++// ============================================================================
++import { supabase } from '@/lib/supabase';
++import { hasPushSubscription, sendWebPush } from '@/lib/webPush';
++import { sendSolapiSms, SmsTooLongError } from '@/lib/solapi';
++import { COLS, smsConfigured, toReminder, userPhone, type Reminder } from '@/lib/reminders/store';
++import { afterFailure, isTooLate, recoverStuck, REMINDER_HEADER, STUCK_SENDING_MS } from '@/lib/reminders/core';
++
++const BATCH = 50;
++
++export class PermanentError extends Error {}
++
++// 테스트에서 DB/발송을 바꿔 끼울 수 있게(scripts/test-reminders.ts). 운영에서는 기본값 그대로.
++type Db = typeof supabase;
++export interface DeliverDeps {
++  db?: Db;
++  send?: (r: Reminder & { userId: string }) => Promise<'push' | 'sms'>;
++}
++
++export interface SendResult {
++  id: number;
++  outcome: 'sent' | 'retry' | 'failed' | 'late' | 'skipped';
++  channel?: 'push' | 'sms';
++  error?: string;
++}
++
++/** 실제 전달 — 성공하면 쓴 채널, 실패하면 throw. */
++async function deliverOne(r: Reminder & { userId: string }): Promise<'push' | 'sms'> {
++  if (await hasPushSubscription(r.userId)) {
++    const pushed = await sendWebPush(r.userId, {
++      title: REMINDER_HEADER,
++      body: r.title,
++      url: '/?reminder=' + r.id,
++      tag: 'reminder-' + r.id,
++    });
++    if (pushed.sent > 0) return 'push';
++    // 모든 기기 실패(구독 만료 등) → 문자로
++  }
++  if (!smsConfigured()) throw new PermanentError('no_channel: 앱 알림 기기 없음, 문자 설정 없음');
++  const phone = await userPhone(r.userId);
++  if (!phone) throw new PermanentError('no_channel: 앱 알림 기기도 전화번호도 없음');
++  try {
++    await sendSolapiSms(phone, r.title, { header: REMINDER_HEADER, logTag: 'Reminder SMS' });
++  } catch (e: any) {
++    if (e instanceof SmsTooLongError) throw new PermanentError('sms_too_long');
++    throw e;
++  }
++  return 'sms';
++}
++
++/** sending에서 멈춘 줄 정리 — 다시 scheduled로 돌리거나 failed로 끝낸다. */
++async function recoverStuckRows(now: Date, db: Db): Promise<number> {
++  const cutoff = new Date(now.getTime() - STUCK_SENDING_MS).toISOString();
++  const { data, error } = await db
++    .from('reminders')
++    .select('id, attempts, remind_at')
++    .eq('status', 'sending')
++    .lt('updated_at', cutoff)
++    .limit(BATCH);
++  if (error) throw error;
++  let n = 0;
++  for (const row of data ?? []) {
++    const next = recoverStuck(Number(row.attempts ?? 0), row.remind_at, now);
++    const { error: uErr } = await db
++      .from('reminders')
++      .update(
++        next === 'retry'
++          ? { status: 'scheduled', last_error: 'stuck', updated_at: now.toISOString() }
++          : { status: 'failed', last_error: 'stuck: 발송 중 멈춤', updated_at: now.toISOString() }
++      )
++      .eq('id', row.id)
++      .eq('status', 'sending');
++    if (!uErr) n++;
++  }
++  return n;
++}
++
++export async function processDueReminders(
++  now: Date = new Date(),
++  opts: { dryRun?: boolean } = {},
++  deps: DeliverDeps = {}
++): Promise<{
++  recovered: number;
++  results: SendResult[];
++}> {
++  const db = deps.db ?? supabase;
++  const send = deps.send ?? deliverOne;
++  const recovered = opts.dryRun ? 0 : await recoverStuckRows(now, db);
++
++  const { data, error } = await db
++    .from('reminders')
++    .select(COLS)
++    .eq('status', 'scheduled')
++    .lte('remind_at', now.toISOString())
++    .order('remind_at', { ascending: true })
++    .limit(BATCH);
++  if (error) throw error;
++
++  const results: SendResult[] = [];
++  for (const raw of data ?? []) {
++    const r = { ...toReminder(raw), userId: String((raw as any).user_id) };
++    if (opts.dryRun) {
++      results.push({ id: r.id, outcome: isTooLate(r.remindAt, now) ? 'late' : 'skipped' });
++      continue;
++    }
++
++    // 너무 늦었으면 보내지 않고 실패로 남긴다 — 화면에 "그때 못 알려줬어"가 보인다.
++    if (isTooLate(r.remindAt, now)) {
++      await db
++        .from('reminders')
++        .update({ status: 'failed', last_error: 'late', updated_at: now.toISOString() })
++        .eq('id', r.id)
++        .eq('status', 'scheduled');
++      results.push({ id: r.id, outcome: 'late' });
++      continue;
++    }
++
++    // 잡기 — 이 UPDATE가 행을 돌려줘야만 내가 보낸다(다른 크론이 먼저 잡았으면 빈 결과).
++    const { data: claimed, error: claimErr } = await db
++      .from('reminders')
++      .update({ status: 'sending', attempts: r.attempts + 1, updated_at: now.toISOString() })
++      .eq('id', r.id)
++      .eq('status', 'scheduled')
++      .select('id');
++    if (claimErr || !(claimed ?? []).length) {
++      results.push({ id: r.id, outcome: 'skipped' });
++      continue;
++    }
++
++    try {
++      const channel = await send(r);
++      const { error: doneErr } = await db
++        .from('reminders')
++        .update({ status: 'sent', channel, sent_at: new Date().toISOString(), last_error: null, updated_at: new Date().toISOString() })
++        .eq('id', r.id)
++        .eq('status', 'sending');
++      // 이미 보냈다. 기록만 실패하면 sending에 남아 10분 뒤 "멈춤"으로 재시도될 수 있다 — 크게 남긴다.
++      if (doneErr) console.error('[reminders] 발송은 됐는데 sent 기록 실패:', r.id, doneErr.message);
++      results.push({ id: r.id, outcome: 'sent', channel });
++    } catch (e: any) {
++      const permanent = e instanceof PermanentError;
++      const msg = String(e?.message ?? e).slice(0, 300);
++      const next = afterFailure(r.attempts + 1, r.remindAt, new Date(), permanent);
++      await db
++        .from('reminders')
++        .update({ status: next === 'retry' ? 'scheduled' : 'failed', last_error: msg, updated_at: new Date().toISOString() })
++        .eq('id', r.id)
++        .eq('status', 'sending');
++      console.error(`[reminders] ${r.id} 발송 실패(${next}):`, msg);
++      results.push({ id: r.id, outcome: next === 'retry' ? 'retry' : 'failed', error: msg });
++    }
++  }
++  return { recovered, results };
++}
+diff --git a/lib/reminders/rules.ts b/lib/reminders/rules.ts
+new file mode 100644
+index 0000000..fce773b
+--- /dev/null
++++ b/lib/reminders/rules.ts
+@@ -0,0 +1,112 @@
++// lib/reminders/rules.ts
++// ============================================================================
++// 알람 규칙 중 브라우저에서도 쓰는 것 — import 없음(서버 전용 모듈을 끌고 오지 않게).
++// 서버 쪽 검증(문자 바이트 등)은 lib/reminders/core.ts.
++// ============================================================================
++
++export const REMINDER_HEADER = '참견이 알람.';
++export const REMINDER_TITLE_MAX = 30; // 화면 입력 한도 — 문자로 가도 90바이트 안에 들어가게
++export const MIN_LEAD_MS = 60 * 1000; // 1분 뒤부터
++export const MAX_AHEAD_MS = 366 * 24 * 60 * 60 * 1000; // 1년 안쪽
++export const LATE_LIMIT_MS = 2 * 60 * 60 * 1000; // 2시간 넘게 늦었으면 보내지 않는다(늦은 알람은 소음)
++export const MAX_ATTEMPTS = 3;
++export const STUCK_SENDING_MS = 10 * 60 * 1000; // sending에서 10분 넘게 멈춰 있으면 크론이 죽은 것
++export const MAX_ACTIVE_PER_USER = 50;
++export const VOICE_LEAD_MS = 30 * 60 * 1000; // 음성 일정 → 30분 전에 알려주자고 제안
++export const OVERDUE_GRACE_MS = 3 * 60 * 1000; // 시각이 3분 넘게 지났는데 아직 예약 상태면 "아직 못 알려줬어"
++
++export type ReminderStatus = 'scheduled' | 'sending' | 'sent' | 'failed' | 'canceled';
++export type ReminderSource = 'manual' | 'voice' | 'note';
++
++/**
++ * 음성에서 잡힌 일정 → 알람 제안 시각. 30분 전이 이미 코앞이면 일정 시각 그대로, 그것도 지났으면 제안하지 않는다.
++ * (제안만 한다. 실제 생성은 사용자가 [응]을 눌렀을 때)
++ */
++export function suggestFromEvent(eventAtIso: string, now: Date): string | null {
++  const at = new Date(eventAtIso).getTime();
++  if (!Number.isFinite(at)) return null;
++  const early = at - VOICE_LEAD_MS;
++  if (early >= now.getTime() + 5 * 60 * 1000) return new Date(early).toISOString();
++  if (at >= now.getTime() + 2 * 60 * 1000) return new Date(at).toISOString();
++  return null;
++}
++
++/** 크론이 집어든 알람을 지금 보내도 되는지 — 너무 늦었으면 보내지 않고 실패로 남긴다. */
++export function isTooLate(remindAtIso: string, now: Date): boolean {
++  return now.getTime() - new Date(remindAtIso).getTime() > LATE_LIMIT_MS;
++}
++
++/** 발송 실패 후 — 일시적 실패면 다음 크론에서 다시(최대 3번), 영구 실패/늦음이면 끝. */
++export function afterFailure(attemptsSoFar: number, remindAtIso: string, now: Date, permanent: boolean): 'retry' | 'fail' {
++  if (permanent) return 'fail';
++  if (attemptsSoFar >= MAX_ATTEMPTS) return 'fail';
++  if (isTooLate(remindAtIso, now)) return 'fail';
++  return 'retry';
++}
++
++/** sending에서 멈춘 알람(크론이 중간에 죽음) — 다시 시도할지, 실패로 끝낼지. */
++export function recoverStuck(attempts: number, remindAtIso: string, now: Date): 'retry' | 'fail' {
++  return afterFailure(attempts, remindAtIso, now, false);
++}
++
++/** 예약 상태인데 시각이 한참 지났다 = 발송기가 안 돌고 있다. 화면이 숨기지 않고 드러낸다. */
++export function isOverdue(status: ReminderStatus, remindAtIso: string, now: Date): boolean {
++  return status === 'scheduled' && now.getTime() - new Date(remindAtIso).getTime() > OVERDUE_GRACE_MS;
++}
++
++/** 화면에 보여줄 실패 이유 — 사람 말로. */
++export function failureText(lastError: string | null | undefined): string {
++  const e = lastError ?? '';
++  if (e.startsWith('late')) return '그때 못 알려줬어. 너무 늦어버려서.';
++  if (e.startsWith('no_channel')) return '알려줄 방법이 없었어. 앱 알림이나 전화번호가 필요해.';
++  return '알려주려다 실패했어.';
++}
++
++// ---- 한국 시간 표시/입력 (기기 시간대와 상관없이 한국 시간 기준) ----
++const KST = 9 * 60 * 60 * 1000;
++const WD = ['일', '월', '화', '수', '목', '금', '토'];
++
++function kst(d: Date) {
++  const k = new Date(d.getTime() + KST);
++  return { y: k.getUTCFullYear(), m: k.getUTCMonth() + 1, d: k.getUTCDate(), h: k.getUTCHours(), min: k.getUTCMinutes(), wd: k.getUTCDay() };
++}
++const pad = (n: number) => String(n).padStart(2, '0');
++
++/** "오늘 오후 3시" / "내일 오전 11시 30분" / "10월 24일(금) 오전 9시" */
++export function kstLabel(iso: string, now: Date = new Date()): string {
++  const t = kst(new Date(iso));
++  const n = kst(now);
++  const dayNum = (p: { y: number; m: number; d: number }) => Date.UTC(p.y, p.m - 1, p.d) / 86_400_000;
++  const diff = dayNum(t) - dayNum(n);
++  const day = diff === 0 ? '오늘' : diff === 1 ? '내일' : diff === 2 ? '모레' : diff === -1 ? '어제' : `${t.m}월 ${t.d}일(${WD[t.wd]})`;
++  const ampm = t.h < 12 ? '오전' : '오후';
++  const h12 = t.h % 12 === 0 ? 12 : t.h % 12;
++  return `${day} ${ampm} ${h12}시${t.min ? ` ${t.min}분` : ''}`;
++}
++
++/** 입력칸(date, time)용 한국 시간 문자열 */
++export function kstInputParts(iso: string): { date: string; time: string } {
++  const t = kst(new Date(iso));
++  return { date: `${t.y}-${pad(t.m)}-${pad(t.d)}`, time: `${pad(t.h)}:${pad(t.min)}` };
++}
++
++/** 입력칸 값(한국 날짜/시각) → ISO. 기기가 다른 시간대여도 한국 시간으로 해석한다. */
++export function kstInputToIso(date: string, time: string): string | null {
++  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) return null;
++  const d = new Date(`${date}T${time}:00+09:00`);
++  return Number.isNaN(d.getTime()) ? null : d.toISOString();
++}
++
++/** 빠른 선택 — "1시간 뒤", "오늘 밤 9시"(지났으면 생략), "내일 아침 9시" */
++export function quickPicks(now: Date = new Date()): { label: string; iso: string }[] {
++  const out: { label: string; iso: string }[] = [];
++  const inHour = new Date(now.getTime() + 60 * 60 * 1000);
++  inHour.setUTCSeconds(0, 0);
++  out.push({ label: '1시간 뒤', iso: inHour.toISOString() });
++  const n = kst(now);
++  const tonight = new Date(Date.UTC(n.y, n.m - 1, n.d, 21, 0) - KST);
++  if (tonight.getTime() - now.getTime() > 10 * 60 * 1000) out.push({ label: '오늘 밤 9시', iso: tonight.toISOString() });
++  const tomorrow = new Date(Date.UTC(n.y, n.m - 1, n.d + 1, 9, 0) - KST);
++  out.push({ label: '내일 아침 9시', iso: tomorrow.toISOString() });
++  return out;
++}
+diff --git a/lib/reminders/store.ts b/lib/reminders/store.ts
+new file mode 100644
+index 0000000..def75ed
+--- /dev/null
++++ b/lib/reminders/store.ts
+@@ -0,0 +1,191 @@
++// lib/reminders/store.ts
++// ============================================================================
++// 알람 저장소(reminders 테이블) — 서버 전용. SQL: docs/sql/2026-10-12_notes_reminders.sql
++// 모든 사용자용 함수는 userId로 직접 거른다(service role은 RLS를 우회한다).
++// ============================================================================
++import { supabase } from '@/lib/supabase';
++import { hasPushSubscription } from '@/lib/webPush';
++import { MAX_ACTIVE_PER_USER, type ReminderSource, type ReminderStatus } from '@/lib/reminders/core';
++
++export interface Reminder {
++  id: number;
++  title: string;
++  remindAt: string;
++  status: ReminderStatus;
++  source: ReminderSource;
++  sourceEntryId: string | null;
++  noteId: number | null;
++  channel: 'push' | 'sms' | null;
++  attempts: number;
++  lastError: string | null;
++  sentAt: string | null;
++  createdAt: string;
++}
++
++export interface DeliveryAbility {
++  push: boolean; // 이 계정에 앱 알림을 받을 기기가 있고, 서버에 VAPID 키도 있다
++  sms: boolean; // 인증된 전화번호가 있고, 서버에 문자 발송 설정이 있다
++}
++
++export const COLS =
++  'id, user_id, title, remind_at, status, source, source_entry_id, note_id, channel, attempts, last_error, sent_at, created_at, updated_at';
++
++export function toReminder(r: any): Reminder {
++  return {
++    id: Number(r.id),
++    title: String(r.title ?? ''),
++    remindAt: r.remind_at,
++    status: r.status,
++    source: r.source,
++    sourceEntryId: r.source_entry_id ?? null,
++    noteId: r.note_id === null || r.note_id === undefined ? null : Number(r.note_id),
++    channel: r.channel ?? null,
++    attempts: Number(r.attempts ?? 0),
++    lastError: r.last_error ?? null,
++    sentAt: r.sent_at ?? null,
++    createdAt: r.created_at,
++  };
++}
++
++export class ReminderError extends Error {
++  constructor(public readonly status: number, message: string, public readonly code?: string) {
++    super(message);
++  }
++}
++
++export function smsConfigured(): boolean {
++  return !!(process.env.SOLAPI_API_KEY && process.env.SOLAPI_API_SECRET && process.env.SOLAPI_SENDER_NUMBER);
++}
++
++export async function userPhone(userId: string): Promise<string | null> {
++  const { data } = await supabase.from('user_memory').select('phone_number').eq('user_id', userId).maybeSingle();
++  if (data?.phone_number) return String(data.phone_number);
++  // 전화 인증은 auth.users.phone에 먼저 남는다(lib/phoneAuthClient.ts) — user_memory가 비어 있을 때의 보험.
++  try {
++    const { data: u } = await supabase.auth.admin.getUserById(userId);
++    return u?.user?.phone ? String(u.user.phone) : null;
++  } catch {
++    return null;
++  }
++}
++
++export async function deliveryAbility(userId: string): Promise<DeliveryAbility> {
++  const [push, phone] = await Promise.all([
++    hasPushSubscription(userId).catch(() => false),
++    smsConfigured() ? userPhone(userId) : Promise.resolve(null),
++  ]);
++  return { push, sms: !!phone };
++}
++
++/**
++ * 화면 목록 — 아직 안 끝난 것(예약/보내는 중/실패)은 시각과 상관없이 전부, 보낸 건 최근 2주 것만.
++ * 취소한 건 안 보인다. (시각이 지났는데 아직 scheduled면 화면이 "아직 못 알려줬어"로 드러낸다 — 숨기지 않는다)
++ */
++export async function listForUser(userId: string): Promise<Reminder[]> {
++  const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
++  const { data, error } = await supabase
++    .from('reminders')
++    .select(COLS)
++    .eq('user_id', userId)
++    .or(`status.in.(scheduled,sending,failed),and(status.eq.sent,remind_at.gte.${since})`)
++    .order('remind_at', { ascending: true })
++    .limit(100);
++  if (error) throw error;
++  return (data ?? []).map(toReminder);
++}
++
++async function assertOwned(table: 'voice_entries' | 'sea_notes', id: string | number, userId: string) {
++  const { data, error } = await supabase.from(table).select('id').eq('id', id).eq('user_id', userId).maybeSingle();
++  if (error) throw error;
++  if (!data) throw new ReminderError(404, '연결할 기록을 못 찾았어.');
++}
++
++export async function createForUser(
++  userId: string,
++  input: { title: string; remindAt: Date; source: ReminderSource; sourceEntryId?: string | null; noteId?: number | null }
++): Promise<{ reminder: Reminder; existed: boolean }> {
++  if (input.sourceEntryId) await assertOwned('voice_entries', input.sourceEntryId, userId);
++  if (input.noteId) await assertOwned('sea_notes', input.noteId, userId);
++
++  const { count, error: cErr } = await supabase
++    .from('reminders')
++    .select('id', { count: 'exact', head: true })
++    .eq('user_id', userId)
++    .eq('status', 'scheduled');
++  if (cErr) throw cErr;
++  if ((count ?? 0) >= MAX_ACTIVE_PER_USER) throw new ReminderError(409, `알람은 ${MAX_ACTIVE_PER_USER}개까지만 걸어둘 수 있어.`);
++
++  const { data, error } = await supabase
++    .from('reminders')
++    .insert({
++      user_id: userId,
++      title: input.title,
++      remind_at: input.remindAt.toISOString(),
++      source: input.source,
++      source_entry_id: input.sourceEntryId ?? null,
++      note_id: input.noteId ?? null,
++    })
++    .select(COLS)
++    .single();
++  if (error) {
++    // 같은 녹음으로 이미 만든 알람 — 버튼을 두 번 눌렀거나 재시도. 새로 만들지 않고 그걸 돌려준다.
++    if (error.code === '23505' && input.sourceEntryId) {
++      const { data: existing } = await supabase
++        .from('reminders')
++        .select(COLS)
++        .eq('user_id', userId)
++        .eq('source_entry_id', input.sourceEntryId)
++        .neq('status', 'canceled')
++        .maybeSingle();
++      if (existing) return { reminder: toReminder(existing), existed: true };
++    }
++    throw error;
++  }
++  return { reminder: toReminder(data), existed: false };
++}
++
++/** 고치기 — 아직 안 울렸거나 실패한 것만. 고치면 처음부터 다시 예약된다. */
++export async function updateForUser(userId: string, id: number, patch: { title?: string; remindAt?: Date }): Promise<Reminder> {
++  const fields: Record<string, unknown> = {
++    status: 'scheduled',
++    attempts: 0,
++    last_error: null,
++    channel: null,
++    sent_at: null,
++    updated_at: new Date().toISOString(),
++  };
++  if (patch.title !== undefined) fields.title = patch.title;
++  if (patch.remindAt !== undefined) fields.remind_at = patch.remindAt.toISOString();
++  const { data, error } = await supabase
++    .from('reminders')
++    .update(fields)
++    .eq('id', id)
++    .eq('user_id', userId)
++    .in('status', ['scheduled', 'failed'])
++    .select(COLS)
++    .maybeSingle();
++  if (error) throw error;
++  if (!data) throw await explainUnchangeable(userId, id);
++  return toReminder(data);
++}
++
++/** 취소 — 기록은 남기고(status=canceled) 목록에서만 뺀다. 이미 보내는 중/보낸 건 취소할 수 없다. */
++export async function cancelForUser(userId: string, id: number): Promise<void> {
++  const { data, error } = await supabase
++    .from('reminders')
++    .update({ status: 'canceled', updated_at: new Date().toISOString() })
++    .eq('id', id)
++    .eq('user_id', userId)
++    .in('status', ['scheduled', 'failed'])
++    .select('id');
++  if (error) throw error;
++  if (!(data ?? []).length) throw await explainUnchangeable(userId, id);
++}
++
++async function explainUnchangeable(userId: string, id: number): Promise<ReminderError> {
++  const { data } = await supabase.from('reminders').select('status').eq('id', id).eq('user_id', userId).maybeSingle();
++  if (!data) return new ReminderError(404, '그 알람이 없어.');
++  if (data.status === 'sending') return new ReminderError(409, '지금 막 알려주는 중이야.', 'sending');
++  if (data.status === 'sent') return new ReminderError(409, '이미 알려준 알람이야.', 'sent');
++  return new ReminderError(409, '이미 취소된 알람이야.', 'canceled');
++}
+diff --git a/lib/seaNotes.ts b/lib/seaNotes.ts
+new file mode 100644
+index 0000000..f9731dd
+--- /dev/null
++++ b/lib/seaNotes.ts
+@@ -0,0 +1,109 @@
++// lib/seaNotes.ts
++// ============================================================================
++// 바다 위 메모 — 서버 전용 데이터 접근(sea_notes 테이블, SQL: docs/sql/2026-10-12_notes_reminders.sql).
++// ----------------------------------------------------------------------------
++// 메모는 "생각 기록(voice_entries → 기억 엔진)"과 목적이 다르다. 사용자가 손으로 적어둔 짧은 글일 뿐이라
++//   - 기억 추출/인사이트/SMS 개입 어디에도 넣지 않는다(이 파일 밖으로 나가지 않는다).
++//   - 카테고리/태그/날짜를 묻지 않는다. 본문 하나만.
++// 모든 함수는 userId를 받아 .eq('user_id', userId)로 직접 거른다 — service role은 RLS를 우회하기 때문.
++// ============================================================================
++import { supabase } from '@/lib/supabase';
++
++export const NOTE_MAX_CHARS = 1000;
++export const NOTE_LIST_LIMIT = 300;
++
++export interface SeaNote {
++  id: number;
++  body: string;
++  createdAt: string;
++  updatedAt: string;
++  lastOpenedAt: string | null;
++}
++
++/** 저장할 본문으로 다듬는다. 비었거나 너무 길면 오류 메시지(사용자에게 그대로 보여줄 문장). */
++export function normalizeNoteBody(raw: unknown): { ok: true; body: string } | { ok: false; error: string } {
++  if (typeof raw !== 'string') return { ok: false, error: '적은 게 없어.' };
++  // 앞뒤 공백만 정리하고, 줄바꿈은 살린다. 세 줄 이상 비는 건 두 줄로.
++  const body = raw.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
++  if (!body) return { ok: false, error: '적은 게 없어.' };
++  if (body.length > NOTE_MAX_CHARS) return { ok: false, error: `${NOTE_MAX_CHARS}자까지만 띄울 수 있어.` };
++  return { ok: true, body };
++}
++
++/** 테이블이 아직 없을 때(SQL 실행 전) — 화면이 "아직 준비 안 됐어"를 정확히 보여줄 수 있게 구분한다. */
++export function isMissingTable(err: { code?: string; message?: string } | null | undefined): boolean {
++  if (!err) return false;
++  return err.code === '42P01' || err.code === 'PGRST205' || /does not exist|schema cache/i.test(err.message ?? '');
++}
++
++function toNote(r: any): SeaNote {
++  return {
++    id: Number(r.id),
++    body: String(r.body ?? ''),
++    createdAt: r.created_at,
++    updatedAt: r.updated_at,
++    lastOpenedAt: r.last_opened_at ?? null,
++  };
++}
++
++const COLS = 'id, body, created_at, updated_at, last_opened_at';
++
++export async function listNotes(userId: string, q?: string | null): Promise<SeaNote[]> {
++  let query = supabase.from('sea_notes').select(COLS).eq('user_id', userId).order('created_at', { ascending: false }).limit(NOTE_LIST_LIMIT);
++  const term = (q ?? '').trim().slice(0, 40);
++  if (term) {
++    // ilike 와일드카드 문자는 글자 그대로 찾게 이스케이프
++    query = query.ilike('body', `%${term.replace(/[\\%_]/g, (c) => '\\' + c)}%`);
++  }
++  const { data, error } = await query;
++  if (error) throw error;
++  return (data ?? []).map(toNote);
++}
++
++export async function createNote(userId: string, body: string): Promise<SeaNote> {
++  const { data, error } = await supabase.from('sea_notes').insert({ user_id: userId, body }).select(COLS).single();
++  if (error) throw error;
++  return toNote(data);
++}
++
++export async function updateNote(userId: string, id: number, body: string): Promise<SeaNote | null> {
++  const { data, error } = await supabase
++    .from('sea_notes')
++    .update({ body, updated_at: new Date().toISOString() })
++    .eq('id', id)
++    .eq('user_id', userId)
++    .select(COLS)
++    .maybeSingle();
++  if (error) throw error;
++  return data ? toNote(data) : null;
++}
++
++/** 다시 열어봤다고 기록 — 직전 값을 같이 돌려준다(수달이 "오랜만이네"를 사실로만 말하게). */
++export async function markNoteOpened(
++  userId: string,
++  id: number
++): Promise<{ note: SeaNote; previousOpenedAt: string | null } | null> {
++  const { data: before, error: e1 } = await supabase
++    .from('sea_notes')
++    .select(COLS)
++    .eq('id', id)
++    .eq('user_id', userId)
++    .maybeSingle();
++  if (e1) throw e1;
++  if (!before) return null;
++  const { data, error } = await supabase
++    .from('sea_notes')
++    .update({ last_opened_at: new Date().toISOString() })
++    .eq('id', id)
++    .eq('user_id', userId)
++    .select(COLS)
++    .maybeSingle();
++  if (error) throw error;
++  return { note: toNote(data ?? before), previousOpenedAt: (before as any).last_opened_at ?? null };
++}
++
++export async function deleteNote(userId: string, id: number): Promise<boolean> {
++  const { data, error } = await supabase.from('sea_notes').delete().eq('id', id).eq('user_id', userId).select('id');
++  if (error) throw error;
++  return (data ?? []).length > 0;
++}
+diff --git a/scripts/test-otter-cues.ts b/scripts/test-otter-cues.ts
+new file mode 100644
+index 0000000..b1d4707
+--- /dev/null
++++ b/scripts/test-otter-cues.ts
+@@ -0,0 +1,106 @@
++// scripts/test-otter-cues.ts
++// 실행: npx tsx --tsconfig tsconfig.json scripts/test-otter-cues.ts
++// 참견이(수달) 반응 규칙(lib/otterCues.ts) — 순수 함수 테스트. DB/네트워크 없음.
++import { decideCue, deepTapCue, deepTapLines, GREET_GAP_MS, type OtterMemory } from '../lib/otterCues';
++
++let fail = 0;
++function check(name: string, cond: boolean, detail?: unknown) {
++  console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${cond ? '' : '  → ' + JSON.stringify(detail)}`);
++  if (!cond) fail++;
++}
++
++const NOW = new Date('2026-10-12T09:00:00Z'); // 18:00 KST
++const DAY = 86_400_000;
++const iso = (msFromNow: number) => new Date(NOW.getTime() + msFromNow).toISOString();
++
++// 1) 처음 홈 안내는 딱 한 번
++{
++  const a = decideCue({ type: 'home_first_visit' }, {}, NOW);
++  check('처음 홈 → 안내 한마디', !!a.cue?.line && a.next.homeIntro === true, a);
++  const b = decideCue({ type: 'home_first_visit' }, a.next, NOW);
++  check('두 번째 홈 → 조용히', b.cue === null, b);
++}
++
++// 2) 메모 저장 — 첫 번째만 말하고 그 뒤엔 말 없이 끄덕
++{
++  const a = decideCue({ type: 'note_saved' }, {}, NOW);
++  check('첫 메모 저장 → 한마디', !!a.cue?.line && a.next.firstNote === true, a);
++  const b = decideCue({ type: 'note_saved' }, a.next, NOW);
++  check('두 번째 메모 저장 → 말 없음(끄덕)', !!b.cue && b.cue.line === null && b.cue.motion === 'nod', b);
++}
++
++// 3) 오래된 메모를 다시 열었을 때만 "오랜만" — 사실(만든 시각/마지막으로 연 시각)로만
++{
++  const fresh = decideCue({ type: 'note_reopened', createdAt: iso(-3 * DAY), previousOpenedAt: null }, {}, NOW);
++  check('3일 전 메모 → 조용히', fresh.cue === null, fresh);
++  const old = decideCue({ type: 'note_reopened', createdAt: iso(-40 * DAY), previousOpenedAt: null }, {}, NOW);
++  check('40일 전 메모(처음 다시 엶) → 놀람 + 한 달 전쯤', !!old.cue && old.cue.expression === 'surprise' && /한 달 전쯤/.test(old.cue.line ?? ''), old);
++  const seenRecently = decideCue({ type: 'note_reopened', createdAt: iso(-40 * DAY), previousOpenedAt: iso(-2 * DAY) }, {}, NOW);
++  check('오래된 메모라도 이틀 전에 봤으면 → 조용히', seenRecently.cue === null, seenRecently);
++  const seenLongAgo = decideCue({ type: 'note_reopened', createdAt: iso(-90 * DAY), previousOpenedAt: iso(-30 * DAY) }, {}, NOW);
++  check('마지막으로 본 게 30일 전 → "마지막으로 본 게"', /마지막으로 본 게/.test(seenLongAgo.cue?.line ?? ''), seenLongAgo);
++}
++
++// 4) 알람 설정 — 첫 번째만 시각+채널을 말한다, 저장 안 된 걸 말하지 않는다
++{
++  const at = '2026-10-13T02:00:00Z'; // 내일 11:00 KST
++  const a = decideCue({ type: 'reminder_set', remindAt: at, channel: 'sms' }, {}, NOW);
++  check('첫 알람 → 내일 오전 11시 + 문자', (a.cue?.line ?? '').includes('내일 오전 11시') && (a.cue?.line ?? '').includes('문자'), a);
++  const b = decideCue({ type: 'reminder_set', remindAt: at, channel: 'sms' }, a.next, NOW);
++  check('두 번째 알람 → 말 없음', !!b.cue && b.cue.line === null, b);
++}
++
++// 5) 실패한 알람은 알람마다 한 번만
++{
++  const a = decideCue({ type: 'reminder_failed', id: 7, title: '스튜디오' }, {}, NOW);
++  check('실패 알람 → 한마디', (a.cue?.line ?? '').includes('스튜디오'), a);
++  const b = decideCue({ type: 'reminder_failed', id: 7, title: '스튜디오' }, a.next, NOW);
++  check('같은 실패 알람 → 다시 말 안 함', b.cue === null, b);
++  const c = decideCue({ type: 'reminder_failed', id: 8, title: '병원' }, a.next, NOW);
++  check('다른 실패 알람 → 말함', !!c.cue, c);
++}
++
++// 6) 심해 인사 — 6시간에 한 번 이하, 곧 울릴 알람이 있으면 그걸 말한다
++{
++  const a = decideCue({ type: 'deep_arrive', night: false, nextReminder: null }, {}, NOW);
++  check('처음 내려옴 → 인사', a.cue?.line === '어, 왔어?', a);
++  const b = decideCue({ type: 'deep_arrive', night: false, nextReminder: null }, a.next, new Date(NOW.getTime() + 60_000));
++  check('1분 뒤 또 내려옴 → 조용히', b.cue === null, b);
++  const c = decideCue({ type: 'deep_arrive', night: false, nextReminder: null }, a.next, new Date(NOW.getTime() + GREET_GAP_MS + 1000));
++  check('6시간 뒤 → 다시 인사', !!c.cue, c);
++  const mem: OtterMemory = {};
++  const d = decideCue({ type: 'deep_arrive', night: true, nextReminder: { title: '약 먹기', at: iso(60 * 60 * 1000) } }, mem, NOW);
++  check('곧 울릴 알람 → 그걸 말함', (d.cue?.line ?? '').includes('약 먹기'), d);
++  const e = decideCue({ type: 'deep_arrive', night: true, nextReminder: { title: '약 먹기', at: iso(5 * DAY) } }, mem, NOW);
++  check('먼 알람 → 평소 밤 인사', e.cue?.line === '…음? 이 시간에 왔어?', e);
++}
++
++// 7) 심해 탭 — 실제 상태로만, 다 말하면 더 안 만든다
++{
++  const facts = { fishCount: 0, stage: 0, noteCount: null, nextReminder: null };
++  const lines = deepTapLines(facts, NOW);
++  check('물고기 0 → 숫자 자랑 없이 "아직 없네"', lines.some((l) => l.includes('아직 물고기가 없네')) && !lines.some((l) => /\d+마리/.test(l)), lines);
++  check('메모 개수 모르면 쪽지 얘기 안 함', !lines.some((l) => l.includes('쪽지')), lines);
++  const withNotes = deepTapLines({ ...facts, noteCount: 3 }, NOW);
++  check('메모 있으면 쪽지 얘기', withNotes.some((l) => l.includes('쪽지')), withNotes);
++  const seq = Array.from({ length: lines.length + 3 }, (_, i) => deepTapCue(facts, i, NOW).line);
++  check('같은 말 연달아 안 함', seq.slice(0, lines.length).every((l, i, a) => i === 0 || l !== a[i - 1]), seq);
++  check('다 말한 뒤엔 "간지러워" 한 번, 그다음은 말 없음', seq[lines.length] === '간지러워.' && seq[lines.length + 1] === null, seq);
++  check('명령형 "말해봐" 없음', !lines.join(' ').includes('말해봐'), lines);
++}
++
++// 8) 말투 — 명령형 종결/공손체 금지 확인(모든 말)
++{
++  const all: string[] = [];
++  const push = (r: { cue: { line: string | null } | null }) => r.cue?.line && all.push(r.cue.line);
++  push(decideCue({ type: 'home_first_visit' }, {}, NOW));
++  push(decideCue({ type: 'note_saved' }, {}, NOW));
++  push(decideCue({ type: 'reminder_set', remindAt: iso(DAY), channel: 'push' }, {}, NOW));
++  push(decideCue({ type: 'reminder_failed', id: 1, title: 'x' }, {}, NOW));
++  all.push(...deepTapLines({ fishCount: 2, stage: 3, noteCount: 1, nextReminder: { title: 'y', at: iso(DAY) } }, NOW));
++  const bad = all.filter((l) => /(해주세요|하세요|세요\.|말해봐|기억해\.|해야 해|잊지 마)/.test(l));
++  check('금지 말투 없음', bad.length === 0, bad);
++}
++
++console.log(fail ? `\n${fail}개 실패` : '\n전부 통과');
++process.exit(fail ? 1 : 0);
+diff --git a/scripts/test-reminders.ts b/scripts/test-reminders.ts
+new file mode 100644
+index 0000000..688f2ae
+--- /dev/null
++++ b/scripts/test-reminders.ts
+@@ -0,0 +1,232 @@
++// scripts/test-reminders.ts
++// 실행: npx tsx --tsconfig tsconfig.json scripts/test-reminders.ts
++// 알람 규칙(lib/reminders/core.ts, rules.ts) + 발송기(lib/reminders/deliver.ts)를 가짜 DB로 검증한다.
++// 실제 DB/문자/앱 알림은 쓰지 않는다 — 실제 발송 검증은 배포 후 별도로 해야 한다.
++import {
++  afterFailure,
++  isOverdue,
++  isTooLate,
++  kstInputToIso,
++  kstLabel,
++  normalizeRemindAt,
++  normalizeTitle,
++  quickPicks,
++  suggestFromEvent,
++  MAX_ATTEMPTS,
++} from '../lib/reminders/core';
++import { PermanentError, processDueReminders } from '../lib/reminders/deliver';
++
++let fail = 0;
++function check(name: string, cond: boolean, detail?: unknown) {
++  console.log(`${cond ? 'PASS' : 'FAIL'}  ${name}${cond ? '' : '  → ' + JSON.stringify(detail)}`);
++  if (!cond) fail++;
++}
++
++const NOW = new Date('2026-10-12T09:00:00Z'); // 18:00 KST
++const MIN = 60_000;
++const at = (ms: number) => new Date(NOW.getTime() + ms).toISOString();
++
++// ---------------------------------------------------------------- 입력 검증
++{
++  check('제목 정상', normalizeTitle('  스튜디오   가기 ').ok && (normalizeTitle(' 스튜디오   가기 ') as any).value === '스튜디오 가기');
++  check('빈 제목 거절', !normalizeTitle('   ').ok);
++  check('31자 거절', !normalizeTitle('가'.repeat(31)).ok);
++  check('30자 한글은 문자 90바이트 안', normalizeTitle('가'.repeat(30)).ok);
++  check('이모지 30개는 문자로 못 보내니 거절', !normalizeTitle('😀'.repeat(30)).ok);
++  check('지난 시각 거절', !normalizeRemindAt(at(-MIN), NOW).ok);
++  check('30초 뒤 거절(1분 이상)', !normalizeRemindAt(at(30_000), NOW).ok);
++  check('2분 뒤 허용', normalizeRemindAt(at(2 * MIN), NOW).ok);
++  check('400일 뒤 거절', !normalizeRemindAt(at(400 * 86_400_000), NOW).ok);
++  check('이상한 문자열 거절', !normalizeRemindAt('내일', NOW).ok);
++}
++
++// ---------------------------------------------------------------- 한국 시간
++{
++  const iso = kstInputToIso('2026-10-13', '11:00');
++  check('입력칸 → 한국 시간 ISO', iso === '2026-10-13T02:00:00.000Z', iso);
++  check('표시: 내일 오전 11시', kstLabel(iso!, NOW) === '내일 오전 11시', kstLabel(iso!, NOW));
++  check('표시: 오늘 오후 9시 30분', kstLabel('2026-10-12T12:30:00Z', NOW) === '오늘 오후 9시 30분', kstLabel('2026-10-12T12:30:00Z', NOW));
++  check('표시: 자정 = 오전 12시', kstLabel('2026-10-12T15:00:00Z', NOW) === '내일 오전 12시', kstLabel('2026-10-12T15:00:00Z', NOW));
++  const picks = quickPicks(NOW);
++  check('빠른 선택: 1시간 뒤 / 오늘 밤 9시 / 내일 아침 9시', picks.map((p) => p.label).join(',') === '1시간 뒤,오늘 밤 9시,내일 아침 9시', picks);
++  const late = quickPicks(new Date('2026-10-12T12:55:00Z')); // 21:55 KST
++  check('밤 10시 가까우면 "오늘 밤 9시" 빠짐', !late.some((p) => p.label === '오늘 밤 9시'), late);
++}
++
++// ---------------------------------------------------------------- 음성 일정 → 제안 시각
++{
++  check('내일 11시 일정 → 10시 30분 제안', suggestFromEvent('2026-10-13T02:00:00Z', NOW) === '2026-10-13T01:30:00.000Z');
++  check('20분 뒤 일정 → 그 시각 그대로', suggestFromEvent(at(20 * MIN), NOW) === at(20 * MIN));
++  check('1분 뒤 일정 → 제안 안 함', suggestFromEvent(at(MIN), NOW) === null);
++  check('지난 일정 → 제안 안 함', suggestFromEvent(at(-MIN), NOW) === null);
++}
++
++// ---------------------------------------------------------------- 실패/지연 규칙
++{
++  check('3시간 늦음 = 너무 늦음', isTooLate(at(-3 * 60 * MIN), NOW));
++  check('5분 늦음 = 보냄', !isTooLate(at(-5 * MIN), NOW));
++  check('일시 실패 1번째 → 재시도', afterFailure(1, at(-MIN), NOW, false) === 'retry');
++  check(`일시 실패 ${MAX_ATTEMPTS}번째 → 포기`, afterFailure(MAX_ATTEMPTS, at(-MIN), NOW, false) === 'fail');
++  check('영구 실패 → 바로 포기', afterFailure(1, at(-MIN), NOW, true) === 'fail');
++  check('예약인데 10분 지남 → 화면에 "아직 못 알려줬어"', isOverdue('scheduled', at(-10 * MIN), NOW));
++  check('보낸 건 overdue 아님', !isOverdue('sent', at(-10 * MIN), NOW));
++}
++
++// ---------------------------------------------------------------- 가짜 DB로 발송기
++type Row = Record<string, any>;
++function fakeDb(rows: Row[]) {
++  class Q {
++    private filters: ((r: Row) => boolean)[] = [];
++    private op: 'select' | 'update' = 'select';
++    private patch: Row = {};
++    private returning = false;
++    private _limit = Infinity;
++    private _order: { col: string; asc: boolean } | null = null;
++    constructor(private table: string) {}
++    select() {
++      if (this.op === 'update') this.returning = true;
++      return this;
++    }
++    update(p: Row) {
++      this.op = 'update';
++      this.patch = p;
++      return this;
++    }
++    eq(c: string, v: any) { this.filters.push((r) => r[c] === v); return this; }
++    neq(c: string, v: any) { this.filters.push((r) => r[c] !== v); return this; }
++    lt(c: string, v: any) { this.filters.push((r) => r[c] < v); return this; }
++    lte(c: string, v: any) { this.filters.push((r) => r[c] <= v); return this; }
++    in(c: string, vs: any[]) { this.filters.push((r) => vs.includes(r[c])); return this; }
++    order(col: string, o: { ascending: boolean }) { this._order = { col, asc: o.ascending }; return this; }
++    limit(n: number) { this._limit = n; return this; }
++    then(resolve: (v: any) => void) {
++      if (this.table !== 'reminders') return resolve({ data: [], error: null });
++      let hit = rows.filter((r) => this.filters.every((f) => f(r)));
++      if (this.op === 'update') {
++        hit.forEach((r) => Object.assign(r, this.patch));
++        return resolve({ data: this.returning ? hit.map((r) => ({ ...r })) : null, error: null });
++      }
++      if (this._order) {
++        const { col, asc } = this._order;
++        hit = [...hit].sort((a, b) => (a[col] < b[col] ? -1 : 1) * (asc ? 1 : -1));
++      }
++      return resolve({ data: hit.slice(0, this._limit).map((r) => ({ ...r })), error: null });
++    }
++  }
++  return { from: (t: string) => new Q(t) } as any;
++}
++const row = (id: number, remindMs: number, extra: Row = {}): Row => ({
++  id,
++  user_id: 'u1',
++  title: '알람' + id,
++  remind_at: at(remindMs),
++  status: 'scheduled',
++  source: 'manual',
++  source_entry_id: null,
++  note_id: null,
++  channel: null,
++  attempts: 0,
++  last_error: null,
++  sent_at: null,
++  created_at: at(-60 * MIN),
++  updated_at: at(-60 * MIN),
++  ...extra,
++});
++
++async function main() {
++  // 1) 보낼 때 된 것만, 한 번만
++  {
++    const rows = [row(1, -MIN), row(2, 10 * MIN), row(3, -2 * MIN, { status: 'canceled' })];
++    const sent: number[] = [];
++    const db = fakeDb(rows);
++    const send = async (r: any) => {
++      sent.push(r.id);
++      return 'sms' as const;
++    };
++    const r1 = await processDueReminders(NOW, {}, { db, send });
++    check('시각 된 알람만 보냄', sent.join() === '1', { sent, r1 });
++    check('보낸 알람 → sent + 채널 기록', rows[0].status === 'sent' && rows[0].channel === 'sms' && rows[0].attempts === 1, rows[0]);
++    check('취소한 알람은 절대 안 보냄', rows[2].status === 'canceled' && !sent.includes(3));
++    check('아직 안 된 알람은 그대로', rows[1].status === 'scheduled');
++    await processDueReminders(NOW, {}, { db, send });
++    check('크론이 다시 돌아도 중복 발송 없음', sent.join() === '1', sent);
++  }
++
++  // 2) 크론 두 개가 동시에 떠도 한 번만 (잡기 경쟁)
++  {
++    const rows = [row(10, -MIN)];
++    const sent: number[] = [];
++    const db = fakeDb(rows);
++    const send = async (r: any) => {
++      sent.push(r.id);
++      await new Promise((ok) => setTimeout(ok, 20));
++      return 'push' as const;
++    };
++    await Promise.all([processDueReminders(NOW, {}, { db, send }), processDueReminders(NOW, {}, { db, send })]);
++    check('동시에 두 번 돌아도 한 번만 보냄', sent.length === 1, sent);
++  }
++
++  // 3) 일시 실패 → 재시도 → 3번째에 포기
++  {
++    const rows = [row(20, -MIN)];
++    const db = fakeDb(rows);
++    let calls = 0;
++    const send = async () => {
++      calls++;
++      throw new Error('network');
++    };
++    await processDueReminders(NOW, {}, { db, send });
++    check('1번째 실패 → 다시 예약', rows[0].status === 'scheduled' && rows[0].attempts === 1 && rows[0].last_error === 'network', rows[0]);
++    await processDueReminders(NOW, {}, { db, send });
++    await processDueReminders(NOW, {}, { db, send });
++    check('3번 실패 → failed로 끝', rows[0].status === 'failed' && calls === 3, { row: rows[0], calls });
++    await processDueReminders(NOW, {}, { db, send });
++    check('failed는 다시 안 집음', calls === 3, calls);
++  }
++
++  // 4) 영구 실패(알려줄 수단 없음) → 바로 failed, 이유 남김
++  {
++    const rows = [row(30, -MIN)];
++    const db = fakeDb(rows);
++    await processDueReminders(NOW, {}, {
++      db,
++      send: async () => {
++        throw new PermanentError('no_channel: 없음');
++      },
++    });
++    check('수단 없음 → 바로 failed + 이유', rows[0].status === 'failed' && String(rows[0].last_error).startsWith('no_channel'), rows[0]);
++  }
++
++  // 5) 너무 늦은 알람(발송기가 멈췄다 깨어남) → 보내지 않고 late로
++  {
++    const rows = [row(40, -3 * 60 * MIN)];
++    const sent: number[] = [];
++    const db = fakeDb(rows);
++    await processDueReminders(NOW, {}, { db, send: async (r: any) => (sent.push(r.id), 'sms' as const) });
++    check('3시간 늦음 → 안 보내고 failed(late)', sent.length === 0 && rows[0].status === 'failed' && rows[0].last_error === 'late', rows[0]);
++  }
++
++  // 6) sending에서 멈춘 알람 → 10분 지나면 다시 시도
++  {
++    const rows = [row(50, -20 * MIN, { status: 'sending', attempts: 1, updated_at: at(-15 * MIN) })];
++    const sent: number[] = [];
++    const db = fakeDb(rows);
++    const r = await processDueReminders(NOW, {}, { db, send: async (x: any) => (sent.push(x.id), 'push' as const) });
++    check('멈춘 알람 복구 후 발송', r.recovered === 1 && sent.join() === '50' && rows[0].status === 'sent', { r, row: rows[0] });
++    const fresh = [row(51, -MIN, { status: 'sending', attempts: 1, updated_at: at(-2 * MIN) })];
++    const r2 = await processDueReminders(NOW, {}, { db: fakeDb(fresh), send: async () => 'push' as const });
++    check('방금 sending 된 건 건드리지 않음', r2.recovered === 0 && fresh[0].status === 'sending', fresh[0]);
++  }
++
++  // 7) dryRun은 아무것도 안 바꿈
++  {
++    const rows = [row(60, -MIN)];
++    const r = await processDueReminders(NOW, { dryRun: true }, { db: fakeDb(rows), send: async () => 'sms' as const });
++    check('dryRun → 상태 그대로', rows[0].status === 'scheduled' && r.results.length === 1, rows[0]);
++  }
++
++  console.log(fail ? `\n${fail}개 실패` : '\n전부 통과');
++  process.exit(fail ? 1 : 0);
++}
++
++main();
