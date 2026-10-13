@@ -11,6 +11,7 @@ import DeepSea, { type SeaGrowth } from "@/components/DeepSea";
 import SeaOtter from "@/components/SeaOtter";
 import { OtterFace } from "@/components/Otter";
 import SeaSky from "@/components/SeaSky";
+import { WorryCloseUp } from "@/components/OtterCloseUp";
 import { loadOtterMemory, pickVisit, saveOtterMemory, type Visit } from "@/lib/otterCues";
 
 // ============================================================================
@@ -155,19 +156,28 @@ const MAX_BOTTLES_SHOWN = 4;
 const MIN_FOR_RATE = 5; // lib/worryBottles.ts와 같은 값
 const WORRY_PEEK_KEY = "ganseobi_worry_peeked_v1";
 
-// 걱정 말투에 맞춰 묻는 말 — 명령형 없이, 결과 하나만 묻는다.
+// 수달이 다가와서 하는 첫 마디 — 걱정 말투에 맞춰. 명령형 없이, 니가 한 말을 들이민다.
 function worryAsk(text: string): string {
-  if (/망할|망치|망하/.test(text)) return "그래서… 망했어?";
-  if (/놓칠|늦을|늦/.test(text)) return "결국 늦었어, 안 늦었어?";
-  if (/안\s*올|없을|반토막|모자랄|부족/.test(text)) return "그거 진짜 그렇게 됐어?";
-  if (/떨어질|틀릴|실패|안\s*될|안될|못\s*할/.test(text)) return "그래서 결과는?";
-  return "그 걱정, 어떻게 됐어?";
+  if (/망할|망치|망하/.test(text)) return "야. 니가 이때 망할 것 같다며.";
+  if (/놓칠|늦을|늦/.test(text)) return "야. 니가 이때 늦을 것 같다며.";
+  if (/안\s*올|없을|반토막|모자랄|부족/.test(text)) return "야. 니가 이때 안 될 것 같다며.";
+  if (/떨어질|틀릴|실패|안\s*될|안될|못\s*할/.test(text)) return "야. 니가 이때 안 될 거라며.";
+  return "야. 니가 이때 이거 걱정했잖아.";
 }
 const WORRY_REACT: Record<WorryAnswer, string[]> = {
   hit: ["헐 진짜 맞았네. 이번 건 촉이 좋았다.", "맞았어? 니 촉 좀 무섭다."],
   half: ["반만 맞은 걸로 쳐줄게.", "애매하네. 반쯤으로 적어둘게."],
   miss: ["거봐. 또 빗나감.", "그렇게 걱정하더니 멀쩡했네?"],
 };
+// 쪽지 위 "언제" — 날짜 대신 흐릿하게, 가까운 건 조금 더 또렷하게
+function worryWhen(iso: string): string {
+  const days = (Date.now() - new Date(iso).getTime()) / 86_400_000;
+  if (days < 1) return "오늘";
+  if (days < 2) return "어제";
+  if (days < 7) return "며칠 전";
+  if (days < 30) return "몇 주 전";
+  return "한 달 전쯤";
+}
 function worryVerdict(rate: number): string {
   if (rate < 30) return "니 걱정, 거의 다 헛걱정이었어.";
   if (rate < 45) return "생각보다 많이 빗나가는데?";
@@ -687,28 +697,34 @@ export default function Sea({
     }
     setSheet(null);
   };
-  // 확인할 때가 된 병이 생기면 — 병마다 한 번만, 참견이가 고개를 내밀어 알려준다(다른 할 말이 없을 때만)
+  // 확인할 때가 된 병이 생기면 — 수달이 그 병을 들고 화면 앞으로 직접 찾아온다(components/OtterCloseUp.tsx).
+  // 병마다 한 번, 하루에 한 번까지만. 다른 할 말(대답 말풍선/기억 소환/고개 내밀기)이 있으면 기다린다.
+  // 그냥 돌려보내도 병은 수면에서 계속 흔들리고, 누르면 언제든 다시 다가온다.
   const dueBottle = bottles.find(isDue) ?? null;
   useEffect(() => {
-    if (!dueBottle || thinking || sheet || recallUnitId || peek) return;
+    if (!dueBottle || thinking || sheet || recallUnitId || peek || quiet) return;
     let seen: number[] = [];
+    let lastDay = "";
     try {
       seen = JSON.parse(localStorage.getItem(WORRY_PEEK_KEY) || "[]") as number[];
+      lastDay = localStorage.getItem(WORRY_PEEK_KEY + "_day") || "";
     } catch {
       seen = [];
     }
-    if (seen.includes(dueBottle.id)) return;
+    const today = new Date().toDateString();
+    if (seen.includes(dueBottle.id) || lastDay === today) return;
     const t = setTimeout(() => {
       try {
         localStorage.setItem(WORRY_PEEK_KEY, JSON.stringify([dueBottle.id, ...seen].slice(0, 50)));
+        localStorage.setItem(WORRY_PEEK_KEY + "_day", today);
       } catch {
         /* 못 남기면 다음에 한 번 더 */
       }
-      showPeek("병 하나 열어볼 때 됐어.", "tilt", 5000);
+      setSheet({ kind: "worry", id: dueBottle.id });
     }, 2500);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dueBottle?.id, thinking, sheet, recallUnitId]);
+  }, [dueBottle?.id, thinking, sheet, recallUnitId, quiet]);
   // 성장 단서 — 실제로 단계가 올라갔고 아직 심해에서 못 봤을 때만. 기억 회상·대답 대기·카드가 열려 있으면 숨긴다.
   const growthCue = !!growth && growth.fresh && growth.stage > growth.seen && !thinking && !recallOn && !sheet;
 
@@ -1117,69 +1133,21 @@ export default function Sea({
         </div>
       )}
 
-      {/* 걱정 병 — 참견이가 결과를 묻는다 */}
+      {/* 걱정 병 — 수달이 화면 앞으로 다가와 쪽지를 내민다 */}
       {openWorry && !thinking && sheet?.kind === "worry" && (
-        <>
-          <div className="sea-sheet-dim" onClick={closeSheet} aria-hidden />
-          <div className="sea-sheet" role="dialog" aria-label="걱정 병">
-            <button className="sea-sheet-x" aria-label="닫기" onClick={closeSheet}>
-              ×
-            </button>
-            <div className="sea-worry-head">
-              <OtterFace expression={worryDone ? (worryDone.answer === "miss" ? "laugh" : worryDone.answer === "hit" ? "surprise" : "base") : "tilt"} size={58} />
-              <span key={worryDone ? "done" : "ask"} className="sea-worry-say">
-                {worryDone ? worryDone.line : worryAsk(openWorry.worry)}
-              </span>
-            </div>
-            <div className="sea-worry-bottle">
-              <span className="sea-worry-when">{fuzzyAgo(openWorry.createdAt)} 니가 한 걱정</span>
-              <p className="sea-worry-text">{openWorry.worry}</p>
-            </div>
-            {!worryDone ? (
-              <>
-                <div className="sea-worry-answers">
-                  <button className="sea-worry-btn sea-wb-hit" disabled={worryBusy} onClick={() => sendWorry(openWorry.id, "hit")}>
-                    맞았어
-                  </button>
-                  <button className="sea-worry-btn sea-wb-half" disabled={worryBusy} onClick={() => sendWorry(openWorry.id, "half")}>
-                    반쯤
-                  </button>
-                  <button className="sea-worry-btn sea-wb-miss" disabled={worryBusy} onClick={() => sendWorry(openWorry.id, "miss")}>
-                    빗나갔어
-                  </button>
-                </div>
-                <button className="sea-worry-later" disabled={worryBusy} onClick={() => sendWorry(openWorry.id, "later")}>
-                  아직 몰라
-                </button>
-              </>
-            ) : (
-              <div className="sea-worry-rate">
-                {worryDone.stats && worryDone.stats.rate !== null ? (
-                  <>
-                    <span className="sea-worry-rate-k">지금까지 니 걱정 적중률</span>
-                    <span className="sea-worry-rate-n">{worryDone.stats.rate}%</span>
-                    <span className="sea-worry-rate-v">{worryVerdict(worryDone.stats.rate)}</span>
-                    <span className="sea-worry-rate-c">
-                      맞음 {worryDone.stats.hit} · 반쯤 {worryDone.stats.half} · 빗나감 {worryDone.stats.miss}
-                    </span>
-                  </>
-                ) : (
-                  <span className="sea-worry-rate-v">
-                    걱정 {Math.max(1, MIN_FOR_RATE - (worryDone.stats?.done ?? 0))}개만 더 열어보면 니 걱정 적중률 나와.
-                  </span>
-                )}
-                <button className="sea-worry-btn sea-wb-close" onClick={closeSheet}>
-                  닫기
-                </button>
-              </div>
-            )}
-            {worryErr && (
-              <p className="sea-worry-err" role="alert">
-                {worryErr}
-              </p>
-            )}
-          </div>
-        </>
+        <WorryCloseUp
+          key={openWorry.id}
+          when={worryWhen(openWorry.createdAt)}
+          worry={openWorry.worry}
+          ask={worryAsk(openWorry.worry)}
+          done={worryDone && worryDone.id === openWorry.id ? worryDone : null}
+          busy={worryBusy}
+          error={worryErr}
+          minForRate={MIN_FOR_RATE}
+          verdict={worryVerdict}
+          onAnswer={(a) => sendWorry(openWorry.id, a)}
+          onLeave={closeSheet}
+        />
       )}
 
       {/* 물고기 속 생각 — 한 마디씩 크게. 옆으로 넘기면 그 전에 한 말. */}
@@ -1516,29 +1484,6 @@ const CSS = `
 .sea-bottle-due{animation:sea-bottle-due 1.3s ease-in-out infinite!important}
 @keyframes sea-bottle-due{0%,100%{transform:translateY(0) rotate(-12deg)}25%{transform:translateY(-6px) rotate(10deg)}50%{transform:translateY(0) rotate(-6deg)}75%{transform:translateY(-3px) rotate(12deg)}}
 .sea-bottle-q{position:absolute;right:-12px;top:-14px;width:22px;height:22px;border-radius:50%;background:#F9C7DC;border:2.5px solid #1B1630;font-size:14px;line-height:18px;text-align:center;color:#1B1630}
-.sea-worry-head{display:flex;align-items:center;justify-content:center;gap:8px;margin:2px 28px 12px}
-.sea-worry-say{font-size:19px;line-height:1.35;word-break:keep-all;text-align:left;animation:sea-q-in .3s ease both}
-.sea-worry-bottle{background:#FFF6E5;border:2.5px dashed #1B1630;border-radius:18px;padding:12px 14px;text-align:left}
-.sea-worry-when{font-size:12.5px;color:rgba(27,22,48,.5)}
-.sea-worry-text{margin:4px 0 0;font-size:20px;line-height:1.4;word-break:keep-all}
-.sea-worry-text::before{content:"“";opacity:.35;margin-right:2px}
-.sea-worry-text::after{content:"”";opacity:.35;margin-left:2px}
-.sea-worry-answers{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
-.sea-worry-btn{font-family:'Jua',sans-serif;font-size:17px;color:#1B1630;padding:11px 4px;border:2.5px solid #1B1630;border-radius:16px;box-shadow:3px 3px 0 #1B1630;cursor:pointer}
-.sea-worry-btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 #1B1630}
-.sea-worry-btn:disabled{opacity:.5;cursor:default}
-.sea-worry-btn:focus-visible,.sea-worry-later:focus-visible{outline:3px dashed #4D3F73;outline-offset:2px}
-.sea-wb-hit{background:#F9C7DC}
-.sea-wb-half{background:#FFD26F}
-.sea-wb-miss{background:#74D3B4}
-.sea-wb-close{background:#fff;width:100%;margin-top:12px}
-.sea-worry-later{margin-top:10px;border:0;background:none;font-family:'Jua',sans-serif;font-size:14px;color:rgba(27,22,48,.5);text-decoration:underline;cursor:pointer;padding:4px}
-.sea-worry-rate{display:flex;flex-direction:column;align-items:center;gap:2px;margin-top:14px}
-.sea-worry-rate-k{font-size:13px;color:rgba(27,22,48,.55)}
-.sea-worry-rate-n{font-size:44px;line-height:1.1;font-variant-numeric:tabular-nums;color:#4D3F73}
-.sea-worry-rate-v{font-size:16px;line-height:1.4;word-break:keep-all}
-.sea-worry-rate-c{font-size:12.5px;color:rgba(27,22,48,.5);margin-top:2px;font-variant-numeric:tabular-nums}
-.sea-worry-err{margin:10px 0 0;font-size:14px;color:#C2384B}
 @media (prefers-reduced-motion: reduce){
   .sea-bottle,.sea-bottle-due{animation:none!important}
   .sea-swim,.sea-bob,.ft-tail,.ft-eye,.sea-sway,.sea-surface,.sea-bubble,.sea-ray,.sea-zz,.sea-emerge,.sea-peek-face,.sea-down{animation:none}
