@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { OtterSwim } from "@/components/Otter";
+import { otterFaceG } from "@/components/Otter";
 import { useTankRecorder, type TankRecordResult } from "@/lib/useTankRecorder";
 import { playFx } from "@/lib/fx";
 
@@ -216,9 +216,23 @@ export default function TankRecordingScreen({ replyTo, onDone, onCancel, onMicFa
   );
 }
 
-// 수달 = 참견이. 오른쪽으로 헤엄치는 모습 — 홈 바다와 같은 그림(components/Otter.tsx OtterSwim).
+// 수달 = 참견이. 오른쪽으로 헤엄치는 몸 + 홈 심해와 같은 얼굴.
 function Otter() {
-  return <OtterSwim width={150} style={{ width: "100%" }} />;
+  return (
+    <svg viewBox="0 0 150 70" aria-hidden>
+      <g className="tr-otter-tail">
+        <path d="M30 40 C18 40 8 44 2 50 C10 54 22 52 34 46 Z" fill="#94502F" stroke={INK} strokeWidth={3} strokeLinejoin="round" />
+      </g>
+      <path d="M40 52 C34 60 30 64 24 64 C26 58 30 54 36 50 Z" fill="#94502F" stroke={INK} strokeWidth={2.6} strokeLinejoin="round" />
+      <path d="M26 42 C28 28 50 20 76 20 C96 20 106 26 110 34 C112 46 100 56 78 58 C54 60 30 56 26 42 Z" fill="#C26A44" stroke={INK} strokeWidth={3.2} strokeLinejoin="round" />
+      <path d="M48 50 C62 56 84 56 100 48 C94 56 82 58 72 58 C60 58 52 56 48 50 Z" fill="#FFF0D6" />
+      <g className="tr-otter-paw">
+        <ellipse cx="96" cy="54" rx="6" ry="4" fill="#94502F" stroke={INK} strokeWidth={2.4} />
+      </g>
+      {/* 머리 — 홈 심해의 참견이와 같은 얼굴(components/Otter.tsx) */}
+      <g transform="translate(93 2) scale(0.54)">{otterFaceG("base", { props: false })}</g>
+    </svg>
+  );
 }
 
 function GrowingFry() {

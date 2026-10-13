@@ -22,14 +22,15 @@ export type OtterHolding = "none" | "pebble" | "shell" | "pearl" | "note"; // no
 
 export const OTTER = {
   INK: "#1B1630",
-  // 2026-10-13 새 수달 그림(public/otter/*.webp)의 털색에 맞췄다 — 앞발 같은 SVG 조각이 그림과 같은 색으로 보이게.
-  FUR: "#BB633F",
-  FUR_DARK: "#9C4E30",
-  FACE: "#E6C7A0",
-  MUZZLE: "#F7EBD8",
-  PINK: "#FF8FB3",
+  // 2026-10-14 얼굴/몸을 2등신 + 크고 동그란 눈 + 아래 절반 크림색 얼굴로 다듬으면서 털색도 조금 더 따뜻하게.
+  FUR: "#C26A44",
+  FUR_DARK: "#94502F",
+  FACE: "#FFF0D6",
+  MUZZLE: "#FFF0D6",
+  PINK: "#F6A0A8",
   PEBBLE: "#9CC9EC",
   PEBBLE_DARK: "#6FA6D6",
+  PUPIL: "#3A1C12",
 };
 
 const INK = OTTER.INK;
@@ -68,150 +69,151 @@ function heldItem(item: OtterHolding, cx: number, cy: number, s = 1) {
   );
 }
 
-/** 얼굴 — 100×100 좌표. 얼굴 가운데 (50, 56). */
+/** 얼굴 — 100×100 좌표. 얼굴 가운데 (50, 56).
+ * 2026-10-14: 넓적한 콩 모양 머리, 얼굴 아래 절반이 크림색, 크고 동그란 눈(갈색 눈동자 + 하이라이트), 작은 w 입.
+ * 표정은 눈·눈썹·입만 바꾼다. 선은 앱 바다와 같은 남색 잉크.
+ */
 export function otterFaceG(expression: OtterExpression, opts: { props?: boolean } = {}) {
   const props = opts.props !== false;
   const e = expression;
-  const earUp = e === "surprise" ? -4 : 0;
-  const cheekR = e === "laugh" || e === "proud" ? 6.2 : 5.2;
+  const earUp = e === "surprise" ? -3 : 0;
+  const cheekR = e === "laugh" || e === "proud" ? 7 : 6;
+  const HEAD = "M7 60 C7 37 26 25 50 25 C74 25 93 37 93 60 C93 80 74 91 50 91 C26 91 7 80 7 60 Z";
+
+  // 눈 하나 — r: 크기, px/py: 눈동자 위치, pr: 눈동자 크기, lid: 위 눈꺼풀을 반쯤 내림
+  const eye = (cx: number, o: { r?: number; px?: number; py?: number; pr?: number; lid?: boolean } = {}) => {
+    const r = o.r ?? 11.5;
+    const pr = o.pr ?? 6.4;
+    const x = cx + (o.px ?? 0.6);
+    const y = 52 + (o.py ?? 0.8);
+    return (
+      <g>
+        <circle cx={cx} cy={52} r={r} fill="#FFFFFF" stroke={INK} strokeWidth={2.8} />
+        <circle cx={x} cy={y} r={pr} fill={OTTER.PUPIL} />
+        <circle cx={x - pr * 0.38} cy={y - pr * 0.42} r={pr * 0.36} fill="#FFFFFF" />
+        <circle cx={x + pr * 0.42} cy={y + pr * 0.4} r={pr * 0.16} fill="#FFFFFF" />
+        {o.lid && (
+          <path d={`M${cx - r - 1.2} 52 C${cx - r - 1.2} ${52 - r * 1.4} ${cx + r + 1.2} ${52 - r * 1.4} ${cx + r + 1.2} 52 Z`} fill={OTTER.FUR} stroke={INK} strokeWidth={2.8} strokeLinejoin="round" />
+        )}
+      </g>
+    );
+  };
+
   return (
     <g>
-      {/* 귀 — 작고 동그랗게, 머리 양옆 위 */}
-      <circle cx={14} cy={42 + earUp} r={7} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={3} />
-      <circle cx={86} cy={42 + earUp} r={7} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={3} />
-      <circle cx={15} cy={43 + earUp} r={2.8} fill="#6E4A2F" />
-      <circle cx={85} cy={43 + earUp} r={2.8} fill="#6E4A2F" />
-      {/* 머리 — 넓적하고 납작한 수달 머리 */}
-      <path
-        d="M7 60 C7 38 26 26 50 26 C74 26 93 38 93 60 C93 79 74 90 50 90 C26 90 7 79 7 60 Z"
-        fill={OTTER.FUR}
-        stroke={INK}
-        strokeWidth={3.2}
-      />
-      {/* 얼굴 밝은 부분 */}
-      <path d="M22 62 C22 48 34 42 50 42 C66 42 78 48 78 62 C78 76 66 84 50 84 C34 84 22 76 22 62 Z" fill={OTTER.FACE} />
-      {/* 볼록한 주둥이 두 덩이 */}
-      <ellipse cx={42.5} cy={70} rx={9.5} ry={8} fill={OTTER.MUZZLE} stroke={INK} strokeWidth={2.2} />
-      <ellipse cx={57.5} cy={70} rx={9.5} ry={8} fill={OTTER.MUZZLE} stroke={INK} strokeWidth={2.2} />
-      <circle cx={39} cy={69} r={1.1} fill={INK} />
-      <circle cx={42} cy={73} r={1.1} fill={INK} />
-      <circle cx={61} cy={69} r={1.1} fill={INK} />
-      <circle cx={58} cy={73} r={1.1} fill={INK} />
+      {/* 귀 */}
+      <circle cx={17} cy={34 + earUp} r={7.5} fill={OTTER.FUR} stroke={INK} strokeWidth={3} />
+      <circle cx={83} cy={34 + earUp} r={7.5} fill={OTTER.FUR} stroke={INK} strokeWidth={3} />
+      <circle cx={17.5} cy={35 + earUp} r={3.4} fill={OTTER.FUR_DARK} />
+      <circle cx={82.5} cy={35 + earUp} r={3.4} fill={OTTER.FUR_DARK} />
+      {/* 머리 + 아래 절반 크림색 */}
+      <path d={HEAD} fill={OTTER.FUR} />
+      <path d="M9 66 C16 57 33 55 50 59 C67 55 84 57 91 66 C88 81 72 90 50 90 C28 90 12 81 9 66 Z" fill={OTTER.FACE} />
+      <path d={HEAD} fill="none" stroke={INK} strokeWidth={3.2} />
+      {/* 볼 */}
+      <ellipse cx={21} cy={67} rx={cheekR} ry={cheekR * 0.62} fill={OTTER.PINK} opacity={0.75} />
+      <ellipse cx={79} cy={67} rx={cheekR} ry={cheekR * 0.62} fill={OTTER.PINK} opacity={0.75} />
       {/* 수염 */}
-      <path d="M33 68 L18 64 M33 72 L18 74 M67 68 L82 64 M67 72 L82 74" {...line} strokeWidth={1.4} />
+      <path d="M30 67 L12 63 M30 71 L12 73 M70 67 L88 63 M70 71 L88 73" {...line} strokeWidth={1.3} />
 
-      {/* 눈·눈썹 — 표정마다 */}
+      {/* 눈·눈썹 */}
       {e === "base" && (
         <>
-          <path d="M28 44 L38 47 M62 47 L72 44" {...line} strokeWidth={2.6} />
-          <ellipse cx={35} cy={54} rx={3.4} ry={4} fill={INK} />
-          <ellipse cx={65} cy={54} rx={3.4} ry={4} fill={INK} />
-          <circle cx={36.2} cy={52.6} r={1.1} fill="#FFFFFF" />
-          <circle cx={66.2} cy={52.6} r={1.1} fill="#FFFFFF" />
+          {eye(33)}
+          {eye(67)}
+          <path d="M27 35.5 Q33 33 39 35 M61 35 Q67 33 73 35.5" {...line} strokeWidth={2.2} />
+        </>
+      )}
+      {e === "remember" && (
+        <>
+          {eye(33, { py: -3, px: 1.5 })}
+          {eye(67, { py: -3, px: 1.5 })}
+          <path d="M27 37 Q33 33 39 36 M61 36 Q67 33 73 37" {...line} strokeWidth={2.2} />
         </>
       )}
       {e === "tilt" && (
         <>
-          <path d="M27 45 Q33 39 39 45 M62 48 L72 47" {...line} strokeWidth={2.6} />
-          <ellipse cx={34} cy={54} rx={3.8} ry={4.8} fill={INK} />
-          <ellipse cx={65} cy={55} rx={3} ry={3.4} fill={INK} />
-          <circle cx={35.3} cy={52.4} r={1.2} fill="#FFFFFF" />
+          {eye(33, { px: -2.2, py: -2.4 })}
+          {eye(67, { r: 9.5, pr: 5, px: -2, py: -2 })}
+          <path d="M26 39 Q33 33 40 38 M61 41 L71 40" {...line} strokeWidth={2.2} />
         </>
       )}
       {e === "surprise" && (
         <>
-          <path d="M27 41 L38 39 M62 39 L73 41" {...line} strokeWidth={2.6} />
-          <circle cx={35} cy={53} r={6.4} fill="#FFFFFF" stroke={INK} strokeWidth={2.2} />
-          <circle cx={65} cy={53} r={6.4} fill="#FFFFFF" stroke={INK} strokeWidth={2.2} />
-          <circle cx={35.5} cy={53.5} r={3} fill={INK} />
-          <circle cx={65.5} cy={53.5} r={3} fill={INK} />
+          {eye(33, { r: 12.5, pr: 4, px: 0, py: 0 })}
+          {eye(67, { r: 12.5, pr: 4, px: 0, py: 0 })}
+          <path d="M26 35 L39 33 M61 33 L74 35" {...line} strokeWidth={2.2} />
+          <path d="M92 44 Q97 52 92 56 Q87 52 92 44 Z" fill="#BDE8FF" stroke={INK} strokeWidth={1.8} strokeLinejoin="round" />
         </>
       )}
-      {e === "laugh" && <path d="M29 55 Q35 47 41 55 M59 55 Q65 47 71 55" {...line} strokeWidth={2.8} />}
-      {e === "remember" && (
-        <>
-          {/* 위쪽(기억나는 쪽)을 올려다보는 눈 */}
-          <path d="M28 43 Q34 39 40 43 M60 43 Q66 39 72 43" {...line} strokeWidth={2.4} />
-          <ellipse cx={36} cy={52} rx={3.4} ry={4.2} fill={INK} />
-          <ellipse cx={66} cy={52} rx={3.4} ry={4.2} fill={INK} />
-          <circle cx={37.4} cy={50.2} r={1.3} fill="#FFFFFF" />
-          <circle cx={67.4} cy={50.2} r={1.3} fill="#FFFFFF" />
-        </>
-      )}
-      {e === "proud" && (
-        <>
-          <path d="M28 46 L38 44 M62 44 L72 46" {...line} strokeWidth={2.4} />
-          <path d="M29 55 Q35 51 41 55 M59 55 Q65 51 71 55" {...line} strokeWidth={2.8} />
-        </>
-      )}
-      {e === "sleep" && <path d="M29 55 Q35 58 41 55 M59 55 Q65 58 71 55" {...line} strokeWidth={2.6} />}
-
-      {/* 코 — 크고 둥근 삼각형 */}
-      <path d="M43.5 61 Q50 57.5 56.5 61 Q55 66.5 50 67 Q45 66.5 43.5 61 Z" fill={INK} />
-      <ellipse cx={48} cy={60.6} rx={2} ry={1} fill="#FFFFFF" opacity={0.6} />
-
-      {/* 입 */}
-      {(e === "base" || e === "remember" || e === "proud") && <path d="M50 67 L50 70 M45 72 Q47.5 75 50 70 Q52.5 75 55 72" {...line} strokeWidth={2} />}
-      {e === "tilt" && <path d="M50 67 L50 70 M46 73 Q50 71 55 74" {...line} strokeWidth={2} />}
-      {e === "surprise" && <ellipse cx={50} cy={75} rx={3.2} ry={4} fill={INK} />}
       {e === "laugh" && (
         <>
-          <path d="M42 71 Q50 86 58 71 Z" fill={INK} stroke={INK} strokeWidth={1.6} strokeLinejoin="round" />
-          <ellipse cx={50} cy={78} rx={4} ry={2.4} fill="#F27FA8" />
+          <path d="M25 54 Q33 43 41 54 M59 54 Q67 43 75 54" {...line} strokeWidth={3} />
+          <path d="M27 40 L38 38 M62 38 L73 40" {...line} strokeWidth={2.2} />
         </>
       )}
-      {e === "sleep" && <path d="M47 72 Q50 74 53 72" {...line} strokeWidth={2} />}
+      {(e === "proud" || e === "sly") && (
+        <>
+          {eye(33, { px: 3, py: 2, pr: 5.6, lid: true })}
+          {eye(67, { px: 3, py: 2, pr: 5.6, lid: true })}
+        </>
+      )}
+      {e === "stare" && (
+        <>
+          {eye(33, { r: 12.5, pr: 5, px: 0.4, py: 0.4 })}
+          {eye(67, { px: 0.4, py: 2, pr: 5.6, lid: true })}
+          <path d="M23 36 Q33 26 43 35 M60 40 L75 37" {...line} strokeWidth={2.6} />
+        </>
+      )}
+      {e === "angry" && (
+        <>
+          {eye(33, { pr: 5.6 })}
+          {eye(67, { pr: 5.6 })}
+          <path d="M24 37 L40 42 M76 37 L60 42" {...line} strokeWidth={2.8} />
+          <g transform="translate(88 30)" stroke="#E5484D" strokeWidth={2.2} strokeLinecap="round" fill="none">
+            <path d="M-5 -1 Q-1 -1 -1 -5 M5 -1 Q1 -1 1 -5 M-5 1 Q-1 1 -1 5 M5 1 Q1 1 1 5" />
+          </g>
+        </>
+      )}
+      {e === "sleep" && <path d="M25 53 Q33 59 41 53 M59 53 Q67 59 75 53" {...line} strokeWidth={2.6} />}
 
-      {/* 볼 */}
-      <ellipse cx={24} cy={64} rx={cheekR} ry={cheekR * 0.75} fill={OTTER.PINK} opacity={0.6} />
-      <ellipse cx={76} cy={64} rx={cheekR} ry={cheekR * 0.75} fill={OTTER.PINK} opacity={0.6} />
+      {/* 코 */}
+      <path d="M45 62 Q50 58.5 55 62 Q54 67 50 67.5 Q46 67 45 62 Z" fill={INK} />
+      <ellipse cx={48.2} cy={61.6} rx={1.6} ry={0.9} fill="#FFFFFF" opacity={0.65} />
+
+      {/* 입 */}
+      {(e === "base" || e === "remember" || e === "proud" || e === "sly") && (
+        <path d="M50 67.5 L50 70 M42.5 71 Q46.5 75 50 70 Q53.5 75 57.5 71" {...line} strokeWidth={2} />
+      )}
+      {e === "tilt" && <path d="M50 67.5 L50 70 M46 74 Q50 71.5 55 74.5" {...line} strokeWidth={2} />}
+      {e === "stare" && <path d="M50 67.5 L50 70.5 M44 75 Q51 74 57 71.5" {...line} strokeWidth={2} />}
+      {e === "angry" && <path d="M50 67.5 L50 70 M44 76 Q50 71 56 76" {...line} strokeWidth={2} />}
+      {e === "surprise" && <ellipse cx={50} cy={76} rx={3.6} ry={4.4} fill={INK} />}
+      {e === "laugh" && (
+        <>
+          <path d="M42 70 Q50 84 58 70 Z" fill={INK} stroke={INK} strokeWidth={1.6} strokeLinejoin="round" />
+          <path d="M50 77 Q54 82 57 74 Q53 75 50 77 Z" fill="#F27FA8" />
+        </>
+      )}
+      {e === "sleep" && <path d="M47 73 Q50 75 53 73" {...line} strokeWidth={2} />}
 
       {/* 기억남 — 앞발로 조약돌을 꺼내 들고 반짝 */}
       {e === "remember" && props && (
         <>
           <g>
-            <ellipse cx={80} cy={84} rx={7} ry={6} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.6} />
-            {heldItem("pebble", 82, 74, 1.05)}
+            <ellipse cx={80} cy={86} rx={7} ry={6} fill={OTTER.FUR} stroke={INK} strokeWidth={2.6} />
+            {heldItem("pebble", 82, 76, 1.05)}
           </g>
-          <path d="M90 52 L92 58 L98 60 L92 62 L90 68 L88 62 L82 60 L88 58 Z" fill="#FFE066" stroke={INK} strokeWidth={1.8} strokeLinejoin="round" />
+          <path d="M92 50 L94 56 L100 58 L94 60 L92 66 L90 60 L84 58 L90 56 Z" fill="#FFE066" stroke={INK} strokeWidth={1.8} strokeLinejoin="round" />
         </>
       )}
       {e === "proud" && props && (
-        <path d="M86 20 L88 25 L93 27 L88 29 L86 34 L84 29 L79 27 L84 25 Z" fill="#FFE066" stroke={INK} strokeWidth={1.8} strokeLinejoin="round" />
+        <path d="M88 18 L90 23 L95 25 L90 27 L88 32 L86 27 L81 25 L86 23 Z" fill="#FFE066" stroke={INK} strokeWidth={1.8} strokeLinejoin="round" />
       )}
     </g>
   );
 }
 
-// ============================================================================
-// 2026-10-13 — 참견이 수달 그림 교체.
-// 앱에 보이는 수달은 이제 손그림 일러스트(public/otter/*.webp)다. 아래 세 컴포넌트는 예전과 같은 이름·props를
-// 그대로 받아서(부르는 화면은 손대지 않아도 되게) 그림 파일을 보여준다.
-//   얼굴 8장: face_happy(반가움·기본) / face_sly(능청) / face_stare(빤히·짝눈) / face_smug(킹받는 웃음)
-//             face_surprise(놀람) / face_tilt(갸우뚱) / face_angry(발끈) / face_sleep(졸림)
-//   자세 4장: pose_front(정면, 서 있기) / pose_float(배 위로 둥둥, 조약돌) / pose_swim(헤엄) / pose_closeup(쪽지 든 큰 얼굴)
-// 예전 SVG 수달(otterFaceG)은 녹음 화면 등에서 쓸 수 있게 남겨둔다.
-// holding/kelp/wave 같은 소품 props는 지금 그림에 없어서 받기만 하고 그리지 않는다.
-// ============================================================================
-
-const FACE_FILE: Record<OtterExpression, string> = {
-  base: "face_happy",
-  remember: "face_happy",
-  tilt: "face_tilt",
-  surprise: "face_surprise",
-  laugh: "face_smug",
-  proud: "face_sly",
-  sleep: "face_sleep",
-  sly: "face_sly",
-  stare: "face_stare",
-  angry: "face_angry",
-};
-
-export function otterFaceSrc(expression: OtterExpression): string {
-  return `/otter/${FACE_FILE[expression] ?? "face_happy"}.webp`;
-}
-
-/** 얼굴 — size×size 칸 가운데에 얼굴 그림(가로가 조금 더 긴 그림이라 폭을 size에 맞춘다). */
 export function OtterFace({
   expression = "base",
   size = 96,
@@ -223,45 +225,39 @@ export function OtterFace({
   className?: string;
   style?: React.CSSProperties;
 }) {
+  const tilt = expression === "tilt";
   return (
-    <span
-      className={className}
-      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: size, height: size, ...style }}
-      aria-hidden
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={otterFaceSrc(expression)} alt="" width={size} style={{ display: "block", width: size, height: "auto" }} draggable={false} />
-    </span>
+    <svg viewBox="0 0 100 100" width={size} height={size} className={className} style={{ overflow: "visible", ...style }} aria-hidden>
+      {tilt ? <g transform="rotate(-10 50 60)">{otterFaceG(expression)}</g> : otterFaceG(expression)}
+      {tilt && (
+        <text x={86} y={22} fontFamily="Jua, sans-serif" fontSize={22} fill="#4D3F73">
+          ?
+        </text>
+      )}
+      {expression === "surprise" && <path d="M2 22 L9 28 M0 35 L9 36 M98 22 L91 28 M100 35 L91 36" {...line} strokeWidth={2.4} />}
+      {expression === "laugh" && <path d="M90 42 q4 -4 8 0 M88 52 q4 -4 8 0" {...line} strokeWidth={2} />}
+      {expression === "sleep" && (
+        <text x={84} y={26} fontFamily="Jua, sans-serif" fontSize={16} fill="#4D3F73">
+          z
+        </text>
+      )}
+    </svg>
   );
 }
 
-// 살아 있는 느낌 — 그림이 한 장이라 팔다리는 못 움직이지만, 몸 전체로 숨쉬기·흔들림·기울기를 준다.
-// 바깥(SeaOtter/DeepSea)이 이미 위치를 움직이므로 여기선 제자리 움직임만. 그림 뒤집기는 안쪽 img가, 움직임은 바깥 span이 맡는다.
-const LIVE_CSS = `
-.otr-live{display:block;transform-origin:50% 90%;will-change:transform}
-.otr-breathe{animation:otr-breathe 2.6s ease-in-out infinite}
-@keyframes otr-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.025,.975)}}
-.otr-rock{animation:otr-rock 3.4s ease-in-out infinite}
-@keyframes otr-rock{0%,100%{transform:rotate(-4deg) translateY(0)}50%{transform:rotate(3deg) translateY(-3px)}}
-.otr-paddle{animation:otr-paddle 1.1s ease-in-out infinite;transform-origin:30% 50%}
-@keyframes otr-paddle{0%,100%{transform:rotate(-3deg) scale(1,1)}50%{transform:rotate(4deg) scale(1.04,.96)}}
-.otr-img{display:block;height:auto;filter:drop-shadow(0 6px 5px rgba(10,40,80,.28))}
-@media (prefers-reduced-motion: reduce){.otr-breathe,.otr-rock,.otr-paddle{animation:none}}
-`;
-
-function LiveImg({ src, width, flip, motion, className, style }: { src: string; width: number; flip?: boolean; motion: "otr-breathe" | "otr-rock" | "otr-paddle"; className?: string; style?: React.CSSProperties }) {
-  return (
-    <span className={`otr-live ${motion} ${className ?? ""}`} style={{ width, ...style }} aria-hidden>
-      <style dangerouslySetInnerHTML={{ __html: LIVE_CSS }} />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt="" draggable={false} className="otr-img" style={{ width: "100%", transform: flip ? "scaleX(-1)" : undefined }} />
-    </span>
-  );
-}
-
-/** 전신 — float: 배 위로 둥둥(조약돌을 안고, 살랑살랑 흔들림), upright: 정면으로 앉아 숨쉬기. 오른쪽을 보도록 맞춘다. */
+/**
+ * 전신.
+ *   float   — 배를 하늘로 하고 둥둥 (수달 하면 이 자세). 대기·쉬는 중·궁금.
+ *   upright — 물속에서 서서 이쪽을 본다. 사용자 발견·뿌듯.
+ * holding: 배 위/손에 든 것. kelp: 다시마를 몸에 감고 있음(떠내려가지 않게 — 실제 수달 습관).
+ * 움직임은 바깥 CSS(.otr-*)가 맡는다 — 여기선 그림만.
+ */
 export function OtterBody({
   pose = "float",
+  expression = "base",
+  holding = "none",
+  kelp = false,
+  wave = false,
   width = 200,
   className,
   style,
@@ -275,15 +271,71 @@ export function OtterBody({
   className?: string;
   style?: React.CSSProperties;
 }) {
-  return pose === "upright" ? (
-    <LiveImg src="/otter/pose_front.webp" width={width} motion="otr-breathe" className={className} style={style} />
-  ) : (
-    <LiveImg src="/otter/pose_float.webp" width={width} flip motion="otr-rock" className={className} style={style} />
+  if (pose === "upright") {
+    return (
+      <svg viewBox="0 0 140 190" width={width} height={(width * 190) / 140} className={className} style={{ overflow: "visible", ...style }} aria-hidden>
+        {/* 꼬리 */}
+        <path className="otr-tail" d="M86 160 C110 162 124 152 132 136 C122 140 108 146 88 148 Z" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={3} strokeLinejoin="round" />
+        {/* 몸 */}
+        <path d="M36 128 C36 102 50 86 70 86 C90 86 104 102 104 128 C104 154 90 170 70 170 C50 170 36 154 36 128 Z" fill={OTTER.FUR} stroke={INK} strokeWidth={3.2} />
+        <path d="M50 132 C50 112 58 102 70 102 C82 102 90 112 90 132 C90 150 82 162 70 162 C58 162 50 150 50 132 Z" fill={OTTER.MUZZLE} />
+        {/* 발 */}
+        <ellipse cx={55} cy={170} rx={11} ry={6.5} fill={OTTER.FUR} stroke={INK} strokeWidth={2.6} />
+        <ellipse cx={85} cy={170} rx={11} ry={6.5} fill={OTTER.FUR} stroke={INK} strokeWidth={2.6} />
+        {/* 다시마 띠 */}
+        {kelp && <path d="M34 128 C52 136 88 136 106 126 L106 136 C88 146 52 146 34 138 Z" fill="#2FAF6A" stroke={INK} strokeWidth={2.4} strokeLinejoin="round" />}
+        {/* 왼팔: 손에 든 것 */}
+        {heldItem(holding, 70, 122, 1.1)}
+        <ellipse cx={58} cy={128} rx={8} ry={6.5} fill={OTTER.FUR} stroke={INK} strokeWidth={2.6} />
+        <ellipse cx={82} cy={128} rx={8} ry={6.5} fill={OTTER.FUR} stroke={INK} strokeWidth={2.6} />
+        {/* 오른팔: 흔들기 */}
+        <g className={wave ? "otr-wave" : ""} style={{ transformOrigin: "100px 104px", transformBox: "view-box" }}>
+          {wave && (
+            <>
+              <path d="M100 112 C112 104 120 94 122 84" fill="none" stroke={INK} strokeWidth={3} strokeLinecap="round" />
+              <ellipse cx={123} cy={79} rx={8} ry={7} fill={OTTER.FUR} stroke={INK} strokeWidth={2.6} />
+            </>
+          )}
+        </g>
+        {/* 머리 */}
+        <g transform="translate(14 -6) scale(1.12)">{otterFaceG(expression, { props: false })}</g>
+        {(expression === "proud" || expression === "remember") && (
+          <path d="M122 12 L124 17 L129 19 L124 21 L122 26 L120 21 L115 19 L120 17 Z" fill="#FFE066" stroke={INK} strokeWidth={1.8} strokeLinejoin="round" />
+        )}
+      </svg>
+    );
+  }
+  // float — 배를 위로, 머리는 오른쪽에서 이쪽을 본다
+  return (
+    <svg viewBox="0 0 230 130" width={width} height={(width * 130) / 230} className={className} style={{ overflow: "visible", ...style }} aria-hidden>
+      {/* 꼬리 */}
+      <path className="otr-tail" d="M44 86 C28 86 14 80 4 70 C16 70 30 72 46 74 Z" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={3} strokeLinejoin="round" />
+      {/* 뒷발 — 위로 쏙 */}
+      <ellipse cx={50} cy={54} rx={7} ry={10} transform="rotate(-24 50 54)" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.6} />
+      <ellipse cx={66} cy={50} rx={7} ry={10} transform="rotate(-8 66 50)" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.6} />
+      {/* 몸 — 누워서 둥둥 */}
+      <path d="M40 80 C40 62 70 56 112 56 C142 56 160 62 162 76 C164 92 140 102 104 102 C66 102 40 96 40 80 Z" fill={OTTER.FUR} stroke={INK} strokeWidth={3.2} />
+      {/* 배 */}
+      <path d="M58 74 C62 64 88 62 116 62 C138 62 150 66 150 74 C148 82 130 86 104 86 C80 86 58 84 58 74 Z" fill={OTTER.MUZZLE} />
+      {/* 다시마 띠 */}
+      {kelp && <path d="M86 58 C84 72 86 90 90 104 L100 104 C96 90 94 72 96 57 Z" fill="#2FAF6A" stroke={INK} strokeWidth={2.4} strokeLinejoin="round" />}
+      {/* 배 위에 올린 것 + 앞발 */}
+      {heldItem(holding, 124, 62, 1)}
+      <ellipse cx={114} cy={66} rx={7} ry={5.5} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.4} />
+      <ellipse cx={134} cy={66} rx={7} ry={5.5} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.4} />
+      {/* 머리 — 살짝 들어서 이쪽 */}
+      <g transform="translate(138 8) scale(0.84) rotate(-8 50 56)">{otterFaceG(expression, { props: false })}</g>
+    </svg>
   );
 }
 
-/** 헤엄 — 오른쪽으로 헤엄치는 모습(그림은 왼쪽을 보고 있어서 뒤집는다). 몸을 출렁이며 나아간다. */
+/**
+ * 헤엄치는 모습 — 배를 아래로, 오른쪽을 보고 쭉 뻗어 간다(녹음 화면에서 헤엄치던 그 수달).
+ * 왼쪽으로 갈 땐 바깥에서 scaleX(-1). 꼬리/앞발 움직임은 바깥 CSS(.otr-swim-tail, .otr-swim-paw).
+ */
 export function OtterSwim({
+  expression = "base",
+  holding = "none",
   width = 140,
   className,
   style,
@@ -294,5 +346,19 @@ export function OtterSwim({
   className?: string;
   style?: React.CSSProperties;
 }) {
-  return <LiveImg src="/otter/pose_swim.webp" width={width} flip motion="otr-paddle" className={className} style={style} />;
+  return (
+    <svg viewBox="0 0 150 70" width={width} height={(width * 70) / 150} className={className} style={{ overflow: "visible", ...style }} aria-hidden>
+      <g className="otr-swim-tail">
+        <path d="M30 40 C18 40 8 44 2 50 C10 54 22 52 34 46 Z" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={3} strokeLinejoin="round" />
+      </g>
+      <path d="M40 52 C34 60 30 64 24 64 C26 58 30 54 36 50 Z" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.6} strokeLinejoin="round" />
+      <path d="M26 42 C28 28 50 20 76 20 C96 20 106 26 110 34 C112 46 100 56 78 58 C54 60 30 56 26 42 Z" fill={OTTER.FUR} stroke={INK} strokeWidth={3.2} strokeLinejoin="round" />
+      <path d="M48 50 C62 56 84 56 100 48 C94 56 82 58 72 58 C60 58 52 56 48 50 Z" fill={OTTER.MUZZLE} />
+      {heldItem(holding, 104, 60, 0.9)}
+      <g className="otr-swim-paw">
+        <ellipse cx="96" cy="54" rx="6" ry="4" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.4} />
+      </g>
+      <g transform="translate(93 2) scale(0.54)">{otterFaceG(expression, { props: false })}</g>
+    </svg>
+  );
 }
