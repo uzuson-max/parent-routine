@@ -9,6 +9,7 @@ import { plop } from "@/lib/seaSound";
 import { supabaseClient } from "@/lib/supabaseClient";
 import DeepSea, { type SeaGrowth } from "@/components/DeepSea";
 import SeaOtter from "@/components/SeaOtter";
+import { OtterFace } from "@/components/Otter";
 import { loadOtterMemory, pickVisit, saveOtterMemory, type Visit } from "@/lib/otterCues";
 
 // ============================================================================
@@ -24,7 +25,9 @@ import { loadOtterMemory, pickVisit, saveOtterMemory, type Visit } from "@/lib/o
 //   - 심해는 성장 단계(/api/user/growth)에 따라 달라진다. 실제로 단계가 올라갔는데 아직 못 봤을 때만
 //     첫 화면 바닥에서 빛나는 기포가 올라온다(성장 단서). 기억 회상 중엔 단서를 숨긴다 — 회상이 먼저.
 // 가끔 손님이 지나간다 — 위쪽엔 거북이, 심해엔 해파리, 밤 심해 바닥엔 아귀. 한 번에 한 마리, 가끔만(Visitor).
-// 숫자/날짜/설명 문구는 바다에 넣지 않는다.
+// 수면 위 걱정 병 — 걱정이 담긴 병이 있을 때만 하늘이 조금 보이고, 그 수면에 병이 떠 있다(lib/worryBottles.ts).
+//   수면 위 = 아직 결과가 안 난 일, 물속 = 지난 생각. 확인할 때가 된 병은 흔들리고, 누르면 참견이가 결과를 묻는다.
+// 숫자/날짜/설명 문구는 바다에 넣지 않는다(걱정 적중률도 병 카드 안에서만).
 // ============================================================================
 
 interface Lineage {
@@ -124,7 +127,52 @@ interface Visitor {
   key: number;
 }
 
-type Sheet = { kind: "now"; id: string } | null;
+type Sheet = { kind: "now"; id: string } | { kind: "worry"; id: number } | null;
+
+interface WorryBottle {
+  id: number;
+  worry: string;
+  createdAt: string;
+  dueAt: string;
+}
+interface WorryStats {
+  done: number;
+  hit: number;
+  half: number;
+  miss: number;
+  rate: number | null;
+}
+interface WorryData {
+  bottles: WorryBottle[];
+  stats: WorryStats | null;
+  ready: boolean;
+}
+type WorryAnswer = "hit" | "half" | "miss";
+
+const SKY_PX = 112; // 병이 떠 있을 때 수면 위로 보이는 하늘 높이(상단 안전영역 아래부터)
+const MAX_BOTTLES_SHOWN = 4;
+const MIN_FOR_RATE = 5; // lib/worryBottles.ts와 같은 값
+const WORRY_PEEK_KEY = "ganseobi_worry_peeked_v1";
+
+// 걱정 말투에 맞춰 묻는 말 — 명령형 없이, 결과 하나만 묻는다.
+function worryAsk(text: string): string {
+  if (/망할|망치|망하/.test(text)) return "그래서… 망했어?";
+  if (/놓칠|늦을|늦/.test(text)) return "결국 늦었어, 안 늦었어?";
+  if (/안\s*올|없을|반토막|모자랄|부족/.test(text)) return "그거 진짜 그렇게 됐어?";
+  if (/떨어질|틀릴|실패|안\s*될|안될|못\s*할/.test(text)) return "그래서 결과는?";
+  return "그 걱정, 어떻게 됐어?";
+}
+const WORRY_REACT: Record<WorryAnswer, string[]> = {
+  hit: ["헐 진짜 맞았네. 이번 건 촉이 좋았다.", "맞았어? 니 촉 좀 무섭다."],
+  half: ["반만 맞은 걸로 쳐줄게.", "애매하네. 반쯤으로 적어둘게."],
+  miss: ["거봐. 또 빗나감.", "그렇게 걱정하더니 멀쩡했네?"],
+};
+function worryVerdict(rate: number): string {
+  if (rate < 30) return "니 걱정, 거의 다 헛걱정이었어.";
+  if (rate < 45) return "생각보다 많이 빗나가는데?";
+  if (rate < 65) return "반반이네. 동전 던지기랑 비슷해.";
+  return "어… 니 걱정 꽤 잘 맞는다.";
+}
 
 export default function Sea({
   entries,
@@ -186,6 +234,31 @@ export default function Sea({
       pull();
       pullGrowth();
     }, 20000);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [entriesKey]);
+
+  // ---- 수면 위 걱정 병 — 기기에 남은 것 먼저, 서버로 맞춘다. 새 녹음 뒤엔 조금 있다 다시(병은 대답 뒤에 생긴다) ----
+  const [worries, setWorries] = useState<WorryData | null>(() => peekMemory<WorryData>("worries"));
+  useEffect(() => {
+    const stored = peekStored<WorryData>("worries");
+    if (stored) setWorries(stored);
+  }, []);
+  useEffect(() => {
+    const pull = () =>
+      loadFresh<WorryData>("worries")
+        .then((d) => {
+          if (d && alive.current) setWorries(d);
+        })
+        .catch(() => {
+          /* 병이 없어도 바다는 그대로 */
+        });
+    pull();
+    if (entriesKey === null) return;
+    const t1 = setTimeout(pull, 7000);
+    const t2 = setTimeout(pull, 18000);
     return () => {
       clearTimeout(t1);
       clearTimeout(t2);
@@ -550,6 +623,91 @@ export default function Sea({
   const water = night ? WATER_NIGHT : WATER_DAY;
 
   const openNow = sheet?.kind === "now" ? (lineages ?? []).find((l) => l.id === sheet.id) ?? null : null;
+
+  // ---- 걱정 병 ----
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setClock(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const bottles = (worries?.bottles ?? []).slice(0, MAX_BOTTLES_SHOWN);
+  const skyPx = bottles.length ? SKY_PX : 0;
+  const isDue = (b: WorryBottle) => new Date(b.dueAt).getTime() <= clock;
+  const openWorry = sheet?.kind === "worry" ? (worries?.bottles ?? []).find((b) => b.id === sheet.id) ?? null : null;
+  const [worryDone, setWorryDone] = useState<{ id: number; answer: WorryAnswer; line: string; stats: WorryStats | null } | null>(null);
+  const [worryBusy, setWorryBusy] = useState(false);
+  const [worryErr, setWorryErr] = useState<string | null>(null);
+  useEffect(() => {
+    setWorryErr(null);
+    if (sheet?.kind !== "worry") setWorryDone(null);
+  }, [sheet]);
+  const sendWorry = async (id: number, answer: WorryAnswer | "later") => {
+    if (worryBusy) return;
+    setWorryBusy(true);
+    setWorryErr(null);
+    try {
+      const {
+        data: { session },
+      } = await supabaseClient.auth.getSession();
+      if (!session) throw new Error("세션 없음");
+      const res = await fetch("/api/user/worries", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ id, answer }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!body.success) throw new Error(body.error || "저장 실패");
+      const data = body.data as WorryData;
+      if (answer === "later") {
+        setWorries(data);
+        setSheet(null);
+        setThought({ text: "알았어. 며칠 뒤에 다시 물어볼게.", key: Date.now() });
+        if (thoughtTimer.current) clearTimeout(thoughtTimer.current);
+        thoughtTimer.current = setTimeout(() => setThought(null), 3200);
+        return;
+      }
+      const lines = WORRY_REACT[answer];
+      setWorryDone({ id, answer, line: lines[Math.floor(Math.random() * lines.length)], stats: data.stats });
+      // 카드를 닫을 때 병이 사라지게 — 지금 바로 빼면 열려 있는 카드의 걱정 문장이 없어진다
+      pendingWorries.current = data;
+    } catch (e: any) {
+      setWorryErr(e?.message && !/세션|fetch/i.test(e.message) ? e.message : "지금은 저장이 안 됐어. 조금 있다 다시 해볼래?");
+    } finally {
+      setWorryBusy(false);
+    }
+  };
+  const pendingWorries = useRef<WorryData | null>(null);
+  const closeSheet = () => {
+    if (pendingWorries.current) {
+      setWorries(pendingWorries.current);
+      pendingWorries.current = null;
+      // 다음 홈 진입 때 옛 병이 잠깐 보이지 않게 캐시도 같이 맞춘다
+      loadFresh<WorryData>("worries").catch(() => {});
+    }
+    setSheet(null);
+  };
+  // 확인할 때가 된 병이 생기면 — 병마다 한 번만, 참견이가 고개를 내밀어 알려준다(다른 할 말이 없을 때만)
+  const dueBottle = bottles.find(isDue) ?? null;
+  useEffect(() => {
+    if (!dueBottle || thinking || sheet || recallUnitId || peek) return;
+    let seen: number[] = [];
+    try {
+      seen = JSON.parse(localStorage.getItem(WORRY_PEEK_KEY) || "[]") as number[];
+    } catch {
+      seen = [];
+    }
+    if (seen.includes(dueBottle.id)) return;
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(WORRY_PEEK_KEY, JSON.stringify([dueBottle.id, ...seen].slice(0, 50)));
+      } catch {
+        /* 못 남기면 다음에 한 번 더 */
+      }
+      showPeek("병 하나 열어볼 때 됐어.", "tilt", 5000);
+    }, 2500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dueBottle?.id, thinking, sheet, recallUnitId]);
   // 성장 단서 — 실제로 단계가 올라갔고 아직 심해에서 못 봤을 때만. 기억 회상·대답 대기·카드가 열려 있으면 숨긴다.
   const growthCue = !!growth && growth.fresh && growth.stage > growth.seen && !thinking && !recallOn && !sheet;
 
@@ -566,8 +724,25 @@ export default function Sea({
         style={{ background: `linear-gradient(${water[0]} 0%, ${water[1]} 38%, ${water[2]} 100%)` }}
         aria-label="지금 바다"
       >
+        {/* 수면 위 하늘 — 걱정 병이 떠 있을 때만 */}
+        <div
+          className="sea-sky"
+          style={{
+            height: `calc(env(safe-area-inset-top, 0px) + ${skyPx}px)`,
+            background: night ? "linear-gradient(#17325C, #2B5A8E)" : "linear-gradient(#FFF1C9, #CFF0FF 70%)",
+          }}
+          aria-hidden
+        />
+
         {/* 수면 */}
-        <svg className="sea-surface" width="760" height="34" viewBox="0 0 760 34" aria-hidden>
+        <svg
+          className="sea-surface"
+          width="760"
+          height="34"
+          viewBox="0 0 760 34"
+          style={{ top: `calc(env(safe-area-inset-top, 0px) + ${skyPx ? skyPx - 18 : 2}px)`, transition: "top .8s ease" }}
+          aria-hidden
+        >
           <path d="M0 18 Q47.5 6 95 18 T190 18 T285 18 T380 18 T475 18 T570 18 T665 18 T760 18" fill="none" stroke="#FFFFFF" strokeWidth={4} opacity={0.9} />
         </svg>
 
@@ -580,6 +755,49 @@ export default function Sea({
         {BUBBLES.map((b, i) => (
           <div key={i} className="sea-bubble" style={b} />
         ))}
+
+        {/* 수면 위 걱정 병 — 확인할 때가 된 병은 흔들린다 */}
+        {bottles.map((b, i) => {
+          const due = isDue(b);
+          const r = (k: number) => hash("worry" + b.id, k);
+          const slots = bottles.length;
+          // 왼쪽 위는 참견이 한마디 자리라 비워두고, 오른쪽으로 고르게
+          const leftPx = Math.min(width - 54, width * (0.4 + (slots > 1 ? (i / (slots - 1)) * 0.46 : 0.18)) + (r(1) - 0.5) * 16);
+          const hide = !!thinking || dimOthers;
+          return (
+            <div
+              key={b.id}
+              className="sea-bottle-wrap"
+              style={{
+                left: leftPx,
+                top: `calc(env(safe-area-inset-top, 0px) + ${SKY_PX - 34}px)`,
+                opacity: hide ? 0 : 1,
+                pointerEvents: hide ? "none" : undefined,
+              }}
+            >
+              <button
+                className={`sea-bottle ${due ? "sea-bottle-due" : ""}`}
+                style={{ animationDuration: `${2.6 + r(2) * 1.4}s`, animationDelay: `${-r(3) * 2}s` }}
+                aria-label={due ? `열어볼 때 된 걱정 병: ${b.worry}` : "아직 떠 있는 걱정 병"}
+                onClick={() => {
+                  plop();
+                  if (due) {
+                    setPeek(null);
+                    setSheet({ kind: "worry", id: b.id });
+                    return;
+                  }
+                  const left = (new Date(b.dueAt).getTime() - Date.now()) / 86_400_000;
+                  setThought({ text: left <= 1.2 ? "아직 안 열려. 내일쯤 물어볼게." : "아직 안 열려. 며칠 뒤에 물어볼게.", key: Date.now() });
+                  if (thoughtTimer.current) clearTimeout(thoughtTimer.current);
+                  thoughtTimer.current = setTimeout(() => setThought(null), 3200);
+                }}
+              >
+                {bottleSvg(night)}
+                {due && <span className="sea-bottle-q" aria-hidden>?</span>}
+              </button>
+            </div>
+          );
+        })}
 
         {/* 치어 무리 — 수면 근처 */}
         {school.length > 0 && (() => {
@@ -595,7 +813,7 @@ export default function Sea({
               data-lid={sid}
               style={{
                 left: leftPx,
-                top: `${17 + r(3) * 8}%`,
+                top: skyPx ? `calc(${17 + r(3) * 8}% + ${Math.round(skyPx * 0.6)}px)` : `${17 + r(3) * 8}%`,
                 width: 64,
                 ["--dx" as any]: `${dx}px`,
                 animationDuration: `${dur}s`,
@@ -905,12 +1123,77 @@ export default function Sea({
         </div>
       )}
 
+      {/* 걱정 병 — 참견이가 결과를 묻는다 */}
+      {openWorry && !thinking && sheet?.kind === "worry" && (
+        <>
+          <div className="sea-sheet-dim" onClick={closeSheet} aria-hidden />
+          <div className="sea-sheet" role="dialog" aria-label="걱정 병">
+            <button className="sea-sheet-x" aria-label="닫기" onClick={closeSheet}>
+              ×
+            </button>
+            <div className="sea-worry-head">
+              <OtterFace expression={worryDone ? (worryDone.answer === "miss" ? "laugh" : worryDone.answer === "hit" ? "surprise" : "base") : "tilt"} size={58} />
+              <span key={worryDone ? "done" : "ask"} className="sea-worry-say">
+                {worryDone ? worryDone.line : worryAsk(openWorry.worry)}
+              </span>
+            </div>
+            <div className="sea-worry-bottle">
+              <span className="sea-worry-when">{fuzzyAgo(openWorry.createdAt)} 니가 한 걱정</span>
+              <p className="sea-worry-text">{openWorry.worry}</p>
+            </div>
+            {!worryDone ? (
+              <>
+                <div className="sea-worry-answers">
+                  <button className="sea-worry-btn sea-wb-hit" disabled={worryBusy} onClick={() => sendWorry(openWorry.id, "hit")}>
+                    맞았어
+                  </button>
+                  <button className="sea-worry-btn sea-wb-half" disabled={worryBusy} onClick={() => sendWorry(openWorry.id, "half")}>
+                    반쯤
+                  </button>
+                  <button className="sea-worry-btn sea-wb-miss" disabled={worryBusy} onClick={() => sendWorry(openWorry.id, "miss")}>
+                    빗나갔어
+                  </button>
+                </div>
+                <button className="sea-worry-later" disabled={worryBusy} onClick={() => sendWorry(openWorry.id, "later")}>
+                  아직 몰라
+                </button>
+              </>
+            ) : (
+              <div className="sea-worry-rate">
+                {worryDone.stats && worryDone.stats.rate !== null ? (
+                  <>
+                    <span className="sea-worry-rate-k">지금까지 니 걱정 적중률</span>
+                    <span className="sea-worry-rate-n">{worryDone.stats.rate}%</span>
+                    <span className="sea-worry-rate-v">{worryVerdict(worryDone.stats.rate)}</span>
+                    <span className="sea-worry-rate-c">
+                      맞음 {worryDone.stats.hit} · 반쯤 {worryDone.stats.half} · 빗나감 {worryDone.stats.miss}
+                    </span>
+                  </>
+                ) : (
+                  <span className="sea-worry-rate-v">
+                    걱정 {Math.max(1, MIN_FOR_RATE - (worryDone.stats?.done ?? 0))}개만 더 열어보면 니 걱정 적중률 나와.
+                  </span>
+                )}
+                <button className="sea-worry-btn sea-wb-close" onClick={closeSheet}>
+                  닫기
+                </button>
+              </div>
+            )}
+            {worryErr && (
+              <p className="sea-worry-err" role="alert">
+                {worryErr}
+              </p>
+            )}
+          </div>
+        </>
+      )}
+
       {/* 물고기 속 생각 — 한 마디씩 크게. 옆으로 넘기면 그 전에 한 말. */}
       {openNow && !thinking && sheet && (() => {
         const quotes = openNow.quotes;
         const i = Math.min(qi, Math.max(0, quotes.length - 1));
         const q = quotes[i];
-        const [body, belly] = PALETTE[Math.floor(hash(sheet.id, 11) * PALETTE.length)];
+        const [body, belly] = PALETTE[Math.floor(hash(openNow.id, 11) * PALETTE.length)];
         const go = (d: number) => setQi((cur) => Math.max(0, Math.min(quotes.length - 1, cur + d)));
         return (
           <>
@@ -975,6 +1258,28 @@ export default function Sea({
         );
       })()}
     </div>
+  );
+}
+
+// 걱정 병 — 코르크 마개 + 둘둘 만 쪽지. 아래 절반은 물에 잠긴다.
+function bottleSvg(night: boolean) {
+  return (
+    <svg viewBox="0 0 40 56" aria-hidden>
+      <rect x="14" y="2" width="12" height="8" rx="2" fill="#C89B6D" stroke="#1B1630" strokeWidth={2.4} />
+      <path
+        d="M15 10 h10 v6 q9 4 9 14 v18 q0 6 -6 6 h-16 q-6 0 -6 -6 v-18 q0 -10 9 -14 z"
+        fill={night ? "#BFE3E0" : "#E4FBF2"}
+        fillOpacity={0.92}
+        stroke="#1B1630"
+        strokeWidth={2.6}
+        strokeLinejoin="round"
+      />
+      <g transform="rotate(-8 20 35)">
+        <rect x="12" y="26" width="16" height="18" rx="2" fill="#FFF6E5" stroke="#1B1630" strokeWidth={1.8} />
+        <path d="M15 32 h9 M15 36 h7 M15 40 h8" stroke="#8977B8" strokeWidth={1.6} strokeLinecap="round" />
+      </g>
+      <path d="M11 22 q-2 6 -1 12" fill="none" stroke="#FFFFFF" strokeWidth={2.4} strokeLinecap="round" opacity={0.85} />
+    </svg>
   );
 }
 
@@ -1209,7 +1514,40 @@ const CSS = `
 .sea-trail{position:absolute;left:50%;bottom:70%;width:0;height:0;pointer-events:none}
 .sea-trail span{position:absolute;left:-5px;bottom:0;width:10px;height:10px;border-radius:50%;border:2px solid #fff;background:rgba(255,255,255,.35);animation:sea-trail 2s ease-in infinite;opacity:0}
 @keyframes sea-trail{0%{transform:translate(0,0) scale(.5);opacity:0}15%{opacity:1}100%{transform:translate(6px,-110px) scale(1.1);opacity:0}}
+.sea-sky{position:absolute;left:0;right:0;top:0;z-index:1;pointer-events:none;transition:height .8s ease}
+.sea-bottle-wrap{position:absolute;z-index:6;width:38px;transition:opacity .5s ease}
+.sea-bottle{position:relative;display:block;width:38px;padding:0;margin:0;border:0;background:none;cursor:pointer;-webkit-tap-highlight-color:transparent;animation:sea-bottle-bob ease-in-out infinite alternate;transform-origin:50% 70%}
+.sea-bottle svg{display:block;width:100%;height:auto;overflow:visible;filter:drop-shadow(2px 2px 0 rgba(27,22,48,.25))}
+.sea-bottle:focus-visible{outline:3px dashed #1B1630;outline-offset:3px;border-radius:12px}
+@keyframes sea-bottle-bob{from{transform:translateY(-3px) rotate(-7deg)}to{transform:translateY(4px) rotate(7deg)}}
+.sea-bottle-due{animation:sea-bottle-due 1.3s ease-in-out infinite!important}
+@keyframes sea-bottle-due{0%,100%{transform:translateY(0) rotate(-12deg)}25%{transform:translateY(-6px) rotate(10deg)}50%{transform:translateY(0) rotate(-6deg)}75%{transform:translateY(-3px) rotate(12deg)}}
+.sea-bottle-q{position:absolute;right:-12px;top:-14px;width:22px;height:22px;border-radius:50%;background:#F9C7DC;border:2.5px solid #1B1630;font-size:14px;line-height:18px;text-align:center;color:#1B1630}
+.sea-worry-head{display:flex;align-items:center;justify-content:center;gap:8px;margin:2px 28px 12px}
+.sea-worry-say{font-size:19px;line-height:1.35;word-break:keep-all;text-align:left;animation:sea-q-in .3s ease both}
+.sea-worry-bottle{background:#FFF6E5;border:2.5px dashed #1B1630;border-radius:18px;padding:12px 14px;text-align:left}
+.sea-worry-when{font-size:12.5px;color:rgba(27,22,48,.5)}
+.sea-worry-text{margin:4px 0 0;font-size:20px;line-height:1.4;word-break:keep-all}
+.sea-worry-text::before{content:"“";opacity:.35;margin-right:2px}
+.sea-worry-text::after{content:"”";opacity:.35;margin-left:2px}
+.sea-worry-answers{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+.sea-worry-btn{font-family:'Jua',sans-serif;font-size:17px;color:#1B1630;padding:11px 4px;border:2.5px solid #1B1630;border-radius:16px;box-shadow:3px 3px 0 #1B1630;cursor:pointer}
+.sea-worry-btn:active{transform:translate(2px,2px);box-shadow:1px 1px 0 #1B1630}
+.sea-worry-btn:disabled{opacity:.5;cursor:default}
+.sea-worry-btn:focus-visible,.sea-worry-later:focus-visible{outline:3px dashed #4D3F73;outline-offset:2px}
+.sea-wb-hit{background:#F9C7DC}
+.sea-wb-half{background:#FFD26F}
+.sea-wb-miss{background:#74D3B4}
+.sea-wb-close{background:#fff;width:100%;margin-top:12px}
+.sea-worry-later{margin-top:10px;border:0;background:none;font-family:'Jua',sans-serif;font-size:14px;color:rgba(27,22,48,.5);text-decoration:underline;cursor:pointer;padding:4px}
+.sea-worry-rate{display:flex;flex-direction:column;align-items:center;gap:2px;margin-top:14px}
+.sea-worry-rate-k{font-size:13px;color:rgba(27,22,48,.55)}
+.sea-worry-rate-n{font-size:44px;line-height:1.1;font-variant-numeric:tabular-nums;color:#4D3F73}
+.sea-worry-rate-v{font-size:16px;line-height:1.4;word-break:keep-all}
+.sea-worry-rate-c{font-size:12.5px;color:rgba(27,22,48,.5);margin-top:2px;font-variant-numeric:tabular-nums}
+.sea-worry-err{margin:10px 0 0;font-size:14px;color:#C2384B}
 @media (prefers-reduced-motion: reduce){
+  .sea-bottle,.sea-bottle-due{animation:none!important}
   .sea-swim,.sea-bob,.ft-tail,.ft-eye,.sea-sway,.sea-surface,.sea-bubble,.sea-ray,.sea-zz,.sea-emerge,.sea-peek-face,.sea-down{animation:none}
   .sea-cue span{animation:none;opacity:.9;bottom:24px}
   .sea-visitor{display:none}
