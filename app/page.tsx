@@ -329,38 +329,25 @@ export default function Home() {
       fetchEntries(); // 새 치어/금붕어가 퐁당 들어온다
       markFirstEntryDoneIfNeeded();
 
-      const state = body.data.call_state;
-      // 홈(바다)에서 한 말은 전화를 걸었든(calling_sent) 못 걸었든(call_failed/awaiting_phone) 홈에 그대로 남는다.
-      // 예전엔 전화 상태면 옛 디자인의 통화/실패 화면으로 넘어가 바다가 끊겼다 — 대답은 말풍선으로 보여주면 충분하다.
-      // (전화가 실제로 걸렸으면 폰이 따로 울린다.) 약속 확인(awaiting_confirmation)만 아래 기존 화면으로 간다.
-      if (state !== "awaiting_confirmation") {
-        // 날짜·시각이 정해진 일정을 말했으면(분석이 scheduled_event로 확인한 것만) 대답 아래에 "알람 걸어둘까?"를 한 번 붙인다.
-        // 제안만 한다 — 실제 알람은 사용자가 [응]을 눌러야 생긴다(app/screens/TimelineScreen.tsx AlarmOffer).
-        // 생각 저장/기억/인사이트 흐름은 서버에서 원래대로 끝났고, 이건 화면 쪽 제안일 뿐이다.
-        const ev = body.data.scheduled_event as { what: string; at: string } | null | undefined;
-        if (!isCurrent()) return;
-        const replyText = body.data.response?.response || "일단 들어뒀어.";
-        const suggestAt = ev?.what && ev?.at ? suggestFromEvent(ev.at, new Date()) : null;
-        setHomeBubble({
-          kind: "reply",
-          text: replyText,
-          recall: body.data.response?.recalled ?? null,
-          alarmOffer: ev && suggestAt ? { what: ev.what, eventAt: ev.at, suggestAt, entryId: String(body.data.id) } : null,
-        });
-        return;
-      }
-
-      // 확인/전화가 필요한 경우만 기존 화면으로 — 흐름은 doUpload와 똑같다.
-      setHomeBubble(null);
-      setEntryId(body.data.id);
-      setUploadData(body.data);
-      if (state === "awaiting_confirmation") {
-        setStep("awaiting_confirmation");
-      } else if (state === "calling_sent") {
-        setStep("calling");
-      } else {
-        setStep("call_failed");
-      }
+      // 홈(바다)에서 한 말은 무슨 상태든(body.data.call_state) 홈에 그대로 남고, 대답은 말풍선으로 뜬다.
+      //   - 전화(calling_sent / call_failed / awaiting_phone): 예전엔 옛 디자인의 통화/실패 화면으로 넘어갔다.
+      //     전화가 실제로 걸렸으면 폰이 따로 울린다.
+      //   - 약속 확인(awaiting_confirmation): 예전엔 옛 디자인의 "기억해둘까?" 화면(ConfirmScreen)으로 넘어갔다.
+      //     지금은 건너뛴다 — 그 화면은 새 디자인으로 다시 만들 때까지 홈 흐름에서 쓰지 않는다.
+      //     (그래서 이 경로에선 약속이 commitment로 확정되지 않는다. 받아쓰기가 틀린 말을 약속으로 묻던 문제도 같이 사라진다.)
+      // 날짜·시각이 정해진 일정을 말했으면(분석이 scheduled_event로 확인한 것만) 대답 아래에 "알람 걸어둘까?"를 한 번 붙인다.
+      // 제안만 한다 — 실제 알람은 사용자가 [응]을 눌러야 생긴다(app/screens/TimelineScreen.tsx AlarmOffer).
+      // 생각 저장/기억/인사이트 흐름은 서버에서 원래대로 끝났고, 이건 화면 쪽 제안일 뿐이다.
+      const ev = body.data.scheduled_event as { what: string; at: string } | null | undefined;
+      if (!isCurrent()) return;
+      const replyText = body.data.response?.response || "일단 들어뒀어.";
+      const suggestAt = ev?.what && ev?.at ? suggestFromEvent(ev.at, new Date()) : null;
+      setHomeBubble({
+        kind: "reply",
+        text: replyText,
+        recall: body.data.response?.recalled ?? null,
+        alarmOffer: ev && suggestAt ? { what: ev.what, eventAt: ev.at, suggestAt, entryId: String(body.data.id) } : null,
+      });
     } catch (e: any) {
       console.error("[Home] tank upload failed:", e?.message);
       releaseMicStream();
