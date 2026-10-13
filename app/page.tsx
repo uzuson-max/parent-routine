@@ -330,7 +330,10 @@ export default function Home() {
       markFirstEntryDoneIfNeeded();
 
       const state = body.data.call_state;
-      if (state === "no_action" || state === "saved_only") {
+      // 홈(바다)에서 한 말은 전화를 걸었든(calling_sent) 못 걸었든(call_failed/awaiting_phone) 홈에 그대로 남는다.
+      // 예전엔 전화 상태면 옛 디자인의 통화/실패 화면으로 넘어가 바다가 끊겼다 — 대답은 말풍선으로 보여주면 충분하다.
+      // (전화가 실제로 걸렸으면 폰이 따로 울린다.) 약속 확인(awaiting_confirmation)만 아래 기존 화면으로 간다.
+      if (state !== "awaiting_confirmation") {
         // 날짜·시각이 정해진 일정을 말했으면(분석이 scheduled_event로 확인한 것만) 대답 아래에 "알람 걸어둘까?"를 한 번 붙인다.
         // 제안만 한다 — 실제 알람은 사용자가 [응]을 눌러야 생긴다(app/screens/TimelineScreen.tsx AlarmOffer).
         // 생각 저장/기억/인사이트 흐름은 서버에서 원래대로 끝났고, 이건 화면 쪽 제안일 뿐이다.
@@ -771,7 +774,12 @@ export default function Home() {
     setUploadData(null);
     setResult(null);
     markFirstEntryDoneIfNeeded();
-    startRecordingNow();
+    // 예전엔 옛 디자인의 녹음 화면(RecordingScreen)으로 갔다 — 이제 홈과 같은 물속 녹음 화면으로 간다.
+    // 녹음이 끝나면 대답은 홈 바다 말풍선으로 돌아온다.
+    playFx("micStart");
+    acquireMicStream().catch(() => {});
+    setTankReplyTo(undefined);
+    setStep("tank_recording");
   }
 
   // 응답 화면의 "홈으로" — 대화를 끝내는 순간이라 여기서 마이크를 놓아준다.
