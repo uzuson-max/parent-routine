@@ -507,6 +507,7 @@ export default function Home() {
           bubble={homeBubble}
           onBubbleChange={changeHomeBubble}
                     onConfirmSpeech={confirmSpeech}
+          onDismissCallback={() => setProactiveLine(null)}
           thinking={homeThinking}
           heard={homeHeard}
           onRetrySpeech={retryUpload}
