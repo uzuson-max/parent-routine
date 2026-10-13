@@ -20,99 +20,17 @@ const INK = OTTER.INK;
 const ln = { stroke: INK, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, fill: "none" };
 
 export default function OtterCloseUp({ expression = "stare", width = 320 }: { expression?: CloseUpExpression; width?: number }) {
-  const e = expression;
+  // 2026-10-13: 손그림 수달 얼굴(public/otter/*.webp)을 크게 쓴다. 아래 어깨만 같은 색 도형으로 받쳐서 화면 아래와 이어지게.
+  const face = { stare: "face_stare", smug: "face_smug", wow: "face_surprise", hmm: "face_tilt" }[expression];
   return (
-    <svg viewBox="0 0 300 330" width={width} height={(width * 330) / 300} style={{ display: "block", overflow: "visible" }} aria-hidden>
-      {/* 어깨 — 화면 아래로 이어진다 */}
-      <path d="M18 330 C22 268 70 238 150 238 C230 238 278 268 282 330 Z" fill={OTTER.FUR} stroke={INK} strokeWidth={6} />
-      <path d="M92 330 C96 290 120 270 150 270 C180 270 204 290 208 330 Z" fill={OTTER.FACE} />
-
-      {/* 귀 */}
-      <circle cx="40" cy={e === "wow" ? 92 : 104} r="21" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={7} />
-      <circle cx="260" cy={e === "wow" ? 92 : 104} r="21" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={7} />
-      <circle cx="43" cy={e === "wow" ? 95 : 107} r="8" fill="#6E4A2F" />
-      <circle cx="257" cy={e === "wow" ? 95 : 107} r="8" fill="#6E4A2F" />
-
-      {/* 머리 */}
-      <path d="M18 160 C18 92 76 56 150 56 C224 56 282 92 282 160 C282 222 224 258 150 258 C76 258 18 222 18 160 Z" fill={OTTER.FUR} stroke={INK} strokeWidth={7} />
-      <path d="M62 166 C62 122 98 104 150 104 C202 104 238 122 238 166 C238 208 202 234 150 234 C98 234 62 208 62 166 Z" fill={OTTER.FACE} />
-
-      {/* 눈·눈썹 */}
-      {e === "stare" && (
-        <>
-          {/* 왼쪽 눈썹만 높이 — "어? 뭐라고?" */}
-          <path d="M70 96 Q96 70 122 92" {...ln} strokeWidth={7} />
-          <path d="M178 120 L232 112" {...ln} strokeWidth={7} />
-          {/* 왼쪽 눈은 크게 뜨고, 오른쪽은 반쯤 감고 빤히 */}
-          <circle cx="98" cy="136" r="19" fill="#FFFFFF" stroke={INK} strokeWidth={5.5} />
-          <circle cx="98" cy="139" r="9.5" fill={INK} />
-          <circle cx="94" cy="134" r="3.4" fill="#FFFFFF" />
-          <circle cx="202" cy="138" r="19" fill="#FFFFFF" stroke={INK} strokeWidth={5.5} />
-          <circle cx="202" cy="141" r="9.5" fill={INK} />
-          <path d="M181 138 C181 120 223 120 223 138 Z" fill={OTTER.FACE} stroke={INK} strokeWidth={5.5} strokeLinejoin="round" />
-        </>
-      )}
-      {e === "smug" && (
-        <>
-          <path d="M72 104 L118 96 M182 96 L228 104" {...ln} strokeWidth={7} />
-          <path d="M78 142 Q98 124 118 142" {...ln} strokeWidth={8} />
-          <path d="M182 142 Q202 124 222 142" {...ln} strokeWidth={8} />
-        </>
-      )}
-      {e === "wow" && (
-        <>
-          <path d="M72 88 L120 82 M180 82 L228 88" {...ln} strokeWidth={7} />
-          <circle cx="98" cy="136" r="22" fill="#FFFFFF" stroke={INK} strokeWidth={5.5} />
-          <circle cx="202" cy="136" r="22" fill="#FFFFFF" stroke={INK} strokeWidth={5.5} />
-          <circle cx="98" cy="138" r="8" fill={INK} />
-          <circle cx="202" cy="138" r="8" fill={INK} />
-        </>
-      )}
-      {e === "hmm" && (
-        <>
-          <path d="M70 98 Q96 80 122 98 M180 112 L230 110" {...ln} strokeWidth={7} />
-          <circle cx="98" cy="138" r="17" fill="#FFFFFF" stroke={INK} strokeWidth={5.5} />
-          <circle cx="104" cy="134" r="8.5" fill={INK} />
-          <circle cx="202" cy="140" r="13" fill="#FFFFFF" stroke={INK} strokeWidth={5.5} />
-          <circle cx="208" cy="137" r="6.5" fill={INK} />
-          <text x="248" y="70" fontFamily="Jua, sans-serif" fontSize="52" fill="#4D3F73" stroke={INK} strokeWidth={1.5}>?</text>
-        </>
-      )}
-
-      {/* 주둥이 */}
-      <ellipse cx="126" cy="200" rx="28" ry="23" fill={OTTER.MUZZLE} stroke={INK} strokeWidth={5.5} />
-      <ellipse cx="174" cy="200" rx="28" ry="23" fill={OTTER.MUZZLE} stroke={INK} strokeWidth={5.5} />
-      <circle cx="116" cy="196" r="3" fill={INK} />
-      <circle cx="124" cy="208" r="3" fill={INK} />
-      <circle cx="184" cy="196" r="3" fill={INK} />
-      <circle cx="176" cy="208" r="3" fill={INK} />
-      <path d="M98 194 L54 182 M98 206 L54 214 M202 194 L246 182 M202 206 L246 214" {...ln} strokeWidth={3.5} />
-
-      {/* 코 */}
-      <path d="M130 176 Q150 164 170 176 Q166 192 150 194 Q134 192 130 176 Z" fill={INK} />
-      <ellipse cx="143" cy="174" rx="6" ry="3" fill="#FFFFFF" opacity={0.6} />
-
-      {/* 입 */}
-      {e === "stare" && <path d="M150 194 L150 204 M134 214 Q150 212 168 207" {...ln} strokeWidth={5} />}
-      {e === "smug" && (
-        <>
-          <path d="M150 194 L150 204 M130 210 Q152 230 172 206" {...ln} strokeWidth={5} />
-          <path d="M152 218 Q160 228 166 216" fill="#F27FA8" stroke={INK} strokeWidth={4} strokeLinejoin="round" />
-        </>
-      )}
-      {e === "wow" && <ellipse cx="150" cy="222" rx="10" ry="13" fill={INK} />}
-      {e === "hmm" && <path d="M150 194 L150 204 M136 214 Q150 208 166 216" {...ln} strokeWidth={5} />}
-
-      {/* 볼 */}
-      <ellipse cx="72" cy="186" rx="16" ry="11" fill={OTTER.PINK} opacity={0.6} />
-      <ellipse cx="228" cy="186" rx="16" ry="11" fill={OTTER.PINK} opacity={0.6} />
-
-      {/* 놀람 땀 / 킹받음 반짝 */}
-      {e === "wow" && <path d="M258 140 Q268 156 258 164 Q248 156 258 140 Z" fill="#9CDCFF" stroke={INK} strokeWidth={3.5} strokeLinejoin="round" />}
-      {e === "smug" && (
-        <path d="M262 52 L266 64 L278 68 L266 72 L262 84 L258 72 L246 68 L258 64 Z" fill="#FFE066" stroke={INK} strokeWidth={3.5} strokeLinejoin="round" />
-      )}
-    </svg>
+    <div style={{ position: "relative", width: "100%", maxWidth: width, display: "flex", flexDirection: "column", alignItems: "center" }} aria-hidden>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={`/otter/${face}.webp`} alt="" draggable={false} style={{ position: "relative", zIndex: 1, display: "block", width: "100%", height: "auto" }} />
+      <svg viewBox="0 0 300 90" width="100%" style={{ display: "block", marginTop: -26 }}>
+        <path d="M40 90 C44 40 90 14 150 14 C210 14 256 40 260 90 Z" fill={OTTER.FUR} stroke="#45150F" strokeWidth={6} />
+        <path d="M100 90 C104 58 124 44 150 44 C176 44 196 58 200 90 Z" fill="#FFF0D6" />
+      </svg>
+    </div>
   );
 }
 
@@ -120,8 +38,8 @@ export default function OtterCloseUp({ expression = "stare", width = 320 }: { ex
 export function OtterPaw({ side, size = 64 }: { side: "left" | "right"; size?: number }) {
   return (
     <svg viewBox="0 0 64 56" width={size} height={(size * 56) / 64} style={{ display: "block", overflow: "visible", transform: side === "right" ? "scaleX(-1)" : undefined }} aria-hidden>
-      <path d="M6 54 C2 34 12 12 34 10 C52 8 62 22 58 36 C55 46 40 50 28 54 Z" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={4.5} strokeLinejoin="round" />
-      <path d="M40 14 C46 18 48 26 46 32 M50 18 C55 22 56 28 54 34" {...ln} strokeWidth={3.5} />
+      <path d="M6 54 C2 34 12 12 34 10 C52 8 62 22 58 36 C55 46 40 50 28 54 Z" fill={OTTER.FUR} stroke="#45150F" strokeWidth={4.5} strokeLinejoin="round" />
+      <path d="M40 14 C46 18 48 26 46 32 M50 18 C55 22 56 28 54 34" {...ln} stroke="#45150F" strokeWidth={3.5} />
       <ellipse cx="24" cy="34" rx="8" ry="6" fill="#E9A8B8" opacity={0.8} />
     </svg>
   );
@@ -269,11 +187,10 @@ const CLOSEUP_CSS = `
 @keyframes ocu-pop{from{transform:scale(.5);opacity:0}to{transform:none;opacity:1}}
 @keyframes ocu-fade{to{opacity:0;transform:scale(.9)}}
 .ocu-face{width:min(340px,88vw);animation:ocu-rise .62s cubic-bezier(.2,1.25,.4,1) both}
-.ocu-face svg{width:100%!important;height:auto!important}
 .ocu-out .ocu-face{animation:ocu-sink .42s cubic-bezier(.5,0,.8,.4) both}
 @keyframes ocu-rise{0%{transform:translateY(70vh) scale(.35) rotate(-10deg)}70%{transform:translateY(-10px) scale(1.03) rotate(2deg)}100%{transform:none}}
 @keyframes ocu-sink{to{transform:translateY(70vh) scale(.3) rotate(12deg)}}
-.ocu-note-wrap{position:relative;width:min(310px,82vw);margin-top:calc(min(340px,88vw) * -0.36);animation:ocu-note .4s cubic-bezier(.3,1.4,.5,1) .8s both}
+.ocu-note-wrap{position:relative;width:min(310px,82vw);margin-top:calc(min(340px,88vw) * -0.2);animation:ocu-note .4s cubic-bezier(.3,1.4,.5,1) .8s both}
 .ocu-out .ocu-note-wrap{animation:ocu-fade .2s ease both}
 @keyframes ocu-note{from{transform:translateY(40px) rotate(6deg);opacity:0}to{transform:none;opacity:1}}
 .ocu-note{position:relative;background:#FFFDF6;border:3px solid ${INK};border-radius:10px;box-shadow:4px 4px 0 ${INK};padding:14px 18px 16px;transform:rotate(-2deg);cursor:default}

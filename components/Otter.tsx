@@ -17,13 +17,14 @@
 //   sleep    쿨쿨 — 밤, 대기
 // ============================================================================
 
-export type OtterExpression = "base" | "tilt" | "surprise" | "laugh" | "remember" | "proud" | "sleep";
+export type OtterExpression = "base" | "tilt" | "surprise" | "laugh" | "remember" | "proud" | "sleep" | "sly" | "stare" | "angry";
 export type OtterHolding = "none" | "pebble" | "shell" | "pearl" | "note"; // note = 물 위 쪽지(알람/메모 얘기할 때)
 
 export const OTTER = {
   INK: "#1B1630",
-  FUR: "#B88458",
-  FUR_DARK: "#9A6A45",
+  // 2026-10-13 새 수달 그림(public/otter/*.webp)의 털색에 맞췄다 — 앞발 같은 SVG 조각이 그림과 같은 색으로 보이게.
+  FUR: "#BB633F",
+  FUR_DARK: "#9C4E30",
   FACE: "#E6C7A0",
   MUZZLE: "#F7EBD8",
   PINK: "#FF8FB3",
@@ -182,6 +183,35 @@ export function otterFaceG(expression: OtterExpression, opts: { props?: boolean 
   );
 }
 
+// ============================================================================
+// 2026-10-13 — 참견이 수달 그림 교체.
+// 앱에 보이는 수달은 이제 손그림 일러스트(public/otter/*.webp)다. 아래 세 컴포넌트는 예전과 같은 이름·props를
+// 그대로 받아서(부르는 화면은 손대지 않아도 되게) 그림 파일을 보여준다.
+//   얼굴 8장: face_happy(반가움·기본) / face_sly(능청) / face_stare(빤히·짝눈) / face_smug(킹받는 웃음)
+//             face_surprise(놀람) / face_tilt(갸우뚱) / face_angry(발끈) / face_sleep(졸림)
+//   자세 4장: pose_front(정면, 서 있기) / pose_float(배 위로 둥둥, 조약돌) / pose_swim(헤엄) / pose_closeup(쪽지 든 큰 얼굴)
+// 예전 SVG 수달(otterFaceG)은 녹음 화면 등에서 쓸 수 있게 남겨둔다.
+// holding/kelp/wave 같은 소품 props는 지금 그림에 없어서 받기만 하고 그리지 않는다.
+// ============================================================================
+
+const FACE_FILE: Record<OtterExpression, string> = {
+  base: "face_happy",
+  remember: "face_happy",
+  tilt: "face_tilt",
+  surprise: "face_surprise",
+  laugh: "face_smug",
+  proud: "face_sly",
+  sleep: "face_sleep",
+  sly: "face_sly",
+  stare: "face_stare",
+  angry: "face_angry",
+};
+
+export function otterFaceSrc(expression: OtterExpression): string {
+  return `/otter/${FACE_FILE[expression] ?? "face_happy"}.webp`;
+}
+
+/** 얼굴 — size×size 칸 가운데에 얼굴 그림(가로가 조금 더 긴 그림이라 폭을 size에 맞춘다). */
 export function OtterFace({
   expression = "base",
   size = 96,
@@ -193,39 +223,45 @@ export function OtterFace({
   className?: string;
   style?: React.CSSProperties;
 }) {
-  const tilt = expression === "tilt";
   return (
-    <svg viewBox="0 0 100 100" width={size} height={size} className={className} style={{ overflow: "visible", ...style }} aria-hidden>
-      {tilt ? <g transform="rotate(-10 50 60)">{otterFaceG(expression)}</g> : otterFaceG(expression)}
-      {tilt && (
-        <text x={86} y={22} fontFamily="Jua, sans-serif" fontSize={22} fill="#4D3F73">
-          ?
-        </text>
-      )}
-      {expression === "surprise" && <path d="M2 22 L9 28 M0 35 L9 36 M98 22 L91 28 M100 35 L91 36" {...line} strokeWidth={2.4} />}
-      {expression === "laugh" && <path d="M90 42 q4 -4 8 0 M88 52 q4 -4 8 0" {...line} strokeWidth={2} />}
-      {expression === "sleep" && (
-        <text x={84} y={26} fontFamily="Jua, sans-serif" fontSize={16} fill="#4D3F73">
-          z
-        </text>
-      )}
-    </svg>
+    <span
+      className={className}
+      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: size, height: size, ...style }}
+      aria-hidden
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={otterFaceSrc(expression)} alt="" width={size} style={{ display: "block", width: size, height: "auto" }} draggable={false} />
+    </span>
   );
 }
 
-/**
- * 전신.
- *   float   — 배를 하늘로 하고 둥둥 (수달 하면 이 자세). 대기·쉬는 중·궁금.
- *   upright — 물속에서 서서 이쪽을 본다. 사용자 발견·뿌듯.
- * holding: 배 위/손에 든 것. kelp: 다시마를 몸에 감고 있음(떠내려가지 않게 — 실제 수달 습관).
- * 움직임은 바깥 CSS(.otr-*)가 맡는다 — 여기선 그림만.
- */
+// 살아 있는 느낌 — 그림이 한 장이라 팔다리는 못 움직이지만, 몸 전체로 숨쉬기·흔들림·기울기를 준다.
+// 바깥(SeaOtter/DeepSea)이 이미 위치를 움직이므로 여기선 제자리 움직임만. 그림 뒤집기는 안쪽 img가, 움직임은 바깥 span이 맡는다.
+const LIVE_CSS = `
+.otr-live{display:block;transform-origin:50% 90%;will-change:transform}
+.otr-breathe{animation:otr-breathe 2.6s ease-in-out infinite}
+@keyframes otr-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.025,.975)}}
+.otr-rock{animation:otr-rock 3.4s ease-in-out infinite}
+@keyframes otr-rock{0%,100%{transform:rotate(-4deg) translateY(0)}50%{transform:rotate(3deg) translateY(-3px)}}
+.otr-paddle{animation:otr-paddle 1.1s ease-in-out infinite;transform-origin:30% 50%}
+@keyframes otr-paddle{0%,100%{transform:rotate(-3deg) scale(1,1)}50%{transform:rotate(4deg) scale(1.04,.96)}}
+.otr-img{display:block;height:auto;filter:drop-shadow(0 6px 5px rgba(10,40,80,.28))}
+@media (prefers-reduced-motion: reduce){.otr-breathe,.otr-rock,.otr-paddle{animation:none}}
+`;
+
+function LiveImg({ src, width, flip, motion, className, style }: { src: string; width: number; flip?: boolean; motion: "otr-breathe" | "otr-rock" | "otr-paddle"; className?: string; style?: React.CSSProperties }) {
+  return (
+    <span className={`otr-live ${motion} ${className ?? ""}`} style={{ width, ...style }} aria-hidden>
+      <style dangerouslySetInnerHTML={{ __html: LIVE_CSS }} />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt="" draggable={false} className="otr-img" style={{ width: "100%", transform: flip ? "scaleX(-1)" : undefined }} />
+    </span>
+  );
+}
+
+/** 전신 — float: 배 위로 둥둥(조약돌을 안고, 살랑살랑 흔들림), upright: 정면으로 앉아 숨쉬기. 오른쪽을 보도록 맞춘다. */
 export function OtterBody({
   pose = "float",
-  expression = "base",
-  holding = "none",
-  kelp = false,
-  wave = false,
   width = 200,
   className,
   style,
@@ -239,67 +275,15 @@ export function OtterBody({
   className?: string;
   style?: React.CSSProperties;
 }) {
-  if (pose === "upright") {
-    return (
-      <svg viewBox="0 0 140 190" width={width} height={(width * 190) / 140} className={className} style={{ overflow: "visible", ...style }} aria-hidden>
-        {/* 꼬리 */}
-        <path className="otr-tail" d="M86 160 C110 162 124 152 132 136 C122 140 108 146 88 148 Z" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={3} strokeLinejoin="round" />
-        {/* 몸 */}
-        <path d="M32 112 C32 86 48 72 70 72 C92 72 108 86 108 112 C108 146 94 172 70 172 C46 172 32 146 32 112 Z" fill={OTTER.FUR} stroke={INK} strokeWidth={3.2} />
-        <path d="M46 116 C46 96 56 86 70 86 C84 86 94 96 94 116 C94 142 84 160 70 160 C56 160 46 142 46 116 Z" fill={OTTER.MUZZLE} />
-        {/* 발 */}
-        <ellipse cx={54} cy={172} rx={11} ry={6} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.6} />
-        <ellipse cx={86} cy={172} rx={11} ry={6} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.6} />
-        {/* 다시마 띠 */}
-        {kelp && <path d="M34 128 C52 136 88 136 106 126 L106 136 C88 146 52 146 34 138 Z" fill="#2FAF6A" stroke={INK} strokeWidth={2.4} strokeLinejoin="round" />}
-        {/* 왼팔: 손에 든 것 */}
-        <path d="M40 104 C30 112 30 124 40 128" fill="none" stroke={INK} strokeWidth={3} strokeLinecap="round" />
-        <ellipse cx={46} cy={122} rx={8} ry={6.5} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.6} />
-        {heldItem(holding, 52, 112, 1.1)}
-        {/* 오른팔: 흔들기 */}
-        <g className={wave ? "otr-wave" : ""} style={{ transformOrigin: "100px 104px", transformBox: "view-box" }}>
-          <path d="M100 104 C114 98 124 88 126 76" fill="none" stroke={INK} strokeWidth={3} strokeLinecap="round" />
-          <ellipse cx={127} cy={71} rx={8} ry={7} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.6} />
-        </g>
-        {/* 머리 */}
-        <g transform="translate(20 0)">{otterFaceG(expression, { props: false })}</g>
-        {(expression === "proud" || expression === "remember") && (
-          <path d="M122 12 L124 17 L129 19 L124 21 L122 26 L120 21 L115 19 L120 17 Z" fill="#FFE066" stroke={INK} strokeWidth={1.8} strokeLinejoin="round" />
-        )}
-      </svg>
-    );
-  }
-  // float — 배를 위로, 머리는 오른쪽에서 이쪽을 본다
-  return (
-    <svg viewBox="0 0 230 130" width={width} height={(width * 130) / 230} className={className} style={{ overflow: "visible", ...style }} aria-hidden>
-      {/* 꼬리 */}
-      <path className="otr-tail" d="M44 86 C28 86 14 80 4 70 C16 70 30 72 46 74 Z" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={3} strokeLinejoin="round" />
-      {/* 뒷발 — 위로 쏙 */}
-      <ellipse cx={50} cy={54} rx={7} ry={10} transform="rotate(-24 50 54)" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.6} />
-      <ellipse cx={66} cy={50} rx={7} ry={10} transform="rotate(-8 66 50)" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.6} />
-      {/* 몸 — 누워서 둥둥 */}
-      <path d="M40 80 C40 62 70 56 112 56 C142 56 160 62 162 76 C164 92 140 102 104 102 C66 102 40 96 40 80 Z" fill={OTTER.FUR} stroke={INK} strokeWidth={3.2} />
-      {/* 배 */}
-      <path d="M58 74 C62 64 88 62 116 62 C138 62 150 66 150 74 C148 82 130 86 104 86 C80 86 58 84 58 74 Z" fill={OTTER.MUZZLE} />
-      {/* 다시마 띠 */}
-      {kelp && <path d="M86 58 C84 72 86 90 90 104 L100 104 C96 90 94 72 96 57 Z" fill="#2FAF6A" stroke={INK} strokeWidth={2.4} strokeLinejoin="round" />}
-      {/* 배 위에 올린 것 + 앞발 */}
-      {heldItem(holding, 124, 62, 1)}
-      <ellipse cx={114} cy={66} rx={7} ry={5.5} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.4} />
-      <ellipse cx={134} cy={66} rx={7} ry={5.5} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.4} />
-      {/* 머리 — 살짝 들어서 이쪽 */}
-      <g transform="translate(138 8) scale(0.84) rotate(-8 50 56)">{otterFaceG(expression, { props: false })}</g>
-    </svg>
+  return pose === "upright" ? (
+    <LiveImg src="/otter/pose_front.webp" width={width} motion="otr-breathe" className={className} style={style} />
+  ) : (
+    <LiveImg src="/otter/pose_float.webp" width={width} flip motion="otr-rock" className={className} style={style} />
   );
 }
 
-/**
- * 헤엄치는 모습 — 배를 아래로, 오른쪽을 보고 쭉 뻗어 간다(녹음 화면에서 헤엄치던 그 수달).
- * 왼쪽으로 갈 땐 바깥에서 scaleX(-1). 꼬리/앞발 움직임은 바깥 CSS(.otr-swim-tail, .otr-swim-paw).
- */
+/** 헤엄 — 오른쪽으로 헤엄치는 모습(그림은 왼쪽을 보고 있어서 뒤집는다). 몸을 출렁이며 나아간다. */
 export function OtterSwim({
-  expression = "base",
-  holding = "none",
   width = 140,
   className,
   style,
@@ -310,19 +294,5 @@ export function OtterSwim({
   className?: string;
   style?: React.CSSProperties;
 }) {
-  return (
-    <svg viewBox="0 0 150 70" width={width} height={(width * 70) / 150} className={className} style={{ overflow: "visible", ...style }} aria-hidden>
-      <g className="otr-swim-tail">
-        <path d="M30 40 C18 40 8 44 2 50 C10 54 22 52 34 46 Z" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={3} strokeLinejoin="round" />
-      </g>
-      <path d="M40 52 C34 60 30 64 24 64 C26 58 30 54 36 50 Z" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.6} strokeLinejoin="round" />
-      <path d="M26 42 C28 28 50 20 76 20 C96 20 106 26 110 34 C112 46 100 56 78 58 C54 60 30 56 26 42 Z" fill={OTTER.FUR} stroke={INK} strokeWidth={3.2} strokeLinejoin="round" />
-      <path d="M48 50 C62 56 84 56 100 48 C94 56 82 58 72 58 C60 58 52 56 48 50 Z" fill="#E9C9A4" />
-      {heldItem(holding, 104, 60, 0.9)}
-      <g className="otr-swim-paw">
-        <ellipse cx="96" cy="54" rx="6" ry="4" fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.4} />
-      </g>
-      <g transform="translate(93 2) scale(0.54)">{otterFaceG(expression, { props: false })}</g>
-    </svg>
-  );
+  return <LiveImg src="/otter/pose_swim.webp" width={width} flip motion="otr-paddle" className={className} style={style} />;
 }
