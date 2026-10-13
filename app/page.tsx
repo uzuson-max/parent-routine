@@ -478,8 +478,12 @@ export default function Home() {
       {step === "first_talk" && (
         <FirstTalkScreen
           onStart={() => {
+            // 혹시 이 화면에 들어와도 녹음은 새 물속 녹음 화면으로.
             setSelectedTopic("");
-            startRecordingNow();
+            playFx("micStart");
+            acquireMicStream().catch(() => {});
+            setTankReplyTo(undefined);
+            setStep("tank_recording");
           }}
         />
       )}
@@ -781,11 +785,13 @@ export default function Home() {
   // (저장공간 리셋 등으로) 온보딩은 이미 끝났지만 전화 인증이 없어서 여기로 온 경우는
   // 홈으로 바로 보낸다 — 이 사람은 원래 쓰던 사람이라 첫 실행 튜토리얼을 다시 볼 필요가 없다.
   function afterSetupChecklist() {
+    // 예전엔 첫 실행이면 옛 디자인의 "아무 말이나 해볼래?" 화면(FirstTalkScreen) → 옛 녹음 화면으로 갔다.
+    // 이제는 바로 바다(홈)로 — 같은 말을 참견이 말풍선으로 건네고, 녹음은 홈과 같은 물속 녹음 화면에서 한다.
+    // isFirstRun은 그대로 유지돼서 첫 녹음 처리(전화번호 요구 건너뛰기 등)는 예전과 같다.
     if (isFirstRun) {
-      setStep("first_talk");
-    } else {
-      setStep("landing");
+      setHomeBubble({ kind: "notice", text: "아무 말이나 해볼래? 진짜 아무 말이나 괜찮음." });
     }
+    setStep("landing");
   }
 
   // 첫 실행 여정(온보딩→필수 체크리스트→첫 녹음)이 끝났음을 표시한다.
