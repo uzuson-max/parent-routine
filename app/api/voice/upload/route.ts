@@ -6,6 +6,7 @@ import { analyzeAndSchedule } from '@/lib/analysis';
 import { generateResponse } from '@/lib/responseEngine';
 import { updateUserMemory } from '@/lib/memoryEngine';
 import { runMemoryPipeline } from '@/lib/memoryPipeline';
+import { createWorryBottleFromEntry } from '@/lib/worryBottles';
 import { retrieveRelevantMemoriesWithTrace, markMemoriesReferenced, RetrievalTrace } from '@/lib/memoryRetrieval';
 import { retrieveRelevantInsights, markInsightsSurfaced } from '@/lib/insightEngine';
 import { sendRoutineCall } from '@/lib/twilio';
@@ -328,6 +329,9 @@ async function handleUpload(request: Request, onTranscript?: (t: TranscriptReady
       const sourceChannel: 'voice' | 'text' = audio ? 'voice' : 'text';
       const entryId = entry.id;
       later('memory-pipeline', () => runMemoryPipeline(entryId, userId, transcript, sourceChannel));
+      // 걱정 병 — 나중에 맞았는지 물어볼 걱정이 있으면 하나 띄운다(lib/worryBottles.ts).
+      // 참견이 말에 대답한 녹음(topic)은 생각이 아니라 대화라서 건너뛴다. 걱정 말투가 없으면 AI도 안 부른다.
+      if (!topicFromForm) later('worry-bottle', () => createWorryBottleFromEntry(userId, String(entryId), transcript));
     }
 
     let currentCallState: string;
