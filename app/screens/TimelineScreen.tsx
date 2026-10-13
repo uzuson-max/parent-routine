@@ -66,6 +66,8 @@ interface TimelineScreenProps {
   onBubbleChange: (b: HomeBubble | null) => void;
   // confirm 말풍선의 [맞아](true) / [아니](false)
   onConfirmSpeech?: (yes: boolean) => void;
+  // 참견이가 먼저 꺼낸 말("참견이 등장.") 말풍선을 눌러 내려놓을 때. 서버는 이미 꺼낸 것으로 처리돼 있어서 다시 뜨지 않는다.
+  onDismissCallback?: () => void;
   // retry 말풍선의 [다시 보내기]
   onRetrySpeech?: () => void;
   // 2단계 응답 — 서버가 받아쓰기를 끝내자마자 보내준 "방금 니가 한 말"(대답을 기다리는 동안만 있다)
@@ -105,6 +107,7 @@ export default function TimelineScreen({
   bubble,
   onBubbleChange,
   onConfirmSpeech,
+  onDismissCallback,
   onRetrySpeech,
   heard = null,
   onNavigate,
@@ -248,7 +251,7 @@ export default function TimelineScreen({
   const shown: { stamp: string | null; text: string; closable: boolean; recall: Recall | null } | null = bubble
     ? { stamp: bubble.kind === "reply" ? "참견이" : null, text: bubble.text, closable: true, recall: bubble.kind === "reply" ? bubble.recall ?? null : null }
     : hasCallback && proactiveLine
-    ? { stamp: "참견이 등장.", text: proactiveLine.content, closable: false, recall: proactiveLine.recall ?? null }
+    ? { stamp: "참견이 등장.", text: proactiveLine.content, closable: true, recall: proactiveLine.recall ?? null }
     : null;
   // 지금 화면에 떠 있는 "기억 소환" — 말풍선 위 기억 캡슐 + 바다에서 그 물고기가 깨어나 떠오른다.
   const recall = shown && !thinking && bubble?.kind !== "confirm" && bubble?.kind !== "retry" ? shown.recall : null;
@@ -267,6 +270,13 @@ export default function TimelineScreen({
     return () => clearTimeout(t);
   }, [recallKey]);
   const replying = !!bubble ? bubble.kind === "reply" : hasCallback;
+  // 말풍선(대답/참견이 등장/안내)은 어디를 눌러도 내려놓는다 — 뒤의 바다를 오래 가리지 않게.
+  // 안쪽 버튼(알람 제안 등)은 각자 할 일만 하고 말풍선을 닫지 않는다.
+  const dismissShown = () => {
+    playFx("buttonPress");
+    if (bubble) onBubbleChange(null);
+    else onDismissCallback?.();
+  };
 
   return (
     <div style={styles.container}>
@@ -416,7 +426,7 @@ export default function TimelineScreen({
           !thinking && (
             <>
             {recall && (
-              <div key={"recall:" + recallKey} className="tl-recall" style={styles.recallWrap}>
+              <div key={"recall:" + recallKey} className="tl-recall" style={{ ...styles.recallWrap, cursor: "pointer" }} onClick={dismissShown}>
                 <div className="tl-recall-cap" style={styles.recallCap}>
                   {/* 참견이가 주머니에서 조약돌(그때 니가 한 말)을 꺼내 든 얼굴 — 실제로 꺼낸 기억이 있을 때만 */}
                   <span className="tl-recall-otter" style={styles.recallOtter} aria-hidden>
@@ -439,10 +449,17 @@ export default function TimelineScreen({
                 </div>
               </div>
             )}
-            <div key={shown.text} className={recall ? "tl-bubble tl-bubble-late" : "tl-bubble"} style={styles.bubble} role="status">
+            <div
+              key={shown.text}
+              className={recall ? "tl-bubble tl-bubble-late" : "tl-bubble"}
+              style={{ ...styles.bubble, cursor: "pointer" }}
+              role="status"
+              onClick={dismissShown}
+            >
               {shown.stamp && <span style={styles.bubbleStamp}>{shown.stamp}</span>}
               <span style={styles.bubbleText}>{shown.text}</span>
               {bubble?.kind === "reply" && bubble.alarmOffer && (
+                <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", cursor: "auto" }}>
                 <AlarmOffer
                   key={bubble.alarmOffer.entryId}
                   offer={bubble.alarmOffer}
@@ -452,9 +469,18 @@ export default function TimelineScreen({
                   }}
                   onAdjust={() => openSheet("alarms", { title: bubble.alarmOffer!.what, remindAt: bubble.alarmOffer!.suggestAt })}
                 />
+                </div>
               )}
               {shown.closable && (
-                <button className="tl-close" style={styles.bubbleClose} aria-label="말풍선 닫기" onClick={() => onBubbleChange(null)}>
+                <button
+                  className="tl-close"
+                  style={styles.bubbleClose}
+                  aria-label="말풍선 닫기"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    dismissShown();
+                  }}
+                >
                   <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
                     <path d="M3 3 L11 11 M11 3 L3 11" stroke={INK} strokeWidth={2.4} strokeLinecap="round" />
                   </svg>
@@ -880,10 +906,10 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   bubbleClose: {
     position: "absolute",
-    top: 6,
-    right: 6,
-    width: 30,
-    height: 30,
+    top: 2,
+    right: 2,
+    width: 40,
+    height: 40,
     border: 0,
     borderRadius: "50%",
     background: "transparent",
