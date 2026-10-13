@@ -10,6 +10,7 @@ import { supabaseClient } from "@/lib/supabaseClient";
 import DeepSea, { type SeaGrowth } from "@/components/DeepSea";
 import SeaOtter from "@/components/SeaOtter";
 import { OtterFace } from "@/components/Otter";
+import SeaSky from "@/components/SeaSky";
 import { loadOtterMemory, pickVisit, saveOtterMemory, type Visit } from "@/lib/otterCues";
 
 // ============================================================================
@@ -149,7 +150,7 @@ interface WorryData {
 }
 type WorryAnswer = "hit" | "half" | "miss";
 
-const SKY_PX = 112; // 병이 떠 있을 때 수면 위로 보이는 하늘 높이(상단 안전영역 아래부터)
+const SKY_PX = 150; // 수면 위로 보이는 바다 위(하늘·섬·조각배) 높이 — 상단 안전영역 아래부터. components/SeaSky.tsx
 const MAX_BOTTLES_SHOWN = 4;
 const MIN_FOR_RATE = 5; // lib/worryBottles.ts와 같은 값
 const WORRY_PEEK_KEY = "ganseobi_worry_peeked_v1";
@@ -631,7 +632,7 @@ export default function Sea({
     return () => clearInterval(t);
   }, []);
   const bottles = (worries?.bottles ?? []).slice(0, MAX_BOTTLES_SHOWN);
-  const skyPx = bottles.length ? SKY_PX : 0;
+  const skyPx = SKY_PX; // 바다 위는 늘 보인다(병이 없어도) — 화면 위가 잘려 보이지 않게
   const isDue = (b: WorryBottle) => new Date(b.dueAt).getTime() <= clock;
   const openWorry = sheet?.kind === "worry" ? (worries?.bottles ?? []).find((b) => b.id === sheet.id) ?? null : null;
   const [worryDone, setWorryDone] = useState<{ id: number; answer: WorryAnswer; line: string; stats: WorryStats | null } | null>(null);
@@ -724,15 +725,8 @@ export default function Sea({
         style={{ background: `linear-gradient(${water[0]} 0%, ${water[1]} 38%, ${water[2]} 100%)` }}
         aria-label="지금 바다"
       >
-        {/* 수면 위 하늘 — 걱정 병이 떠 있을 때만 */}
-        <div
-          className="sea-sky"
-          style={{
-            height: `calc(env(safe-area-inset-top, 0px) + ${skyPx}px)`,
-            background: night ? "linear-gradient(#17325C, #2B5A8E)" : "linear-gradient(#FFF1C9, #CFF0FF 70%)",
-          }}
-          aria-hidden
-        />
+        {/* 바다 위 — 하늘, 섬, 노 젓는 조각배 */}
+        <SeaSky night={night} height={skyPx} />
 
         {/* 수면 */}
         <svg
@@ -740,16 +734,16 @@ export default function Sea({
           width="760"
           height="34"
           viewBox="0 0 760 34"
-          style={{ top: `calc(env(safe-area-inset-top, 0px) + ${skyPx ? skyPx - 18 : 2}px)`, transition: "top .8s ease" }}
+          style={{ top: `calc(env(safe-area-inset-top, 0px) + ${skyPx - 18}px)`, zIndex: 6 }}
           aria-hidden
         >
           <path d="M0 18 Q47.5 6 95 18 T190 18 T285 18 T380 18 T475 18 T570 18 T665 18 T760 18" fill="none" stroke="#FFFFFF" strokeWidth={4} opacity={0.9} />
         </svg>
 
         {/* 햇빛(밤엔 달빛처럼 약하게) */}
-        <div className="sea-ray" style={{ left: "14%", opacity: night ? 0.35 : 1 }} />
-        <div className="sea-ray" style={{ left: "46%", width: 26, animationDelay: "-1.6s", opacity: night ? 0.3 : 1 }} />
-        <div className="sea-ray" style={{ left: "74%", width: 44, animationDelay: "-3.1s", opacity: night ? 0.35 : 1 }} />
+        <div className="sea-ray" style={{ left: "14%", top: `calc(env(safe-area-inset-top, 0px) + ${skyPx - 4}px)`, opacity: night ? 0.35 : 1 }} />
+        <div className="sea-ray" style={{ left: "46%", top: `calc(env(safe-area-inset-top, 0px) + ${skyPx - 4}px)`, width: 26, animationDelay: "-1.6s", opacity: night ? 0.3 : 1 }} />
+        <div className="sea-ray" style={{ left: "74%", top: `calc(env(safe-area-inset-top, 0px) + ${skyPx - 4}px)`, width: 44, animationDelay: "-3.1s", opacity: night ? 0.35 : 1 }} />
 
         {/* 기포 기둥 */}
         {BUBBLES.map((b, i) => (
@@ -813,7 +807,7 @@ export default function Sea({
               data-lid={sid}
               style={{
                 left: leftPx,
-                top: skyPx ? `calc(${17 + r(3) * 8}% + ${Math.round(skyPx * 0.6)}px)` : `${17 + r(3) * 8}%`,
+                top: `calc(${12 + r(3) * 8}% + ${skyPx}px)`,
                 width: 64,
                 ["--dx" as any]: `${dx}px`,
                 animationDuration: `${dur}s`,
@@ -1456,7 +1450,7 @@ const CSS = `
 @keyframes sea-hint{0%,100%{transform:translateY(0)}50%{transform:translateY(4px)}}
 .sea-zz{position:absolute;z-index:9;font-family:'Jua',sans-serif;color:#FFFFFF;-webkit-text-stroke:1.5px #1B1630;pointer-events:none;animation:sea-zz 3.6s ease-in-out infinite}
 @keyframes sea-zz{0%{transform:translate(0,10px) scale(.6);opacity:0}25%{opacity:1}100%{transform:translate(14px,-40px) scale(1.2);opacity:0}}
-.sea-thought{position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 150px);z-index:11;width:max-content;max-width:80%;padding:10px 18px;background:#fff;border:3px solid #1B1630;border-radius:24px;box-shadow:3px 3px 0 #1B1630;font-size:17px;line-height:1.3;text-align:center;pointer-events:none;word-break:keep-all;animation:sea-thought 3.2s ease forwards}
+.sea-thought{position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 190px);z-index:11;width:max-content;max-width:80%;padding:10px 18px;background:#fff;border:3px solid #1B1630;border-radius:24px;box-shadow:3px 3px 0 #1B1630;font-size:17px;line-height:1.3;text-align:center;pointer-events:none;word-break:keep-all;animation:sea-thought 3.2s ease forwards}
 @keyframes sea-thought{0%{transform:translate(-50%,24px) scale(.5);opacity:0}12%{transform:translate(-50%,0) scale(1.06);opacity:1}18%{transform:translate(-50%,0) scale(1)}80%{transform:translate(-50%,-6px) scale(1);opacity:1}100%{transform:translate(-50%,-26px) scale(.95);opacity:0}}
 .sea-thinking{position:absolute;left:50%;top:46%;z-index:11;width:96px;height:96px;margin:-48px 0 0 -48px;box-sizing:border-box;border-radius:50%;border:3px solid #1B1630;background:rgba(255,255,255,.72);display:flex;align-items:center;justify-content:center;gap:7px;animation:sea-wobble 1.6s ease-in-out infinite;pointer-events:none}
 .sea-thinking::after{content:"";position:absolute;left:20px;top:14px;width:18px;height:11px;border-radius:50%;background:#fff;transform:rotate(-30deg)}
@@ -1514,8 +1508,7 @@ const CSS = `
 .sea-trail{position:absolute;left:50%;bottom:70%;width:0;height:0;pointer-events:none}
 .sea-trail span{position:absolute;left:-5px;bottom:0;width:10px;height:10px;border-radius:50%;border:2px solid #fff;background:rgba(255,255,255,.35);animation:sea-trail 2s ease-in infinite;opacity:0}
 @keyframes sea-trail{0%{transform:translate(0,0) scale(.5);opacity:0}15%{opacity:1}100%{transform:translate(6px,-110px) scale(1.1);opacity:0}}
-.sea-sky{position:absolute;left:0;right:0;top:0;z-index:1;pointer-events:none;transition:height .8s ease}
-.sea-bottle-wrap{position:absolute;z-index:6;width:38px;transition:opacity .5s ease}
+.sea-bottle-wrap{position:absolute;z-index:7;width:38px;transition:opacity .5s ease}
 .sea-bottle{position:relative;display:block;width:38px;padding:0;margin:0;border:0;background:none;cursor:pointer;-webkit-tap-highlight-color:transparent;animation:sea-bottle-bob ease-in-out infinite alternate;transform-origin:50% 70%}
 .sea-bottle svg{display:block;width:100%;height:auto;overflow:visible;filter:drop-shadow(2px 2px 0 rgba(27,22,48,.25))}
 .sea-bottle:focus-visible{outline:3px dashed #1B1630;outline-offset:3px;border-radius:12px}
