@@ -8,12 +8,16 @@ export const metadata: Metadata = {
   // 기존 title 등 다른 값은 그대로 유지.
   manifest: '/manifest.json',
   icons: {
+    // 2026-10-14: 수달 아이콘으로 바꾸면서 파일 이름에 -v2를 붙였다. 이름이 같으면 폰·브라우저가 예전(사막여우) 아이콘을
+    // 캐시에서 계속 보여줘서, 이름을 바꿔 새로 받아가게 한다. 다음에 아이콘을 또 바꾸면 -v3로.
     icon: [
-      { url: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
-      { url: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icons/favicon-32-v2.png', sizes: '32x32', type: 'image/png' },
+      { url: '/icons/icon-192-v2.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/icon-512-v2.png', sizes: '512x512', type: 'image/png' },
     ],
     apple: [
-      { url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+      { url: '/icons/apple-touch-icon-v2.png', sizes: '180x180', type: 'image/png' },
     ],
   },
   appleWebApp: {

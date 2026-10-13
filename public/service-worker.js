@@ -26,8 +26,8 @@ self.addEventListener("push", (event) => {
   const title = data.title || "참견이";
   const options = {
     body: data.body || "",
-    icon: "/icons/icon-192.png",
-    badge: "/icons/icon-192.png",
+    icon: "/icons/icon-192-v2.png",
+    badge: "/icons/icon-192-v2.png",
     tag: data.tag || undefined,
     renotify: !!data.tag,
     data: { url: data.url || "/" },
