@@ -20,6 +20,7 @@ import FirstTalkScreen from "./screens/FirstTalkScreen";
 import DiscoveryScreen from "./screens/DiscoveryScreen";
 import LettersScreen from "./screens/LettersScreen";
 import ArchiveScreen from "./screens/ArchiveScreen";
+import WorriesScreen from "./screens/WorriesScreen";
 import type { WorldTab } from "@/components/WorldNav";
 import TankRecordingScreen from "./screens/TankRecordingScreen";
 import { BRAND, pageBackground } from "@/lib/theme";
@@ -70,6 +71,7 @@ type Step =
   | "archive"
   | "insights"
   | "letters"
+  | "worries"
   | "uploading"
   | "no_action"
   | "awaiting_confirmation"
@@ -82,7 +84,7 @@ export default function Home() {
   const [step, setStep] = useState<Step>("landing");
   // MY는 화면을 바꾸지 않고 어항 위로 올라오는 시트로 연다(숨비의 바텀시트처럼 — 어항에서 안 떠난 느낌).
   const [myOpen, setMyOpen] = useState(false);
-  // 하단 탭(어항 / 지난 어항 / 편지) 이동 — 화면 데이터는 캐시에서 바로 그려지니 막(바다 화면) 없이 바로 바꾼다.
+  // 하단 탭(어항 / 걱정 병 / 편지) 이동 — 화면 데이터는 캐시에서 바로 그려지니 막(바다 화면) 없이 바로 바꾼다.
     // 홈 바다의 지난달 층에서 "그때 한 말"을 눌렀을 때 지난 어항 화면이 먼저 열 달. 탭으로 가면 비운다(최근 달).
   const [archiveMonth, setArchiveMonth] = useState<string | undefined>(undefined);
   const goTab = (tab: WorldTab) => {
@@ -234,7 +236,7 @@ export default function Home() {
     firstStepRun.current = false;
     if (step === "landing" && !isFirst) fetchEntries();
     // 홈에서 녹음하던 마이크는 다른 탭으로 나가면 놓아준다(녹음 표시등이 계속 켜져 있지 않게).
-    if (step === "calendar" || step === "archive" || step === "mypage" || step === "insights" || step === "letters") releaseMicStream();
+    if (step === "calendar" || step === "archive" || step === "mypage" || step === "insights" || step === "letters" || step === "worries") releaseMicStream();
   }, [step]);
 
   // 홈 말풍선을 닫거나 안내만 띄울 때는 대화가 이어지지 않으니 마이크를 놓아준다.
@@ -583,6 +585,10 @@ export default function Home() {
             }}
           />
         </div>
+      )}
+
+      {step === "worries" && (
+        <WorriesScreen onNavigate={goTab} unreadLetterCount={unreadLetterCount} />
       )}
 
       {step === "archive" && (

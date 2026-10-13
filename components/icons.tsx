@@ -143,3 +143,14 @@ export function IconMic(props: IconProps) {
     </svg>
   );
 }
+
+// 걱정 병 — 코르크 마개 + 쪽지가 든 병 (하단 탭)
+export function IconBottle(props: IconProps) {
+  return (
+    <svg viewBox="0 0 48 48" fill="none" {...props}>
+      <rect x="18" y="5" width="12" height="7" rx="2" stroke="currentColor" strokeWidth="3" />
+      <path d="M19 12 h10 v5 q8 4 8 13 v9 q0 5 -5 5 h-16 q-5 0 -5 -5 v-9 q0 -9 8 -13 z" stroke="currentColor" strokeWidth="3.2" strokeLinejoin="round" />
+      <path d="M19 27 h10 M19 32 h7" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
+    </svg>
+  );
+}

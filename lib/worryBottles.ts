@@ -28,6 +28,14 @@ export interface WorryBottle {
   dueAt: string;
 }
 
+export interface OpenedBottle {
+  id: number;
+  worry: string;
+  result: WorryResult;
+  createdAt: string;
+  answeredAt: string | null;
+}
+
 export interface WorryStats {
   done: number;
   hit: number;
@@ -144,8 +152,10 @@ export function statsFrom(results: WorryResult[]): WorryStats {
   };
 }
 
-export async function loadWorries(userId: string): Promise<{ bottles: WorryBottle[]; stats: WorryStats } | null> {
-  const [open, answered] = await Promise.all([
+export async function loadWorries(
+  userId: string
+): Promise<{ bottles: WorryBottle[]; stats: WorryStats; opened: OpenedBottle[] } | null> {
+  const [open, answered, recent] = await Promise.all([
     supabase
       .from('worry_bottles')
       .select('id, worry, created_at, due_at')
@@ -154,14 +164,29 @@ export async function loadWorries(userId: string): Promise<{ bottles: WorryBottl
       .order('due_at', { ascending: true })
       .limit(MAX_OPEN),
     supabase.from('worry_bottles').select('result').eq('user_id', userId).not('result', 'is', null).limit(2000),
+    // 걱정 병 탭의 "해변" — 열어본 병 최근 것부터
+    supabase
+      .from('worry_bottles')
+      .select('id, worry, result, created_at, answered_at')
+      .eq('user_id', userId)
+      .not('result', 'is', null)
+      .order('answered_at', { ascending: false, nullsFirst: false })
+      .limit(30),
   ]);
-  if (open.error || answered.error) {
-    if (tableMissing(open.error) || tableMissing(answered.error)) return null;
-    throw new Error((open.error ?? answered.error)!.message);
+  if (open.error || answered.error || recent.error) {
+    if (tableMissing(open.error) || tableMissing(answered.error) || tableMissing(recent.error)) return null;
+    throw new Error((open.error ?? answered.error ?? recent.error)!.message);
   }
   return {
     bottles: (open.data ?? []).map((r: any) => ({ id: r.id, worry: r.worry, createdAt: r.created_at, dueAt: r.due_at })),
     stats: statsFrom((answered.data ?? []).map((r: any) => r.result as WorryResult)),
+    opened: (recent.data ?? []).map((r: any) => ({
+      id: r.id,
+      worry: r.worry,
+      result: r.result as WorryResult,
+      createdAt: r.created_at,
+      answeredAt: r.answered_at,
+    })),
   };
 }
 
@@ -180,4 +205,26 @@ export async function answerWorry(userId: string, id: number, answer: WorryResul
     .select('id');
   if (error) throw new Error(error.message);
   return (data ?? []).length > 0;
+}
+
+// 걱정 병 탭에서 직접 던지기 — 사용자가 적은 걱정을 그대로 담는다(AI 호출 없음).
+// days: 1(내일) / 5(이번 주) / 30(한 달 뒤). 떠 있는 병이 너무 많으면 false.
+export async function createWorryBottle(userId: string, worry: string, days: number): Promise<'ok' | 'full'> {
+  const text = worry.trim().replace(/\s+/g, ' ').slice(0, 60);
+  if (text.length < 2) throw new Error('걱정이 너무 짧아');
+  const { count, error: countErr } = await supabase
+    .from('worry_bottles')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .is('result', null);
+  if (countErr) throw new Error(countErr.message);
+  if ((count ?? 0) >= MAX_OPEN * 2) return 'full';
+  const { error } = await supabase.from('worry_bottles').insert({
+    user_id: userId,
+    entry_id: null,
+    worry: text,
+    due_at: dueFromDays(days).toISOString(),
+  });
+  if (error) throw new Error(error.message);
+  return 'ok';
 }
