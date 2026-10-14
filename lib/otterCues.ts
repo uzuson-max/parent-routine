@@ -84,14 +84,14 @@ export function decideCue(ev: OtterEvent, mem: OtterMemory, now: Date = new Date
     case 'home_first_visit': {
       if (mem.homeIntro) return { cue: null, next: mem };
       return {
-        cue: { expression: 'tilt', line: '말로 하기 애매한 건 위에 적어둬도 돼.', ms: 5200, motion: 'peek' },
+        cue: { expression: 'tilt', line: '말로 하기 애매한 건 위에 적어둬도 돼', ms: 5200, motion: 'peek' },
         next: { ...mem, homeIntro: true },
       };
     }
     case 'note_saved': {
       if (!mem.firstNote) {
         return {
-          cue: { expression: 'laugh', line: '띄워놨어. 여기 계속 떠 있어.', ms: 3200, motion: 'hop' },
+          cue: { expression: 'laugh', line: '띄워놨어\n여기 계속 떠 있어', ms: 3200, motion: 'hop' },
           next: { ...mem, firstNote: true },
         };
       }
@@ -104,14 +104,14 @@ export function decideCue(ev: OtterEvent, mem: OtterMemory, now: Date = new Date
       if (gapDays < REOPEN_GAP_DAYS) return { cue: null, next: mem };
       const what = ev.previousOpenedAt ? '마지막으로 본 게' : '이거 띄운 게';
       return {
-        cue: { expression: 'surprise', line: `어, ${what} ${agoWords(last, now)}네.`, ms: 3600, motion: 'look' },
+        cue: { expression: 'surprise', line: `어, ${what} ${agoWords(last, now)}네`, ms: 3600, motion: 'look' },
         next: mem,
       };
     }
     case 'reminder_set': {
       const when = kstLabel(ev.remindAt, now);
       if (!mem.firstReminder) {
-        const how = ev.channel === 'sms' ? ' 문자로 갈게.' : ev.channel === 'push' ? ' 알림으로 갈게.' : '';
+        const how = ev.channel === 'sms' ? ' 문자로 갈게' : ev.channel === 'push' ? ' 알림으로 갈게' : '';
         return {
           cue: { expression: 'remember', line: `${when}에 찾아갈게.${how}`, ms: 4200, motion: 'hop' },
           next: { ...mem, firstReminder: true },
@@ -123,7 +123,7 @@ export function decideCue(ev: OtterEvent, mem: OtterMemory, now: Date = new Date
       const seen = mem.failedSeen ?? [];
       if (seen.includes(ev.id)) return { cue: null, next: mem };
       return {
-        cue: { expression: 'surprise', line: `“${ev.title}” 알람, 그때 못 알려줬어.`, ms: 4800, motion: 'look' },
+        cue: { expression: 'surprise', line: `“${ev.title}” 알람, 그때 못 알려줬어`, ms: 4800, motion: 'look' },
         next: { ...mem, failedSeen: [...seen, ev.id] },
       };
     }
@@ -132,7 +132,7 @@ export function decideCue(ev: OtterEvent, mem: OtterMemory, now: Date = new Date
       if (mem.lastGreetAt && now.getTime() - mem.lastGreetAt < GREET_GAP_MS) return { cue: null, next: mem };
       const soon = ev.nextReminder && new Date(ev.nextReminder.at).getTime() - now.getTime() < 3 * 60 * 60 * 1000;
       const line = soon && ev.nextReminder
-        ? `${kstLabel(ev.nextReminder.at, now)}에 “${ev.nextReminder.title}” 알려줄 거 있어.`
+        ? `${kstLabel(ev.nextReminder.at, now)}에 “${ev.nextReminder.title}” 알려줄 거 있어`
         : ev.night
         ? '…음? 이 시간에 왔어?'
         : '어, 왔어?';
@@ -157,18 +157,18 @@ export interface DeepFacts {
  */
 export function deepTapLines(f: DeepFacts, now: Date = new Date()): string[] {
   const lines: string[] = [];
-  if (f.nextReminder) lines.push(`${kstLabel(f.nextReminder.at, now)}에 “${f.nextReminder.title}” 알려줄게.`);
-  if (f.fishCount > 0) lines.push('위에 헤엄치는 애들, 전부 니가 한 생각이야.');
-  else lines.push('위에 아직 물고기가 없네. 뭐라도 말해도 돼.');
-  if (f.noteCount !== null && f.noteCount > 0) lines.push('적어둔 쪽지들은 위에 떠 있어.');
-  lines.push(f.stage >= 2 ? '이 조약돌? 니가 다시 꺼낸 얘기들이야.' : '같은 얘기를 다른 날 또 하면, 그게 조약돌이 돼.');
+  if (f.nextReminder) lines.push(`${kstLabel(f.nextReminder.at, now)}에 “${f.nextReminder.title}” 알려줄게`);
+  if (f.fishCount > 0) lines.push('위에 헤엄치는 애들, 전부 니가 한 생각이야');
+  else lines.push('위에 아직 물고기가 없네\n뭐라도 말해도 돼');
+  if (f.noteCount !== null && f.noteCount > 0) lines.push('적어둔 쪽지들은 위에 떠 있어');
+  lines.push(f.stage >= 2 ? '이 조약돌? 니가 다시 꺼낸 얘기들이야' : '같은 얘기를 다른 날 또 하면, 그게 조약돌이 돼');
   return lines;
 }
 
 export function deepTapCue(f: DeepFacts, tapIndex: number, now: Date = new Date()): OtterCue {
   const lines = deepTapLines(f, now);
   if (tapIndex < lines.length) return { expression: 'tilt', line: lines[tapIndex], ms: 3400 };
-  return { expression: 'laugh', line: tapIndex === lines.length ? '간지러워.' : null, ms: 1600 };
+  return { expression: 'laugh', line: tapIndex === lines.length ? '간지러워' : null, ms: 1600 };
 }
 
 // ============================================================================
@@ -257,7 +257,7 @@ export function pickVisit(s: VisitState, mem: OtterMemory, now: Date = new Date(
         visit: {
           kind: 'old_fish',
           key,
-          line: `이 생각, ${agoWords(s.oldFish.lastAt, now)}에 마지막으로 꺼낸 거야.`,
+          line: `이 생각, ${agoWords(s.oldFish.lastAt, now)}에 마지막으로 꺼낸 거야`,
           expression: 'tilt',
           holding: 'none',
           targetFishId: s.oldFish.id,

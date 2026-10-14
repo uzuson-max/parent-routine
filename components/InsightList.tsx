@@ -62,7 +62,7 @@ export default function InsightList() {
       const {
         data: { session },
       } = await supabaseClient.auth.getSession();
-      if (!session) throw new Error("로그인 세션이 없어.");
+      if (!session) throw new Error("로그인 세션이 없어");
       const res = await fetch("/api/insight-card", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
@@ -70,7 +70,7 @@ export default function InsightList() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "카드를 만들지 못했어.");
+        throw new Error(body.error || "카드를 만들지 못했어");
       }
       const blob = await res.blob();
       const fileName = `참견이_${insight.id}.png`;
@@ -91,15 +91,15 @@ export default function InsightList() {
     } catch (e: any) {
       if (e?.name === "AbortError") return; // 공유 시트를 그냥 닫은 것
       console.error("[InsightList] 공유 실패:", e);
-      setError(e.message || "카드를 만들지 못했어.");
+      setError(e.message || "카드를 만들지 못했어");
     } finally {
       setBusyId(null);
     }
   };
 
-  if (insights === null) return <p style={st.muted}>잠깐만.</p>;
+  if (insights === null) return <p style={st.muted}>잠깐만</p>;
   if (insights.length === 0) {
-    return <p style={st.muted}>말이 좀 더 쌓이면, 반복되거나 이어지는 걸 알아채서 여기 남겨둘게.</p>;
+    return <p style={st.muted}>말이 좀 더 쌓이면, 반복되거나 이어지는 걸 알아채서 여기 남겨둘게</p>;
   }
 
   return (

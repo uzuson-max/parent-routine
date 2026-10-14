@@ -51,7 +51,7 @@ async function writeStored(userId: string, s: StoredGrowth): Promise<boolean> {
 export async function GET(request: Request) {
   try {
     const userId = await getUserIdFromRequest(request);
-    if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+    if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
 
     const [{ lineages }, storedRes] = await Promise.all([loadLineages(userId), readStored(userId)]);
     const metrics = computeMetrics(lineages);
@@ -66,17 +66,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: true, data: { stage: r.stage, seen: r.seen, persisted, metrics } });
   } catch (e: any) {
     console.error('[growth] GET 실패:', e?.message);
-    return NextResponse.json({ success: false, error: '성장 상태를 못 읽었어.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '성장 상태를 못 읽었어' }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   try {
     const userId = await getUserIdFromRequest(request);
-    if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+    if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
     const body = await request.json().catch(() => ({}));
     const want = Number(body?.seen);
-    if (!Number.isFinite(want)) return NextResponse.json({ success: false, error: 'seen 값이 필요해.' }, { status: 400 });
+    if (!Number.isFinite(want)) return NextResponse.json({ success: false, error: 'seen 값이 필요해' }, { status: 400 });
 
     const { stored, persisted } = await readStored(userId);
     if (!persisted || stored.stage === null) {
@@ -86,11 +86,11 @@ export async function POST(request: Request) {
     if (next.seen !== stored.seen) {
       const ok = await writeStored(userId, next);
       // 저장 실패를 "봤음"으로 돌려주지 않는다 — 다음에 열면 단서가 다시 뜨는 게 맞다.
-      if (!ok) return NextResponse.json({ success: false, error: '기록 못 했어.' }, { status: 500 });
+      if (!ok) return NextResponse.json({ success: false, error: '기록 못 했어' }, { status: 500 });
     }
     return NextResponse.json({ success: true, data: { stage: next.stage, seen: next.seen, persisted: true } });
   } catch (e: any) {
     console.error('[growth] POST 실패:', e?.message);
-    return NextResponse.json({ success: false, error: '기록 못 했어.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '기록 못 했어' }, { status: 500 });
   }
 }

@@ -97,7 +97,7 @@ export async function listForUser(userId: string): Promise<Reminder[]> {
 async function assertOwned(table: 'voice_entries' | 'sea_notes', id: string | number, userId: string) {
   const { data, error } = await supabase.from(table).select('id').eq('id', id).eq('user_id', userId).maybeSingle();
   if (error) throw error;
-  if (!data) throw new ReminderError(404, '연결할 기록을 못 찾았어.');
+  if (!data) throw new ReminderError(404, '연결할 기록을 못 찾았어');
 }
 
 export async function createForUser(
@@ -113,7 +113,7 @@ export async function createForUser(
     .eq('user_id', userId)
     .eq('status', 'scheduled');
   if (cErr) throw cErr;
-  if ((count ?? 0) >= MAX_ACTIVE_PER_USER) throw new ReminderError(409, `알람은 ${MAX_ACTIVE_PER_USER}개까지만 걸어둘 수 있어.`);
+  if ((count ?? 0) >= MAX_ACTIVE_PER_USER) throw new ReminderError(409, `알람은 ${MAX_ACTIVE_PER_USER}개까지만 걸어둘 수 있어`);
 
   const { data, error } = await supabase
     .from('reminders')
@@ -184,8 +184,8 @@ export async function cancelForUser(userId: string, id: number): Promise<void> {
 
 async function explainUnchangeable(userId: string, id: number): Promise<ReminderError> {
   const { data } = await supabase.from('reminders').select('status').eq('id', id).eq('user_id', userId).maybeSingle();
-  if (!data) return new ReminderError(404, '그 알람이 없어.');
-  if (data.status === 'sending') return new ReminderError(409, '지금 막 알려주는 중이야.', 'sending');
-  if (data.status === 'sent') return new ReminderError(409, '이미 알려준 알람이야.', 'sent');
-  return new ReminderError(409, '이미 취소된 알람이야.', 'canceled');
+  if (!data) return new ReminderError(404, '그 알람이 없어');
+  if (data.status === 'sending') return new ReminderError(409, '지금 막 알려주는 중이야', 'sending');
+  if (data.status === 'sent') return new ReminderError(409, '이미 알려준 알람이야', 'sent');
+  return new ReminderError(409, '이미 취소된 알람이야', 'canceled');
 }

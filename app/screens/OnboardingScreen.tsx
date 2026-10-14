@@ -20,17 +20,17 @@ const SLIDES: { art: "talk" | "tank" | "peek"; title: string; sub: string }[] = 
   {
     art: "talk",
     title: "생각나면 그냥 말하면 돼",
-    sub: "정리 안 해도 괜찮아. 10초든 1분이든.",
+    sub: "정리 안 해도 괜찮아. 10초든 1분이든",
   },
   {
     art: "tank",
     title: "생각은 어항 속 물고기가 돼",
-    sub: "자주 하는 생각은 커지고, 잊은 생각은 수초 뒤에 숨어.",
+    sub: "자주 하는 생각은 커지고, 잊은 생각은 수초 뒤에 숨어",
   },
   {
     art: "peek",
     title: "가끔 참견이가 고개를 내밀어",
-    sub: "니가 했던 말을 기억했다가 딱 그때 꺼내. 앱에서, 가끔은 문자로.",
+    sub: "니가 했던 말을 기억했다가 딱 그때 꺼내\n앱에서, 가끔은 문자로",
   },
 ];
 
@@ -145,7 +145,7 @@ function PeekArt() {
         </div>
         <div style={s.sand} />
       </div>
-      <div style={s.peekSay}>어? 고사리 얘기 오랜만이네.</div>
+      <div style={s.peekSay}>어? 고사리 얘기 오랜만이네</div>
       <div style={{ position: "absolute", right: -26, top: 36, transform: "rotate(-10deg)" }}>
         <PeekMascot expression="surprise" size={96} />
       </div>

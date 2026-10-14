@@ -22,6 +22,7 @@ import PeekMascot from "@/components/PeekMascot";
 import { IconShare } from "@/components/icons";
 import { BottomNav, WorldTitle, worldPage, stickerCard, INK, YELLOW, WORLD_CSS, type WorldTab } from "@/components/WorldNav";
 import type { LetterSummary, LetterDetail } from "@/lib/letters";
+import { casual } from "@/lib/casualText";
 
 interface LettersScreenProps {
   // 하단 탭 이동 (어항 / 지난 어항 / 편지)
@@ -119,7 +120,7 @@ export default function LettersScreen({ onNavigate, onUnreadCountChange, onReply
           kind: "letter",
           id: l.id,
           title: l.title,
-          text: l.preview,
+          text: casual(l.preview),
           createdAt: l.createdAt,
           unread: l.isUnread,
         })),
@@ -128,7 +129,7 @@ export default function LettersScreen({ onNavigate, onUnreadCountChange, onReply
           kind: "insight",
           id: i.id,
           title: "참견이가 알아챈 거",
-          text: i.content,
+          text: casual(i.content),
           createdAt: i.createdAt,
           unread: new Date(i.createdAt).getTime() > seenBefore.current,
         })),
@@ -149,12 +150,12 @@ export default function LettersScreen({ onNavigate, onUnreadCountChange, onReply
       <WorldTitle>편지</WorldTitle>
 
       {loading ? (
-        <p style={styles.loadingText}>잠깐만.</p>
+        <p style={styles.loadingText}>잠깐만</p>
       ) : feed.length === 0 ? (
         <div style={{ ...stickerCard, ...styles.emptyWrap }}>
           <PeekMascot expression={loadFailed ? "tilt" : "base"} size={60} />
-          <p style={styles.emptyTitle}>{loadFailed ? "편지함이 잘 안 열리네." : "아직 넣어둔 편지 없어."}</p>
-          <p style={styles.emptySub}>{loadFailed ? "조금 있다 다시 열어볼래?" : "뭐 생각나면 여기다 슬쩍 넣어둘게."}</p>
+          <p style={styles.emptyTitle}>{loadFailed ? "편지함이 잘 안 열리네" : "아직 넣어둔 편지 없어"}</p>
+          <p style={styles.emptySub}>{loadFailed ? "조금 있다 다시 열어볼래?" : "뭐 생각나면 여기다 슬쩍 넣어둘게"}</p>
         </div>
       ) : (
         <div style={styles.feed}>
@@ -233,11 +234,11 @@ function LetterDetailView({
     <DetailShell onBack={onBack}>
       {failed ? (
         <div style={styles.emptyWrap}>
-          <p style={styles.emptyTitle}>이 편지가 안 열리네.</p>
+          <p style={styles.emptyTitle}>이 편지가 안 열리네</p>
           <p style={styles.emptySub}>목록으로 돌아가서 다시 눌러볼래?</p>
         </div>
       ) : !letter ? (
-        <p style={styles.loadingText}>잠깐만.</p>
+        <p style={styles.loadingText}>잠깐만</p>
       ) : (
         <DetailBody eyebrow={letter.title} date={letter.createdAt} text={letter.content} onReply={() => onReply(letter.content)} />
       )}
@@ -258,7 +259,7 @@ function InsightDetailView({ item, onBack, onReply }: { item: FeedItem; onBack: 
       const {
         data: { session },
       } = await supabaseClient.auth.getSession();
-      if (!session) throw new Error("로그인 세션이 없어.");
+      if (!session) throw new Error("로그인 세션이 없어");
       const res = await fetch("/api/insight-card", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
@@ -266,7 +267,7 @@ function InsightDetailView({ item, onBack, onReply }: { item: FeedItem; onBack: 
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "카드를 만들지 못했어.");
+        throw new Error(body.error || "카드를 만들지 못했어");
       }
       const blob = await res.blob();
       const fileName = `참견이_${item.id}.png`;
@@ -286,7 +287,7 @@ function InsightDetailView({ item, onBack, onReply }: { item: FeedItem; onBack: 
     } catch (e: any) {
       if (e?.name === "AbortError") return; // 공유 시트를 그냥 닫은 것
       console.error("[LettersScreen] 공유 실패:", e);
-      setError(e.message || "카드를 만들지 못했어.");
+      setError(e.message || "카드를 만들지 못했어");
     } finally {
       setBusy(false);
     }
@@ -343,7 +344,7 @@ function DetailBody({
         <span style={styles.letterDate}>{formatDetailDate(date)}</span>
       </div>
       <div style={{ ...stickerCard, ...styles.letterPaper }}>
-        <p style={styles.letterContent}>{text}</p>
+        <p style={styles.letterContent}>{casual(text)}</p>
       </div>
       <div style={styles.actions}>
         <button className="wn-sticker" style={styles.replyBtn} onClick={onReply}>

@@ -12,6 +12,7 @@ import SeaOtter from "@/components/SeaOtter";
 import { OtterFace } from "@/components/Otter";
 import SeaSky from "@/components/SeaSky";
 import { WorryCloseUp } from "@/components/OtterCloseUp";
+import { MIN_FOR_RATE, WORRY_REACT, worryAsk, worryVerdict, worryWhen, type WorryAnswer } from "@/lib/worryCopy";
 import { loadOtterMemory, pickVisit, saveOtterMemory, type Visit } from "@/lib/otterCues";
 
 // ============================================================================
@@ -108,8 +109,8 @@ function isThisMonth(iso: string, now: Date): boolean {
 // 대답을 기다리는 동안 참견이 혼잣말 — 명령형/공손체 없이, 초딩 같은 혼잣말만.
 // 실제 처리 단계와 맞춘다 — 받아쓰기 중엔 "듣는 중", 내 말이 도착한 뒤엔 곱씹는 말 몇 마디를 한 번씩만(반복 X, 마지막 말에서 멈춤).
 // 기억을 찾았다거나 거의 끝났다는 식으로 실제와 다를 수 있는 말은 넣지 않는다.
-const MURMUR_LISTENING = "듣는 중.";
-const MURMURS_CHEWING = ["음…", "니 말 곱씹는 중.", "흠…"];
+const MURMUR_LISTENING = "듣는 중";
+const MURMURS_CHEWING = ["음…", "니 말 곱씹는 중", "흠…"];
 
 const FRY_OFFSETS: [number, number][] = [
   [2, 14],
@@ -133,6 +134,7 @@ type Sheet = { kind: "now"; id: string } | { kind: "worry"; id: number } | null;
 
 interface WorryBottle {
   id: number;
+  no?: number;
   worry: string;
   createdAt: string;
   dueAt: string;
@@ -149,41 +151,10 @@ interface WorryData {
   stats: WorryStats | null;
   ready: boolean;
 }
-type WorryAnswer = "hit" | "half" | "miss";
 
 const SKY_PX = 150; // 수면 위로 보이는 바다 위(하늘·섬·조각배) 높이 — 상단 안전영역 아래부터. components/SeaSky.tsx
 const MAX_BOTTLES_SHOWN = 4;
-const MIN_FOR_RATE = 5; // lib/worryBottles.ts와 같은 값
 const WORRY_PEEK_KEY = "ganseobi_worry_peeked_v1";
-
-// 수달이 다가와서 하는 첫 마디 — 걱정 말투에 맞춰. 명령형 없이, 니가 한 말을 들이민다.
-function worryAsk(text: string): string {
-  if (/망할|망치|망하/.test(text)) return "야. 니가 이때 망할 것 같다며.";
-  if (/놓칠|늦을|늦/.test(text)) return "야. 니가 이때 늦을 것 같다며.";
-  if (/안\s*올|없을|반토막|모자랄|부족/.test(text)) return "야. 니가 이때 안 될 것 같다며.";
-  if (/떨어질|틀릴|실패|안\s*될|안될|못\s*할/.test(text)) return "야. 니가 이때 안 될 거라며.";
-  return "야. 니가 이때 이거 걱정했잖아.";
-}
-const WORRY_REACT: Record<WorryAnswer, string[]> = {
-  hit: ["헐 진짜 맞았네. 이번 건 촉이 좋았다.", "맞았어? 니 촉 좀 무섭다."],
-  half: ["반만 맞은 걸로 쳐줄게.", "애매하네. 반쯤으로 적어둘게."],
-  miss: ["거봐. 또 빗나감.", "그렇게 걱정하더니 멀쩡했네?"],
-};
-// 쪽지 위 "언제" — 날짜 대신 흐릿하게, 가까운 건 조금 더 또렷하게
-function worryWhen(iso: string): string {
-  const days = (Date.now() - new Date(iso).getTime()) / 86_400_000;
-  if (days < 1) return "오늘";
-  if (days < 2) return "어제";
-  if (days < 7) return "며칠 전";
-  if (days < 30) return "몇 주 전";
-  return "한 달 전쯤";
-}
-function worryVerdict(rate: number): string {
-  if (rate < 30) return "니 걱정, 거의 다 헛걱정이었어.";
-  if (rate < 45) return "생각보다 많이 빗나가는데?";
-  if (rate < 65) return "반반이네. 동전 던지기랑 비슷해.";
-  return "어… 니 걱정 꽤 잘 맞는다.";
-}
 
 export default function Sea({
   entries,
@@ -400,7 +371,7 @@ export default function Sea({
     }
     setEmerging(back.id);
     const t = setTimeout(
-      () => showPeek(back.label ? `어? ${back.label} 얘기 오랜만이네.` : "어? 그 얘기 오랜만이네.", "surprise", 6000),
+      () => showPeek(back.label ? `어? ${back.label} 얘기 오랜만이네` : "어? 그 얘기 오랜만이네", "surprise", 6000),
       1500
     );
     return () => clearTimeout(t);
@@ -672,7 +643,7 @@ export default function Sea({
       if (answer === "later") {
         setWorries(data);
         setSheet(null);
-        setThought({ text: "알았어. 며칠 뒤에 다시 물어볼게.", key: Date.now() });
+        setThought({ text: "알았어\n며칠 뒤에 다시 물어볼게", key: Date.now() });
         if (thoughtTimer.current) clearTimeout(thoughtTimer.current);
         thoughtTimer.current = setTimeout(() => setThought(null), 3200);
         return;
@@ -682,7 +653,7 @@ export default function Sea({
       // 카드를 닫을 때 병이 사라지게 — 지금 바로 빼면 열려 있는 카드의 걱정 문장이 없어진다
       pendingWorries.current = data;
     } catch (e: any) {
-      setWorryErr(e?.message && !/세션|fetch/i.test(e.message) ? e.message : "지금은 저장이 안 됐어. 조금 있다 다시 해볼래?");
+      setWorryErr(e?.message && !/세션|fetch/i.test(e.message) ? e.message : "지금은 저장이 안 됐어\n조금 있다 다시 해볼래?");
     } finally {
       setWorryBusy(false);
     }
@@ -788,7 +759,7 @@ export default function Sea({
               <button
                 className={`sea-bottle ${due ? "sea-bottle-due" : ""}`}
                 style={{ animationDuration: `${2.6 + r(2) * 1.4}s`, animationDelay: `${-r(3) * 2}s` }}
-                aria-label={due ? `열어볼 때 된 걱정 병: ${b.worry}` : "아직 떠 있는 걱정 병"}
+                aria-label={due ? `열어볼 때 된 걱정: ${b.worry}` : "아직 떠 있는 걱정이"}
                 onClick={() => {
                   plop();
                   if (due) {
@@ -797,7 +768,7 @@ export default function Sea({
                     return;
                   }
                   const left = (new Date(b.dueAt).getTime() - Date.now()) / 86_400_000;
-                  setThought({ text: left <= 1.2 ? "아직 안 열려. 내일쯤 물어볼게." : "아직 안 열려. 며칠 뒤에 물어볼게.", key: Date.now() });
+                  setThought({ text: left <= 1.2 ? "아직 안 열려\n내일쯤 물어볼게" : "아직 안 열려\n며칠 뒤에 물어볼게", key: Date.now() });
                   if (thoughtTimer.current) clearTimeout(thoughtTimer.current);
                   thoughtTimer.current = setTimeout(() => setThought(null), 3200);
                 }}
@@ -1138,6 +1109,7 @@ export default function Sea({
         <WorryCloseUp
           key={openWorry.id}
           when={worryWhen(openWorry.createdAt)}
+          no={openWorry.no}
           worry={openWorry.worry}
           ask={worryAsk(openWorry.worry)}
           done={worryDone && worryDone.id === openWorry.id ? worryDone : null}
@@ -1418,7 +1390,7 @@ const CSS = `
 @keyframes sea-hint{0%,100%{transform:translateY(0)}50%{transform:translateY(4px)}}
 .sea-zz{position:absolute;z-index:9;font-family:'Jua',sans-serif;color:#FFFFFF;-webkit-text-stroke:1.5px #1B1630;pointer-events:none;animation:sea-zz 3.6s ease-in-out infinite}
 @keyframes sea-zz{0%{transform:translate(0,10px) scale(.6);opacity:0}25%{opacity:1}100%{transform:translate(14px,-40px) scale(1.2);opacity:0}}
-.sea-thought{position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 190px);z-index:11;width:max-content;max-width:80%;padding:10px 18px;background:#fff;border:3px solid #1B1630;border-radius:24px;box-shadow:3px 3px 0 #1B1630;font-size:17px;line-height:1.3;text-align:center;pointer-events:none;word-break:keep-all;animation:sea-thought 3.2s ease forwards}
+.sea-thought{position:absolute;left:50%;top:calc(env(safe-area-inset-top,0px) + 190px);z-index:11;width:max-content;max-width:80%;padding:10px 18px;background:#fff;border:3px solid #1B1630;border-radius:24px;box-shadow:3px 3px 0 #1B1630;font-size:17px;line-height:1.3;text-align:center;pointer-events:none;word-break:keep-all;white-space:pre-line;animation:sea-thought 3.2s ease forwards}
 @keyframes sea-thought{0%{transform:translate(-50%,24px) scale(.5);opacity:0}12%{transform:translate(-50%,0) scale(1.06);opacity:1}18%{transform:translate(-50%,0) scale(1)}80%{transform:translate(-50%,-6px) scale(1);opacity:1}100%{transform:translate(-50%,-26px) scale(.95);opacity:0}}
 .sea-thinking{position:absolute;left:50%;top:46%;z-index:11;width:96px;height:96px;margin:-48px 0 0 -48px;box-sizing:border-box;border-radius:50%;border:3px solid #1B1630;background:rgba(255,255,255,.72);display:flex;align-items:center;justify-content:center;gap:7px;animation:sea-wobble 1.6s ease-in-out infinite;pointer-events:none}
 .sea-thinking::after{content:"";position:absolute;left:20px;top:14px;width:18px;height:11px;border-radius:50%;background:#fff;transform:rotate(-30deg)}

@@ -30,7 +30,7 @@ export async function GET(request: Request) {
   try {
     const userId = await getUserIdFromRequest(request);
     if (!userId) {
-      return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+      return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
     }
 
     const [{ lineages }, entriesRes, reflRes] = await Promise.all([
@@ -117,6 +117,6 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: true, data });
   } catch (err: any) {
     console.error('[api/user/archive] 서버 에러:', err?.message ?? err);
-    return NextResponse.json({ success: false, error: '지난 어항을 불러오지 못했어.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '지난 어항을 불러오지 못했어' }, { status: 500 });
   }
 }

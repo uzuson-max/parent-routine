@@ -72,7 +72,7 @@ export async function POST(request: Request) {
       };
       try {
         const res = await handleUpload(request, (t) => send({ stage: 'transcript', ...t }));
-        const body = await res.json().catch(() => ({ success: false, error: '응답을 읽지 못했어.' }));
+        const body = await res.json().catch(() => ({ success: false, error: '응답을 읽지 못했어' }));
         send({ stage: 'final', status: res.status, body });
       } catch (e: any) {
         send({ stage: 'final', status: 500, body: { success: false, error: e?.message ?? '서버 에러' } });
@@ -98,7 +98,7 @@ async function handleUpload(request: Request, onTranscript?: (t: TranscriptReady
   try {
     const userId = await getUserIdFromRequest(request);
     if (!userId) {
-      return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+      return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
     }
 
     const formData = await request.formData();
@@ -114,7 +114,7 @@ async function handleUpload(request: Request, onTranscript?: (t: TranscriptReady
     // 사용자가 "이렇게 말한 거 맞아?"에 [맞아]를 눌러 다시 보낸 녹음 — 무음/환각 의심 검사를 건너뛴다.
     const speechConfirmed = formData.get('speech_confirmed') === '1';
     if (!audio && !textInput) {
-      return NextResponse.json({ success: false, error: '오디오 또는 텍스트가 필요합니다.' }, { status: 400 });
+      return NextResponse.json({ success: false, error: '오디오 또는 텍스트가 필요합니다' }, { status: 400 });
     }
 
     // 이 계정에 이미 저장된 닉네임/전화번호 조회 (없어도 정상 진행)

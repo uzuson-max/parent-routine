@@ -24,12 +24,14 @@ import { MIN_FOR_RATE, WORRY_REACT, worryAsk, worryVerdict, worryWhen, type Worr
 
 interface Bottle {
   id: number;
+  no?: number;
   worry: string;
   createdAt: string;
   dueAt: string;
 }
 interface Opened {
   id: number;
+  no?: number;
   worry: string;
   result: WorryAnswer;
   createdAt: string;
@@ -49,7 +51,7 @@ interface WorryData {
   ready: boolean;
 }
 
-const RESULT_LABEL: Record<WorryAnswer, string> = { hit: "맞음", half: "반쯤", miss: "빗나감" };
+const RESULT_LABEL: Record<WorryAnswer, string> = { hit: "맞았음", half: "반쯤", miss: "괜찮았음" };
 const RESULT_COLOR: Record<WorryAnswer, string> = { hit: "#F9C7DC", half: "#FFD26F", miss: "#74D3B4" };
 const DAY_CHOICES: { days: number; label: string }[] = [
   { days: 1, label: "내일" },
@@ -126,14 +128,14 @@ export default function WorriesScreen({
       if (a === "later") {
         applyServer(body.data);
         setOpenId(null);
-        say("알았어. 며칠 뒤에 다시 물어볼게.");
+        say("알았어\n며칠 뒤에 다시 물어볼게");
         return;
       }
       const lines = WORRY_REACT[a];
       setDone({ answer: a, line: lines[Math.floor(Math.random() * lines.length)], stats: body.data?.stats ?? null });
       pending.current = body.data;
     } catch (e: any) {
-      setErr(e?.message && !/세션|fetch/i.test(e.message) ? e.message : "지금은 저장이 안 됐어. 조금 있다 다시 해볼래?");
+      setErr(e?.message && !/세션|fetch/i.test(e.message) ? e.message : "지금은 저장이 안 됐어\n조금 있다 다시 해볼래?");
     } finally {
       setBusy(false);
     }
@@ -156,7 +158,7 @@ export default function WorriesScreen({
   const throwBottle = async () => {
     const t = text.trim();
     if (t.length < 2) {
-      say("걱정 한 줄만 적어줘.");
+      say("걱정 한 줄만 적어줘");
       return;
     }
     setThrowing(true);
@@ -172,9 +174,9 @@ export default function WorriesScreen({
       const fresh = (body.data?.bottles as Bottle[] | undefined)?.find((b) => !before.has(b.id));
       if (fresh) setDropId(fresh.id);
       applyServer(body.data);
-      say(days === 1 ? "내일 물어볼게." : days === 5 ? "이번 주 안에 물어볼게." : "한 달 뒤에 물어볼게.");
+      say(days === 1 ? "내일 물어볼게" : days === 5 ? "이번 주 안에 물어볼게" : "한 달 뒤에 물어볼게");
     } catch (e: any) {
-      say(e?.message && !/세션|fetch/i.test(e.message) ? e.message : "지금은 못 던졌어. 조금 있다 다시 해볼래?");
+      say(e?.message && !/세션|fetch/i.test(e.message) ? e.message : "지금은 못 던졌어\n조금 있다 다시 해볼래?");
     } finally {
       setThrowing(false);
     }
@@ -188,11 +190,11 @@ export default function WorriesScreen({
   const copyCard = async () => {
     const line =
       rate !== null
-        ? `내 걱정 적중률 ${rate}%. ${worryVerdict(rate)}${showMissed && missed ? ` (빗나간 걱정: "${missed.worry}")` : ""} — 참견이`
+        ? `내 걱정 적중률 ${rate}%\n${worryVerdict(rate)}${showMissed && missed ? `\n괜찮았던 걱정: "${missed.worry}"` : ""}\n— 참견이`
         : "참견이한테 내 걱정 적중률 재보는 중";
     try {
       await navigator.clipboard.writeText(line);
-      say("복사했어.");
+      say("복사했어");
     } catch {
       say(line);
     }
@@ -207,12 +209,12 @@ export default function WorriesScreen({
   return (
     <div style={worldPage}>
       <style dangerouslySetInnerHTML={{ __html: WORLD_CSS + CSS }} />
-      <WorldTitle>걱정 병</WorldTitle>
+      <WorldTitle>걱정이</WorldTitle>
 
       {notReady ? (
         <div style={{ ...stickerCard, padding: 20, textAlign: "center" }}>
           <OtterFace expression="tilt" size={72} />
-          <p style={{ margin: "8px 0 0", fontSize: 17 }}>걱정 병이 아직 준비 중이야.</p>
+          <p style={{ margin: "8px 0 0", fontSize: 17 }}>걱정이들 아직 준비 중이야</p>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -254,7 +256,7 @@ export default function WorriesScreen({
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 18, lineHeight: 1.3 }}>
-                    {Math.max(1, MIN_FOR_RATE - (stats?.done ?? 0))}개만 더 열어보면 니 걱정 적중률 나와.
+                    {Math.max(1, MIN_FOR_RATE - (stats?.done ?? 0))}개만 더 열어보면 니 걱정 적중률 나와
                   </div>
                   <div className="wr-count">떠 있는 걱정 {bottles.length}개</div>
                 </div>
@@ -263,10 +265,10 @@ export default function WorriesScreen({
           </section>
 
           {/* 2) 떠 있는 병 */}
-          <section className="wr-sea" aria-label="떠 있는 걱정 병">
-            <div className="wr-sea-label">{dueCount ? `열어볼 때 된 병 ${dueCount}개` : `떠 있는 병 ${bottles.length}개`}</div>
+          <section className="wr-sea" aria-label="떠 있는 걱정이들">
+            <div className="wr-sea-label">{dueCount ? `열어볼 때 된 걱정 ${dueCount}개` : `떠 있는 걱정 ${bottles.length}개`}</div>
             {bottles.length === 0 ? (
-              <div className="wr-sea-empty">{data === null && !failed ? "병 건지는 중…" : "바다가 조용해. 걱정 하나 던져볼래?"}</div>
+              <div className="wr-sea-empty">{data === null && !failed ? "걱정이들 부르는 중…" : "바다가 조용해\n걱정 하나 던져볼래?"}</div>
             ) : (
               <div className="wr-bottles">
                 {bottles.map((b, i) => {
@@ -277,16 +279,17 @@ export default function WorriesScreen({
                       key={b.id}
                       className={`wr-bottle ${due ? "wr-due" : ""} ${dropId === b.id ? "wr-drop" : ""}`}
                       style={{ animationDelay: `${-i * 0.6}s` }}
-                      aria-label={due ? `열어볼 때 된 걱정: ${b.worry}` : "아직 떠 있는 걱정 병"}
+                      aria-label={due ? `열어볼 때 된 걱정${b.no ?? ""}: ${b.worry}` : `아직 떠 있는 걱정${b.no ?? ""}`}
                       onClick={() => {
                         playFx("buttonPress");
                         if (due) {
                           setOpenId(b.id);
                           setDone(null);
                           setErr(null);
-                        } else say(left <= 1.2 ? "아직 안 열려. 내일쯤 물어볼게." : "아직 안 열려. 며칠 뒤에 물어볼게.");
+                        } else say(left <= 1.2 ? "아직 안 열려\n내일쯤 물어볼게" : "아직 안 열려\n며칠 뒤에 물어볼게");
                       }}
                     >
+                      {b.no ? <span className="wr-no">걱정{b.no}</span> : null}
                       {bottleSvg()}
                       <span className="wr-tag">{due ? "열어볼래?" : left <= 1.2 ? "내일" : left <= 7 ? "며칠 뒤" : "한참 뒤"}</span>
                     </button>
@@ -327,20 +330,22 @@ export default function WorriesScreen({
             <button type="submit" className="wr-throw wn-sticker" disabled={throwing}>
               {throwing ? "던지는 중…" : "바다에 던지기"}
             </button>
-            <p style={{ margin: 0, fontSize: 13, opacity: 0.55, lineHeight: 1.45 }}>평소처럼 말해도 참견이가 걱정을 골라서 병에 담아.</p>
+            <p style={{ margin: 0, fontSize: 13, opacity: 0.55, lineHeight: 1.45 }}>평소처럼 말해도 참견이가 걱정 하나 골라서 띄워놔</p>
           </form>
 
           {/* 4) 해변 — 열어본 병 */}
           {opened.length > 0 && (
             <section>
-              <h2 className="wr-h2">해변에 올라온 병</h2>
+              <h2 className="wr-h2">해변에 올라온 걱정이들</h2>
               <ul className="wr-beach">
                 {opened.slice(0, 12).map((o) => (
                   <li key={o.id} style={{ ...stickerCard, boxShadow: `3px 3px 0 ${INK}` }}>
                     <span className="wr-result" style={{ background: RESULT_COLOR[o.result] }}>
                       {RESULT_LABEL[o.result]}
                     </span>
-                    <span className="wr-beach-text">“{o.worry}”</span>
+                    <span className="wr-beach-text">
+                      {o.no ? <b className="wr-beach-no">걱정{o.no}</b> : null}“{o.worry}”
+                    </span>
                     <span className="wr-beach-when">{worryWhen(o.createdAt)}</span>
                   </li>
                 ))}
@@ -354,8 +359,8 @@ export default function WorriesScreen({
             <div className="wr-card" style={{ ...stickerCard, background: "#8977B8" }}>
               <div className="wr-card-k">내 걱정 적중률</div>
               <div className="wr-card-n">{rate !== null ? `${rate}%` : "측정 중"}</div>
-              <div style={{ fontSize: 18 }}>{rate !== null ? worryVerdict(rate) : "아직 걱정 모으는 중이래."}</div>
-              {showMissed && missed && <div className="wr-card-q">빗나간 걱정: “{missed.worry}”</div>}
+              <div style={{ fontSize: 18 }}>{rate !== null ? worryVerdict(rate) : "아직 걱정 모으는 중이래"}</div>
+              {showMissed && missed && <div className="wr-card-q">괜찮았던 걱정: “{missed.worry}”</div>}
               <div className="wr-card-foot">참견이가 세어봄</div>
               <span className="wr-card-otter" aria-hidden>
                 <OtterFace expression={rate !== null && rate < 45 ? "laugh" : "sly"} size={74} />
@@ -364,7 +369,7 @@ export default function WorriesScreen({
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, cursor: "pointer" }}>
                 <input type="checkbox" checked={showMissed} onChange={(e) => setShowMissed(e.target.checked)} style={{ width: 18, height: 18, accentColor: INK }} />
-                빗나간 걱정 하나 보여주기
+                괜찮았던 걱정 하나 보여주기
               </label>
               <button type="button" className="wr-chip" onClick={copyCard}>
                 문구 복사
@@ -384,6 +389,7 @@ export default function WorriesScreen({
         <WorryCloseUp
           key={openBottle.id}
           when={worryWhen(openBottle.createdAt)}
+          no={openBottle.no}
           worry={openBottle.worry}
           ask={worryAsk(openBottle.worry)}
           done={done}
@@ -433,6 +439,8 @@ const CSS = `
 .wr-tag{font-size:12px;background:#FFFDF8;border:2px solid ${INK};border-radius:999px;padding:1px 8px;white-space:nowrap}
 .wr-due{animation:wr-due 1.3s ease-in-out infinite}
 .wr-due .wr-tag{background:#F9C7DC}
+.wr-no{font-size:12px;opacity:.6;white-space:nowrap}
+.wr-beach-no{display:block;font-weight:400;font-size:12px;opacity:.5;margin-bottom:1px}
 .wr-drop{animation:wr-drop .9s cubic-bezier(.3,1.4,.5,1) both}
 .wr-sand{position:absolute;left:0;right:0;bottom:0;height:24px;background:#F6D589;border-top:3px solid ${INK}}
 @keyframes wr-bob{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-6px) rotate(4deg)}}

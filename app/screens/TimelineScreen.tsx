@@ -7,6 +7,7 @@ import { OtterFace } from "@/components/Otter";
 import { BottomNav, MyButton, type WorldTab } from "@/components/WorldNav";
 import { acquireMicStream } from "@/lib/micStream";
 import { playFx } from "@/lib/fx";
+import { casual } from "@/lib/casualText";
 import { seaSoundPref, setSeaSoundPref, startSea, stopSea, recallChime } from "@/lib/seaSound";
 import dynamic from "next/dynamic";
 import type { AlarmPrefill, DeskState, SurfaceTab } from "@/components/SurfaceSheet";
@@ -251,7 +252,7 @@ export default function TimelineScreen({
   const shown: { stamp: string | null; text: string; closable: boolean; recall: Recall | null } | null = bubble
     ? { stamp: bubble.kind === "reply" ? "참견이" : null, text: bubble.text, closable: true, recall: bubble.kind === "reply" ? bubble.recall ?? null : null }
     : hasCallback && proactiveLine
-    ? { stamp: "참견이 등장.", text: proactiveLine.content, closable: true, recall: proactiveLine.recall ?? null }
+    ? { stamp: "참견이 등장", text: proactiveLine.content, closable: true, recall: proactiveLine.recall ?? null }
     : null;
   // 지금 화면에 떠 있는 "기억 소환" — 말풍선 위 기억 캡슐 + 바다에서 그 물고기가 깨어나 떠오른다.
   const recall = shown && !thinking && bubble?.kind !== "confirm" && bubble?.kind !== "retry" ? shown.recall : null;
@@ -396,7 +397,7 @@ export default function TimelineScreen({
         ) : bubble?.kind === "confirm" && !thinking ? (
           <div key={"confirm:" + bubble.text} className="tl-bubble" style={styles.bubble} role="status">
             <span style={styles.bubbleStamp}>참견이</span>
-            <span style={styles.confirmAsk}>잘 못 들었어. 이렇게 말한 거 맞아?</span>
+            <span style={styles.confirmAsk}>잘 못 들었어 이렇게 말한 거 맞아?</span>
             <span style={styles.confirmQuote}>“{bubble.text.length > 60 ? bubble.text.slice(0, 60) + "…" : bubble.text}”</span>
             <div style={styles.confirmRow}>
               <button
@@ -457,7 +458,7 @@ export default function TimelineScreen({
               onClick={dismissShown}
             >
               {shown.stamp && <span style={styles.bubbleStamp}>{shown.stamp}</span>}
-              <span style={styles.bubbleText}>{shown.text}</span>
+              <span style={styles.bubbleText}>{casual(shown.text)}</span>
               {bubble?.kind === "reply" && bubble.alarmOffer && (
                 <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", cursor: "auto" }}>
                 <AlarmOffer
@@ -532,7 +533,7 @@ function AlarmOffer({
   const early = new Date(offer.eventAt).getTime() - new Date(offer.suggestAt).getTime() >= 60_000;
   const line =
     state === "ok"
-      ? msg ?? `${when}에 알려줄게.`
+      ? msg ?? `${when}에 알려줄게`
       : msg ?? `${offer.what}${early ? " 30분 전," : ","} ${when}에 알람 걸어둘까?`;
   return (
     <div style={styles.pushOffer}>
@@ -555,11 +556,11 @@ function AlarmOffer({
               });
               if (!r.ok) {
                 setState("ask");
-                setMsg(r.code === "no_channel" ? "지금은 알려줄 방법이 없어. 앱 알림이나 전화번호 인증이 필요해." : r.error);
+                setMsg(r.code === "no_channel" ? "지금은 알려줄 방법이 없어\n앱 알림이나 전화번호 인증이 필요해" : r.error);
                 return;
               }
               const channel = likelyChannel(r.data.delivery);
-              setMsg(`${kstLabel(r.data.reminder.remindAt)}에 ${channel === "sms" ? "문자로 " : channel === "push" ? "알림으로 " : ""}알려줄게.`);
+              setMsg(`${kstLabel(r.data.reminder.remindAt)}에 ${channel === "sms" ? "문자로 " : channel === "push" ? "알림으로 " : ""}알려줄게`);
               setState("ok");
               onCreated(r.data.reminder, channel);
             }}

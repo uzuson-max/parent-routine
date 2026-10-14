@@ -276,7 +276,7 @@ export default function RecordingScreen({ initialTopic, onFinish, autoStart, onC
             style={styles.textarea}
             value={textValue}
             onChange={(e) => setTextValue(e.target.value)}
-            placeholder="그냥 생각나는 대로 써도 돼."
+            placeholder="그냥 생각나는 대로 써도 돼"
             autoFocus
           />
 
@@ -288,7 +288,7 @@ export default function RecordingScreen({ initialTopic, onFinish, autoStart, onC
           >
             보내기
           </button>
-          <p style={styles.subCopy}>정리 안 해도 됨. 짧아도 됨.</p>
+          <p style={styles.subCopy}>정리 안 해도 됨 짧아도 됨</p>
         </div>
       </div>
     );
@@ -338,7 +338,7 @@ export default function RecordingScreen({ initialTopic, onFinish, autoStart, onC
         {isRecording ? (
           <>
             <p style={styles.mainCopy}>응, 듣고 있어</p>
-            <p style={styles.subCopy}>정리 안 해도 됨. 중간에 생각 바뀌어도 됨</p>
+            <p style={styles.subCopy}>정리 안 해도 됨 중간에 생각 바뀌어도 됨</p>
             <button className={TACTILE_PRESS_CLASS} style={styles.stopButton} onClick={stop}>
               <span style={styles.stopSquare} />
               다 말했어
@@ -367,7 +367,7 @@ export default function RecordingScreen({ initialTopic, onFinish, autoStart, onC
         ) : (
           <>
             <p style={styles.mainCopy}>{isReplyingToGanseobi ? "말해서 대답해줘" : "생각나는 대로 해도 돼"}</p>
-            <p style={styles.subCopy}>{isReplyingToGanseobi ? "짧게 툭 던져도 됨. 참견이는 알아듣거든~" : "횡설수설해도 됨. 참견이는 알아듣거든~"}</p>
+            <p style={styles.subCopy}>{isReplyingToGanseobi ? "짧게 툭 던져도 됨\n참견이는 알아듣거든~" : "횡설수설해도 됨\n참견이는 알아듣거든~"}</p>
           </>
         )}
       </div>

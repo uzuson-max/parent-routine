@@ -16,7 +16,7 @@ function kst(iso: string): string {
 
 export async function GET(request: Request) {
   const userId = await getUserIdFromRequest(request);
-  if (!userId) return new Response(JSON.stringify({ success: false, error: '인증 세션이 없습니다.' }), { status: 401 });
+  if (!userId) return new Response(JSON.stringify({ success: false, error: '인증 세션이 없습니다' }), { status: 401 });
 
   try {
     const [me, entries, letters, insights, notes, reminders] = await Promise.all([
@@ -108,6 +108,6 @@ export async function GET(request: Request) {
     });
   } catch (err: any) {
     console.error('[api/user/export] 실패:', err?.message);
-    return new Response(JSON.stringify({ success: false, error: '기록을 내보내지 못했어.' }), { status: 500 });
+    return new Response(JSON.stringify({ success: false, error: '기록을 내보내지 못했어' }), { status: 500 });
   }
 }

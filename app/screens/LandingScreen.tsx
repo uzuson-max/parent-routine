@@ -40,7 +40,7 @@ export default function LandingScreen({ onStart }: LandingScreenProps) {
         <h1 style={styles.mainQuestion}>오늘 뭐가<br />좀 걸려?</h1>
         <p style={styles.subGuide}>
           그냥 지나가도 되고,<br />
-          나한테 던져놓고 가도 돼.
+          나한테 던져놓고 가도 돼
         </p>
       </div>
 
@@ -67,7 +67,7 @@ export default function LandingScreen({ onStart }: LandingScreenProps) {
         <button className={TACTILE_PRESS_CLASS} style={styles.ctaButton} onClick={() => onStart(selectedChip || "그냥 아무 생각이나")}>
           + 생각 하나 던지기
         </button>
-        <p style={styles.footerNote}>정리할 필요 없음. 욕해도 됨.</p>
+        <p style={styles.footerNote}>정리할 필요 없음 욕해도 됨</p>
       </div>
     </div>
   );

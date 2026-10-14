@@ -16,23 +16,23 @@ export async function GET(request: Request, { params }: { params: { id: string }
   try {
     const userId = await getUserIdFromRequest(request);
     if (!userId) {
-      return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+      return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
     }
 
     const letterId = parseLetterId(params.id);
     if (letterId === null) {
-      return NextResponse.json({ success: false, error: '편지를 찾을 수 없습니다.' }, { status: 404 });
+      return NextResponse.json({ success: false, error: '편지를 찾을 수 없습니다' }, { status: 404 });
     }
 
     const letter = await getLetterForUser(userId, letterId);
     if (!letter) {
-      return NextResponse.json({ success: false, error: '편지를 찾을 수 없습니다.' }, { status: 404 });
+      return NextResponse.json({ success: false, error: '편지를 찾을 수 없습니다' }, { status: 404 });
     }
 
     return NextResponse.json({ success: true, data: letter });
   } catch (err: any) {
     console.error('[api/user/letters/[id]] GET 서버 에러:', err?.message);
-    return NextResponse.json({ success: false, error: '편지를 불러오지 못했습니다.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '편지를 불러오지 못했습니다' }, { status: 500 });
   }
 }
 
@@ -40,22 +40,22 @@ export async function POST(request: Request, { params }: { params: { id: string 
   try {
     const userId = await getUserIdFromRequest(request);
     if (!userId) {
-      return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+      return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
     }
 
     const letterId = parseLetterId(params.id);
     if (letterId === null) {
-      return NextResponse.json({ success: false, error: '편지를 찾을 수 없습니다.' }, { status: 404 });
+      return NextResponse.json({ success: false, error: '편지를 찾을 수 없습니다' }, { status: 404 });
     }
 
     const found = await markLetterRead(userId, letterId);
     if (!found) {
-      return NextResponse.json({ success: false, error: '편지를 찾을 수 없습니다.' }, { status: 404 });
+      return NextResponse.json({ success: false, error: '편지를 찾을 수 없습니다' }, { status: 404 });
     }
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
     console.error('[api/user/letters/[id]] POST 서버 에러:', err?.message);
-    return NextResponse.json({ success: false, error: '읽음 처리에 실패했습니다.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '읽음 처리에 실패했습니다' }, { status: 500 });
   }
 }

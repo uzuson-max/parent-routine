@@ -11,8 +11,8 @@ function normalizePhone(raw: string): string {
 
 export default function PhoneInputScreen({
   onSubmit,
-  titleLines = ["번호를 남겨두면", "참견이가 필요할 때 전화할게."],
-  subhead = "한 번만 물어볼게. 다음부턴 안 물어봐.",
+  titleLines = ["번호를 남겨두면", "참견이가 필요할 때 전화할게"],
+  subhead = "한 번만 물어볼게\n다음부턴 안 물어봐",
   buttonLabel = "됐어",
 }: {
   onSubmit: (phone: string) => void;

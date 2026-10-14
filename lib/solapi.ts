@@ -1,5 +1,6 @@
 
 import { SolapiMessageService } from 'solapi';
+import { casual } from '@/lib/casualText';
 
 // Solapi는 발신/수신 번호를 국내 로컬 형식(01012345678, +82나 -없이)으로 요구한다.
 // 기존 Twilio 쪽(normalizePhoneNumber)은 반대로 +82 국제 형식을 만들어서 서로 호환되지 않는다.
@@ -127,7 +128,8 @@ export function logSms(tag: string, lines: Record<string, string | number | bool
  * 본문에 헤더를 미리 붙여서 넘기지 말 것 — 조립은 여기서만 한다.
  */
 export function composeSms(body: string, header?: string | null): ComposedSms {
-  const cleanBody = body.trim();
+  // 문자도 참견이 말투 — 문장 끝 마침표 없이 (lib/casualText.ts)
+  const cleanBody = casual(body);
   const cleanHeader = header?.trim() || null;
 
   // 방어: GPT가 본문 첫머리에 헤더 문구를 또 써버린 경우 한 번 제거한다.

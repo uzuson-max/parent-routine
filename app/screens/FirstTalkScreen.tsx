@@ -16,7 +16,7 @@ export default function FirstTalkScreen({ onStart }: FirstTalkScreenProps) {
     <div style={styles.container}>
       <div style={styles.contentWrapper}>
         <Mascot pose="말을거는" size={96} />
-        <span style={styles.stamp}>참견이 등장.</span>
+        <span style={styles.stamp}>참견이 등장</span>
         <h1 style={styles.headline}>아무 말이나 해볼래?</h1>
         <p style={styles.subhead}>진짜 아무 말이나 괜찮음!</p>
       </div>

@@ -5,23 +5,24 @@
 // 평소 수달(Otter.tsx OtterBody/OtterSwim)은 작고 화면을 보지 않는다.
 // 사용자가 예전에 한 말을 돌려줄 때만 이 큰 얼굴로 정면을 빤히 본다.
 //   stare — 빤히(한쪽 눈썹만 올린 의심하는 눈). 다가와서 첫 마디 할 때.
-//   smug  — 킹받는 웃음. "거봐. 또 빗나감."
-//   wow   — 놀람. "헐 진짜 맞았네."
-//   hmm   — 갸우뚱. "반만 쳐줄게."
+//   smug  — 활짝 웃음. 걱정이 괜찮게 지나갔을 때 같이 안도
+//   soft  — 차분한 얼굴. 걱정이 맞았을 때 "그랬구나 고생했다"
+//   wow   — 놀람
+//   hmm   — 갸우뚱. 반쯤
 // 색·선 굵기는 Otter.tsx와 같다(같은 수달). 좌표는 300×300, 얼굴 가운데 (150, 150).
 // ============================================================================
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { OTTER, otterFaceG } from "@/components/Otter";
 
-export type CloseUpExpression = "stare" | "smug" | "wow" | "hmm";
+export type CloseUpExpression = "stare" | "smug" | "wow" | "hmm" | "soft";
 
 const INK = OTTER.INK;
 const ln = { stroke: INK, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, fill: "none" };
 
 export default function OtterCloseUp({ expression = "stare", width = 320 }: { expression?: CloseUpExpression; width?: number }) {
   // 앱 어디서나 같은 수달 얼굴(components/Otter.tsx otterFaceG)을 크게 + 화면 아래로 이어지는 어깨.
-  const face = ({ stare: "stare", smug: "laugh", wow: "surprise", hmm: "tilt" } as const)[expression];
+  const face = ({ stare: "stare", smug: "laugh", wow: "surprise", hmm: "tilt", soft: "base" } as const)[expression];
   return (
     <svg viewBox="0 0 300 330" width={width} height={(width * 330) / 300} style={{ display: "block", overflow: "visible" }} aria-hidden>
       <path d="M22 330 C26 268 74 236 150 236 C226 236 274 268 278 330 Z" fill={OTTER.FUR} stroke={INK} strokeWidth={6} />
@@ -51,7 +52,7 @@ export function OtterPaw({ side, size = 64 }: { side: "left" | "right"; size?: n
 // ============================================================================
 // 걱정 병을 들고 다가온 수달 — 화면 전체 연출.
 //   들어올 때: 바다가 어두워지고 → 얼굴이 아래에서 쑥 올라오고 → 대사 → 쪽지를 내민다.
-//   답하면: 표정이 바뀌고(빗나감=킹받는 웃음, 맞음=놀람, 반쯤=갸우뚱) 한마디 + 적중률. 조금 뒤 저절로 돌아간다.
+//   답하면: 표정이 바뀌고(괜찮았음=활짝 웃음, 맞았음=차분하게 토닥, 반쯤=갸우뚱) 한마디 + 적중률. 조금 뒤 저절로 돌아간다.
 //   아무 데나 누르면(버튼 빼고) 바로 작아지며 아래로 돌아간다 — 오래 가리지 않게.
 // ============================================================================
 
@@ -64,10 +65,11 @@ export interface WorryCloseUpStats {
   rate: number | null;
 }
 
-const ANSWER_FACE: Record<WorryAnswer, CloseUpExpression> = { hit: "wow", half: "hmm", miss: "smug" };
+const ANSWER_FACE: Record<WorryAnswer, CloseUpExpression> = { hit: "soft", half: "hmm", miss: "smug" };
 
 export function WorryCloseUp({
   when,
+  no,
   worry,
   ask,
   done,
@@ -79,8 +81,9 @@ export function WorryCloseUp({
   onLeave,
 }: {
   when: string; // "어제", "며칠 전" …
+  no?: number; // 몇 번째 걱정인지 — "걱정3"
   worry: string;
-  ask: string; // "야. 니가 이때 망할 것 같다며."
+  ask: string; // "야\n니가 이때 망할 것 같다며"
   done: { answer: WorryAnswer; line: string; stats: WorryCloseUpStats | null } | null;
   busy: boolean;
   error: string | null;
@@ -116,7 +119,7 @@ export function WorryCloseUp({
   const face: CloseUpExpression = done ? ANSWER_FACE[done.answer] : "stare";
 
   return (
-    <div className={`ocu-root ${leaving ? "ocu-out" : ""}`} role="dialog" aria-label="참견이가 가져온 걱정 병" onClick={leave}>
+    <div className={`ocu-root ${leaving ? "ocu-out" : ""}`} role="dialog" aria-label="참견이가 데려온 걱정이" onClick={leave}>
       <style dangerouslySetInnerHTML={{ __html: CLOSEUP_CSS }} />
       <div className="ocu-dim" aria-hidden />
       <div className="ocu-stage">
@@ -128,7 +131,7 @@ export function WorryCloseUp({
         </div>
         <div className="ocu-note-wrap">
           <div className="ocu-note" onClick={stop}>
-            <span className="ocu-when">{when} 니가 한 걱정</span>
+            <span className="ocu-when">{no ? `걱정${no} · ` : ""}{when} 니가 한 걱정</span>
             <p className="ocu-quote">“{worry}”</p>
             <span className="ocu-paw ocu-paw-l">
               <OtterPaw side="left" size={70} />
@@ -147,7 +150,7 @@ export function WorryCloseUp({
                   반쯤
                 </button>
                 <button className="ocu-btn ocu-miss" disabled={busy} onClick={() => onAnswer("miss")}>
-                  빗나갔어
+                  괜찮았어
                 </button>
               </div>
               <button className="ocu-later" disabled={busy} onClick={() => onAnswer("later")}>
@@ -163,7 +166,7 @@ export function WorryCloseUp({
                   <span className="ocu-rate-v">{verdict(done.stats.rate)}</span>
                 </>
               ) : (
-                <span className="ocu-rate-v">{Math.max(1, minForRate - (done.stats?.done ?? 0))}개만 더 열어보면 적중률 나와.</span>
+                <span className="ocu-rate-v">{Math.max(1, minForRate - (done.stats?.done ?? 0))}개만 더 열어보면 적중률 나와</span>
               )}
             </div>
           )}
@@ -185,7 +188,7 @@ const CLOSEUP_CSS = `
 @keyframes ocu-dim-in{from{opacity:0}to{opacity:1}}
 @keyframes ocu-dim-out{from{opacity:1}to{opacity:0}}
 .ocu-stage{position:relative;width:100%;max-width:440px;height:100%;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:calc(env(safe-area-inset-top,0px) + 70px) 20px calc(env(safe-area-inset-bottom,0px) + 28px)}
-.ocu-say{max-width:100%;box-sizing:border-box;margin-bottom:14px;padding:12px 20px;background:#fff;border:3px solid ${INK};border-radius:24px;box-shadow:4px 4px 0 ${INK};font-size:22px;line-height:1.35;text-align:center;word-break:keep-all;animation:ocu-pop .35s cubic-bezier(.3,1.6,.5,1) .55s both}
+.ocu-say{max-width:100%;box-sizing:border-box;margin-bottom:14px;padding:12px 20px;background:#fff;border:3px solid ${INK};border-radius:24px;box-shadow:4px 4px 0 ${INK};font-size:22px;line-height:1.35;text-align:center;word-break:keep-all;white-space:pre-line;animation:ocu-pop .35s cubic-bezier(.3,1.6,.5,1) .55s both}
 .ocu-out .ocu-say{animation:ocu-fade .2s ease both}
 @keyframes ocu-pop{from{transform:scale(.5);opacity:0}to{transform:none;opacity:1}}
 @keyframes ocu-fade{to{opacity:0;transform:scale(.9)}}

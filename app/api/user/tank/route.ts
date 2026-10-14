@@ -23,7 +23,7 @@ export async function GET(request: Request) {
   try {
     const userId = await getUserIdFromRequest(request);
     if (!userId) {
-      return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+      return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
     }
 
     const { lineages: raw } = await loadLineages(userId);
@@ -69,6 +69,6 @@ export async function GET(request: Request) {
     });
   } catch (err: any) {
     console.error('[api/user/tank] 서버 에러:', err?.message ?? err);
-    return NextResponse.json({ success: false, error: '어항을 불러오지 못했어.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '어항을 불러오지 못했어' }, { status: 500 });
   }
 }

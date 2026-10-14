@@ -47,18 +47,18 @@ export async function requestPhoneLink(
 
   if (alreadyRegistered) {
     if (!allowExistingAccountFallback) {
-      return { verifyType: null, error: "이 번호는 이미 다른 계정에 등록되어 있어. 다른 번호를 써줘." };
+      return { verifyType: null, error: "이 번호는 이미 다른 계정에 등록되어 있어\n다른 번호를 써줘" };
     }
     const { error: otpError } = await supabaseClient.auth.signInWithOtp({ phone: e164 });
     if (otpError) {
       console.error("[phoneAuthClient] signInWithOtp 실패:", otpError.message);
-      return { verifyType: null, error: "인증번호를 보내지 못했어. 번호를 다시 확인해줘." };
+      return { verifyType: null, error: "인증번호를 보내지 못했어\n번호를 다시 확인해줘" };
     }
     return { verifyType: "sms", error: null };
   }
 
   console.error("[phoneAuthClient] 인증번호 요청 실패:", updateError.message);
-  return { verifyType: null, error: "인증번호를 보내지 못했어. 번호를 다시 확인해줘." };
+  return { verifyType: null, error: "인증번호를 보내지 못했어\n번호를 다시 확인해줘" };
 }
 
 export async function confirmPhoneCode(
@@ -70,7 +70,7 @@ export async function confirmPhoneCode(
   const { error } = await supabaseClient.auth.verifyOtp({ phone: e164, token: code, type: verifyType });
   if (error) {
     console.error("[phoneAuthClient] 인증 실패:", error.message);
-    return { error: "인증번호가 맞지 않아. 다시 확인해줘." };
+    return { error: "인증번호가 맞지 않아\n다시 확인해줘" };
   }
   return { error: null };
 }

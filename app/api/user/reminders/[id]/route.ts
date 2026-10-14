@@ -18,13 +18,13 @@ function parseId(raw: string): number | null {
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
-const NOT_READY = { success: false, code: 'not_ready', error: '알람이 아직 준비 안 됐어.' };
+const NOT_READY = { success: false, code: 'not_ready', error: '알람이 아직 준비 안 됐어' };
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   const userId = await getUserIdFromRequest(request);
-  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
   const id = parseId(params.id);
-  if (!id) return NextResponse.json({ success: false, error: '그 알람이 없어.' }, { status: 404 });
+  if (!id) return NextResponse.json({ success: false, error: '그 알람이 없어' }, { status: 404 });
   const p = await request.json().catch(() => ({}));
   const patch: { title?: string; remindAt?: Date } = {};
   if (p?.title !== undefined) {
@@ -38,7 +38,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     patch.remindAt = a.value;
   }
   if (patch.title === undefined && patch.remindAt === undefined) {
-    return NextResponse.json({ success: false, error: '바꾼 게 없어.' }, { status: 400 });
+    return NextResponse.json({ success: false, error: '바꾼 게 없어' }, { status: 400 });
   }
   try {
     const reminder = await updateForUser(userId, id, patch);
@@ -47,15 +47,15 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     if (err instanceof ReminderError) return NextResponse.json({ success: false, code: err.code, error: err.message }, { status: err.status });
     if (isMissingTable(err)) return NextResponse.json(NOT_READY, { status: 503 });
     console.error('[api/user/reminders/id] 수정 실패:', err?.message);
-    return NextResponse.json({ success: false, error: '고친 게 저장이 안 됐어.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '고친 게 저장이 안 됐어' }, { status: 500 });
   }
 }
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   const userId = await getUserIdFromRequest(request);
-  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
   const id = parseId(params.id);
-  if (!id) return NextResponse.json({ success: false, error: '그 알람이 없어.' }, { status: 404 });
+  if (!id) return NextResponse.json({ success: false, error: '그 알람이 없어' }, { status: 404 });
   try {
     await cancelForUser(userId, id);
     return NextResponse.json({ success: true });
@@ -63,6 +63,6 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
     if (err instanceof ReminderError) return NextResponse.json({ success: false, code: err.code, error: err.message }, { status: err.status });
     if (isMissingTable(err)) return NextResponse.json(NOT_READY, { status: 503 });
     console.error('[api/user/reminders/id] 취소 실패:', err?.message);
-    return NextResponse.json({ success: false, error: '취소가 안 됐어.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '취소가 안 됐어' }, { status: 500 });
   }
 }

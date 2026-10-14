@@ -6,7 +6,7 @@ import { getUserIdFromRequest } from '@/lib/auth';
 export async function GET(request: Request) {
   const userId = await getUserIdFromRequest(request);
   if (!userId) {
-    return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+    return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
   }
 
   const { data, error } = await supabase

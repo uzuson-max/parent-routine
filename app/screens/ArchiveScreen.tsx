@@ -144,12 +144,12 @@ export default function ArchiveScreen({
       <WorldTitle>지난 어항</WorldTitle>
 
       {months === null ? (
-        <p style={s.muted}>잠깐만.</p>
+        <p style={s.muted}>잠깐만</p>
       ) : months.length === 0 ? (
         <div style={{ ...stickerCard, ...s.empty }}>
           <PeekMascot expression={failed ? "tilt" : "base"} size={64} />
-          <p style={s.emptyTitle}>{failed ? "지난 어항이 잘 안 열리네." : "아직 지난 어항이 없어."}</p>
-          <p style={s.muted}>{failed ? "조금 있다 다시 열어볼래?" : "말을 던지면 달마다 여기 한 장씩 남아."}</p>
+          <p style={s.emptyTitle}>{failed ? "지난 어항이 잘 안 열리네" : "아직 지난 어항이 없어"}</p>
+          <p style={s.muted}>{failed ? "조금 있다 다시 열어볼래?" : "말을 던지면 달마다 여기 한 장씩 남아"}</p>
         </div>
       ) : (
         <>
@@ -174,7 +174,7 @@ export default function ArchiveScreen({
               {/* 그 달의 어항 사진 */}
               <div style={s.photo}>
                 <div style={s.water}>
-                  {month.fish.length === 0 && <p style={s.photoEmpty}>이 달엔 아직 물고기가 없었어.</p>}
+                  {month.fish.length === 0 && <p style={s.photoEmpty}>이 달엔 아직 물고기가 없었어</p>}
                   {month.fish.map((f, i) => {
                     const r = (k: number) => hash(f.id, k);
                     const [body, belly] = PALETTE[Math.floor(r(11) * PALETTE.length)];
@@ -237,7 +237,7 @@ export default function ArchiveScreen({
               {/* 그 달에 한 말 전부 */}
               <p style={s.section}>{monthLabel(month.month)}에 한 말</p>
               {month.entries.length === 0 ? (
-                <p style={s.muted}>이 달엔 남긴 말이 없어.</p>
+                <p style={s.muted}>이 달엔 남긴 말이 없어</p>
               ) : (
                 <div style={{ ...stickerCard, ...s.list }}>
                   {days.map((d, di) => (

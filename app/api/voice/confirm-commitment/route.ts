@@ -8,13 +8,13 @@ export async function POST(request: Request) {
   try {
     const userId = await getUserIdFromRequest(request);
     if (!userId) {
-      return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+      return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
     }
 
     const body = await request.json();
     const { entryId, phone, commitment, commitment_type, commitment_confidence, target_count } = body;
     if (!entryId || !commitment) {
-      return NextResponse.json({ success: false, error: 'entryId, commitment이 필요합니다.' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'entryId, commitment이 필요합니다' }, { status: 400 });
     }
 
     // reminder 여부와 기한은 클라이언트가 아니라 서버에 저장된 분석 결과에서 읽는다

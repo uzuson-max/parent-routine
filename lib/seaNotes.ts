@@ -22,11 +22,11 @@ export interface SeaNote {
 
 /** 저장할 본문으로 다듬는다. 비었거나 너무 길면 오류 메시지(사용자에게 그대로 보여줄 문장). */
 export function normalizeNoteBody(raw: unknown): { ok: true; body: string } | { ok: false; error: string } {
-  if (typeof raw !== 'string') return { ok: false, error: '적은 게 없어.' };
+  if (typeof raw !== 'string') return { ok: false, error: '적은 게 없어' };
   // 앞뒤 공백만 정리하고, 줄바꿈은 살린다. 세 줄 이상 비는 건 두 줄로.
   const body = raw.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-  if (!body) return { ok: false, error: '적은 게 없어.' };
-  if (body.length > NOTE_MAX_CHARS) return { ok: false, error: `${NOTE_MAX_CHARS}자까지만 띄울 수 있어.` };
+  if (!body) return { ok: false, error: '적은 게 없어' };
+  if (body.length > NOTE_MAX_CHARS) return { ok: false, error: `${NOTE_MAX_CHARS}자까지만 띄울 수 있어` };
   return { ok: true, body };
 }
 

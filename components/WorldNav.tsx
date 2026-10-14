@@ -69,7 +69,7 @@ export function BottomNav({
 }) {
   const items: { tab: WorldTab; label: string; icon: JSX.Element }[] = [
     { tab: "home", label: "어항", icon: <IconHome style={{ width: 22, height: 22 }} /> },
-    { tab: "worries", label: "걱정 병", icon: <IconBottle style={{ width: 22, height: 22 }} /> },
+    { tab: "worries", label: "걱정이", icon: <IconBottle style={{ width: 22, height: 22 }} /> },
     { tab: "letters", label: "편지", icon: <IconLetter style={{ width: 22, height: 22 }} /> },
   ];
   return (

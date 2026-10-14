@@ -7,13 +7,13 @@ export async function POST(request: Request) {
   try {
     const userId = await getUserIdFromRequest(request);
     if (!userId) {
-      return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+      return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
     }
 
     const body = await request.json();
     const nickname = (body?.nickname ?? '').toString().trim().slice(0, 20);
     if (!nickname) {
-      return NextResponse.json({ success: false, error: '닉네임이 필요합니다.' }, { status: 400 });
+      return NextResponse.json({ success: false, error: '닉네임이 필요합니다' }, { status: 400 });
     }
 
     const result = await saveNickname(userId, nickname);

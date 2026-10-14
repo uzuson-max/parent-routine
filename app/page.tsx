@@ -283,7 +283,7 @@ export default function Home() {
     try {
       const { data: { session } } = await supabaseClient.auth.getSession();
       if (!session) {
-        throw new Error("로그인 세션을 만들지 못했습니다. 새로고침 후 다시 시도해주세요.");
+        throw new Error("로그인 세션을 만들지 못했습니다\n새로고침 후 다시 시도해주세요");
       }
       // 참견이가 먼저 꺼낸 말에 대답한 거면, 그 말은 이제 내려놓는다.
       if (replyTo && proactiveLine && replyTo === proactiveLine.content) setProactiveLine(null);
@@ -342,7 +342,7 @@ export default function Home() {
       // 생각 저장/기억/인사이트 흐름은 서버에서 원래대로 끝났고, 이건 화면 쪽 제안일 뿐이다.
       const ev = body.data.scheduled_event as { what: string; at: string } | null | undefined;
       if (!isCurrent()) return;
-      const replyText = body.data.response?.response || "일단 들어뒀어.";
+      const replyText = body.data.response?.response || "일단 들어뒀어";
       const suggestAt = ev?.what && ev?.at ? suggestFromEvent(ev.at, new Date()) : null;
       setHomeBubble({
         kind: "reply",
@@ -358,10 +358,10 @@ export default function Home() {
       if (heard) {
         // 니 말은 이미 서버에 기록됐다 — 다시 보내면 같은 말이 두 번 저장되니 재시도 대신 안내만.
         fetchEntries();
-        changeHomeBubble({ kind: "notice", text: "니 말은 들어뒀어. 근데 대답이 길을 잃었네. 조금 있다 다시 말 걸어줘." });
+        changeHomeBubble({ kind: "notice", text: "니 말은 들어뒀어\n근데 대답이 길을 잃었네\n조금 있다 다시 말 걸어줘" });
       } else {
         // 서버에 닿기 전에 실패 — 녹음은 그대로 들고 있으니 같은 녹음을 다시 보낼 수 있다.
-        changeHomeBubble({ kind: "retry", text: "앗, 니 말이 바다에 안 닿았어. 녹음은 그대로 있어." });
+        changeHomeBubble({ kind: "retry", text: "앗, 니 말이 바다에 안 닿았어\n녹음은 그대로 있어" });
         setRetrySpeech({ blob: input, replyTo });
       }
     } finally {
@@ -374,7 +374,7 @@ export default function Home() {
     try {
       const { data: { session } } = await supabaseClient.auth.getSession();
       if (!session) {
-        throw new Error("로그인 세션을 만들지 못했습니다. 새로고침 후 다시 시도해주세요.");
+        throw new Error("로그인 세션을 만들지 못했습니다\n새로고침 후 다시 시도해주세요");
       }
 
       const form = new FormData();
@@ -685,7 +685,7 @@ export default function Home() {
 
       {step === "no_action" && (
         <MessageScreen
-          title={uploadData?.response?.response || "오늘은 그냥 들어둘게."}
+          title={uploadData?.response?.response || "오늘은 그냥 들어둘게"}
           transcriptPreview={uploadData?.transcript}
           onTalkMore={talkMore}
           onHome={goHome}
@@ -707,7 +707,7 @@ export default function Home() {
       )}
 
       {step === "confirmed" && (
-        <MessageScreen title="기억해뒀어." subtitle="필요할 때 다시 꺼낼게." onTalkMore={talkMore} onHome={goHome} firstRun={isFirstRun} />
+        <MessageScreen title="기억해뒀어" subtitle="필요할 때 다시 꺼낼게" onTalkMore={talkMore} onHome={goHome} firstRun={isFirstRun} />
       )}
 
       {step === "calling" && entryId && (
@@ -723,8 +723,8 @@ export default function Home() {
 
       {step === "call_failed" && (
         <MessageScreen
-          title="전화 연결이 잘 안 됐어."
-          subtitle="그래도 오늘 한 얘기는 기억해뒀어."
+          title="전화 연결이 잘 안 됐어"
+          subtitle="그래도 오늘 한 얘기는 기억해뒀어"
           onTalkMore={talkMore}
           onHome={goHome}
           firstRun={isFirstRun}
@@ -795,7 +795,7 @@ export default function Home() {
     // 이제는 바로 바다(홈)로 — 같은 말을 참견이 말풍선으로 건네고, 녹음은 홈과 같은 물속 녹음 화면에서 한다.
     // isFirstRun은 그대로 유지돼서 첫 녹음 처리(전화번호 요구 건너뛰기 등)는 예전과 같다.
     if (isFirstRun) {
-      setHomeBubble({ kind: "notice", text: "아무 말이나 해볼래? 진짜 아무 말이나 괜찮음." });
+      setHomeBubble({ kind: "notice", text: "아무 말이나 해볼래? 진짜 아무 말이나 괜찮음" });
     }
     setStep("landing");
   }

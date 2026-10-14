@@ -13,10 +13,10 @@ export default function ReactionScreen({ onHome }: ReactionScreenProps) {
     <div style={styles.container}>
       <div style={styles.card}>
         <div style={styles.headerTag}>GANSEOBI NOTE</div>
-        <p style={styles.mainCopy}>잘 들었어.</p>
+        <p style={styles.mainCopy}>잘 들었어</p>
         <p style={styles.subCopy}>
           일단 접수해둠.<br />
-          나중에 또 딴소리하면 그때 잡아낸다.
+          나중에 또 딴소리하면 그때 잡아낸다
         </p>
         <button className={TACTILE_PRESS_CLASS} style={styles.ctaButton} onClick={onHome}>
           닫기 (생각나면 또 와)

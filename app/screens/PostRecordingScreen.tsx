@@ -21,7 +21,7 @@ export default function PostRecordingScreen({ extractedItems, onConfirm }: PostR
       <div style={styles.contentBox}>
         <span style={styles.badge}>INTERVENTION LOG</span>
         <h2 style={styles.title}>참견이가<br />몇 가지 주워갔어. 👀</h2>
-        <p style={styles.subTitle}>이건 기억해둘게.</p>
+        <p style={styles.subTitle}>이건 기억해둘게</p>
 
         <div style={styles.itemCardList}>
           {extractedItems.map((item, idx) => (

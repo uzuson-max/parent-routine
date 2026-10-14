@@ -16,21 +16,21 @@ export * from '@/lib/reminders/rules';
 export type Check<T> = { ok: true; value: T } | { ok: false; error: string };
 
 export function normalizeTitle(raw: unknown): Check<string> {
-  if (typeof raw !== 'string') return { ok: false, error: '뭘 알려줄지 적어줘.' };
+  if (typeof raw !== 'string') return { ok: false, error: '뭘 알려줄지 적어줘' };
   const title = raw.replace(/\s+/g, ' ').trim();
-  if (!title) return { ok: false, error: '뭘 알려줄지 적어줘.' };
-  if (title.length > REMINDER_TITLE_MAX) return { ok: false, error: `${REMINDER_TITLE_MAX}자까지만 돼.` };
+  if (!title) return { ok: false, error: '뭘 알려줄지 적어줘' };
+  if (title.length > REMINDER_TITLE_MAX) return { ok: false, error: `${REMINDER_TITLE_MAX}자까지만 돼` };
   // 앱 알림이 실패하면 문자로 간다 — 그때도 장문(LMS)으로 새지 않게 미리 막는다(이모지 등 큰 글자 대비).
-  if (composeSms(title, REMINDER_HEADER).type !== 'SMS') return { ok: false, error: '조금만 짧게 적어줘.' };
+  if (composeSms(title, REMINDER_HEADER).type !== 'SMS') return { ok: false, error: '조금만 짧게 적어줘' };
   return { ok: true, value: title };
 }
 
 export function normalizeRemindAt(raw: unknown, now: Date): Check<Date> {
-  if (typeof raw !== 'string' || !raw.trim()) return { ok: false, error: '언제 알려줄지 골라줘.' };
+  if (typeof raw !== 'string' || !raw.trim()) return { ok: false, error: '언제 알려줄지 골라줘' };
   const d = new Date(raw);
-  if (Number.isNaN(d.getTime())) return { ok: false, error: '시간을 못 읽었어.' };
-  if (d.getTime() < now.getTime() + MIN_LEAD_MS) return { ok: false, error: '이미 지난 시간이야.' };
-  if (d.getTime() > now.getTime() + MAX_AHEAD_MS) return { ok: false, error: '1년 안쪽으로만 돼.' };
+  if (Number.isNaN(d.getTime())) return { ok: false, error: '시간을 못 읽었어' };
+  if (d.getTime() < now.getTime() + MIN_LEAD_MS) return { ok: false, error: '이미 지난 시간이야' };
+  if (d.getTime() > now.getTime() + MAX_AHEAD_MS) return { ok: false, error: '1년 안쪽으로만 돼' };
   return { ok: true, value: d };
 }
 

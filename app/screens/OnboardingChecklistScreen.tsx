@@ -50,7 +50,7 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
     const { verifyType: vt, error } = await requestPhoneLink(phone, { allowExistingAccountFallback: true });
     setPhoneBusy(false);
     if (error || !vt) {
-      setPhoneError(error ?? "인증번호를 보내지 못했어.");
+      setPhoneError(error ?? "인증번호를 보내지 못했어");
       return;
     }
     setVerifyType(vt);
@@ -97,7 +97,7 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
       <div className="oc-sheet" style={s.sheet}>
         <span style={s.grabber} aria-hidden />
         <h1 style={s.title}>아직 텅 빈 니 어항</h1>
-        <p style={s.lead}>들어가기 전에 두 가지만.</p>
+        <p style={s.lead}>들어가기 전에 두 가지만</p>
 
         {/* 마이크 (선택) */}
         <div style={s.row}>
@@ -106,7 +106,7 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
           </span>
           <div style={s.rowMain}>
             <span style={s.rowTitle}>마이크</span>
-            <span style={s.rowSub}>말할 때만 써. 거부해도 글로 남길 수 있어.</span>
+            <span style={s.rowSub}>말할 때만 써 거부해도 글로 남길 수 있어</span>
           </div>
           {!micDone && (
             <button className="wn-sticker" style={s.smallBtn} onClick={requestMic} disabled={micBusy}>
@@ -122,7 +122,7 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
           </span>
           <div style={{ ...s.rowMain, flex: 1 }}>
             <span style={s.rowTitle}>번호로 내 어항 지키기</span>
-            <span style={s.rowSub}>폰을 바꾸거나 홈 화면에 추가해도 기록이 그대로 남아.</span>
+            <span style={s.rowSub}>폰을 바꾸거나 홈 화면에 추가해도 기록이 그대로 남아</span>
             {!phoneDone && (
               <div style={s.inputRow}>
                 {phoneStage === "idle" ? (
@@ -170,7 +170,7 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
             <a href="/privacy" target="_blank" rel="noreferrer" style={s.link}>
               개인정보처리방침
             </a>
-            (국외 이전 포함)에 동의해. 만 14세 이상이야.
+            (국외 이전 포함)에 동의해 · 만 14세 이상이야
           </span>
         </label>
 

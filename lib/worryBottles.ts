@@ -23,6 +23,7 @@ export type WorryResult = 'hit' | 'half' | 'miss';
 
 export interface WorryBottle {
   id: number;
+  no: number; // 이 사용자의 몇 번째 걱정인지 — 화면에 "걱정3"처럼 붙인다
   worry: string;
   createdAt: string;
   dueAt: string;
@@ -30,6 +31,7 @@ export interface WorryBottle {
 
 export interface OpenedBottle {
   id: number;
+  no: number;
   worry: string;
   result: WorryResult;
   createdAt: string;
@@ -163,7 +165,14 @@ export async function loadWorries(
       .is('result', null)
       .order('due_at', { ascending: true })
       .limit(MAX_OPEN),
-    supabase.from('worry_bottles').select('result').eq('user_id', userId).not('result', 'is', null).limit(2000),
+    // 전부(열어본 것 + 떠 있는 것) 오래된 순 — 적중률 계산 + "걱정1, 걱정2…" 번호 매기기
+    supabase
+      .from('worry_bottles')
+      .select('id, result')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true })
+      .limit(2000),
     // 걱정 병 탭의 "해변" — 열어본 병 최근 것부터
     supabase
       .from('worry_bottles')
@@ -177,11 +186,15 @@ export async function loadWorries(
     if (tableMissing(open.error) || tableMissing(answered.error) || tableMissing(recent.error)) return null;
     throw new Error((open.error ?? answered.error ?? recent.error)!.message);
   }
+  const all = answered.data ?? [];
+  const noOf = new Map<number, number>(all.map((r: any, i: number) => [r.id as number, i + 1]));
+  const no = (id: number) => noOf.get(id) ?? all.length + 1;
   return {
-    bottles: (open.data ?? []).map((r: any) => ({ id: r.id, worry: r.worry, createdAt: r.created_at, dueAt: r.due_at })),
-    stats: statsFrom((answered.data ?? []).map((r: any) => r.result as WorryResult)),
+    bottles: (open.data ?? []).map((r: any) => ({ id: r.id, no: no(r.id), worry: r.worry, createdAt: r.created_at, dueAt: r.due_at })),
+    stats: statsFrom(all.filter((r: any) => r.result).map((r: any) => r.result as WorryResult)),
     opened: (recent.data ?? []).map((r: any) => ({
       id: r.id,
+      no: no(r.id),
       worry: r.worry,
       result: r.result as WorryResult,
       createdAt: r.created_at,

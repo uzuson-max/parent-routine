@@ -18,12 +18,12 @@ function parseId(raw: string): number | null {
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
-const NOT_READY = { success: false, code: 'not_ready', error: '메모장이 아직 준비 안 됐어.' };
-const NOT_FOUND = { success: false, error: '그 메모가 없어.' };
+const NOT_READY = { success: false, code: 'not_ready', error: '메모장이 아직 준비 안 됐어' };
+const NOT_FOUND = { success: false, error: '그 메모가 없어' };
 
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
   const userId = await getUserIdFromRequest(request);
-  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
   const id = parseId(params.id);
   if (!id) return NextResponse.json(NOT_FOUND, { status: 404 });
   const payload = await request.json().catch(() => ({}));
@@ -41,13 +41,13 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   } catch (err: any) {
     if (isMissingTable(err)) return NextResponse.json(NOT_READY, { status: 503 });
     console.error('[api/user/notes/id] 수정 실패:', err?.message);
-    return NextResponse.json({ success: false, error: '고친 게 저장이 안 됐어.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '고친 게 저장이 안 됐어' }, { status: 500 });
   }
 }
 
 export async function DELETE(request: Request, { params }: { params: { id: string } }) {
   const userId = await getUserIdFromRequest(request);
-  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
   const id = parseId(params.id);
   if (!id) return NextResponse.json(NOT_FOUND, { status: 404 });
   try {
@@ -57,6 +57,6 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
   } catch (err: any) {
     if (isMissingTable(err)) return NextResponse.json(NOT_READY, { status: 503 });
     console.error('[api/user/notes/id] 삭제 실패:', err?.message);
-    return NextResponse.json({ success: false, error: '지우는 게 안 됐어.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '지우는 게 안 됐어' }, { status: 500 });
   }
 }

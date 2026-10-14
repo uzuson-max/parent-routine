@@ -61,13 +61,13 @@ export async function POST(request: Request) {
   try {
     const userId = await getUserIdFromRequest(request);
     if (!userId) {
-      return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+      return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
     }
 
     const body = await request.json().catch(() => ({} as any));
     const insightId = Number(body?.insightId);
     if (!insightId) {
-      return NextResponse.json({ success: false, error: 'insightId가 필요합니다.' }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'insightId가 필요합니다' }, { status: 400 });
     }
 
     // 소유권 확인 — 본인 것만 카드로 만들 수 있다 (service role 클라이언트라 RLS를 우회하므로
@@ -85,7 +85,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
     if (!insight) {
-      return NextResponse.json({ success: false, error: '해당 발견을 찾을 수 없습니다.' }, { status: 404 });
+      return NextResponse.json({ success: false, error: '해당 발견을 찾을 수 없습니다' }, { status: 404 });
     }
 
     const { fontData, mascotDataUri } = await loadAssets();

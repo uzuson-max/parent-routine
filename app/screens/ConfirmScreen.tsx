@@ -32,7 +32,7 @@ export default function ConfirmScreen({
     try {
       const { data: { session } } = await supabaseClient.auth.getSession();
       if (!session) {
-        console.error("[ConfirmScreen] 로그인 세션이 없습니다.");
+        console.error("[ConfirmScreen] 로그인 세션이 없습니다");
         return;
       }
       await fetch("/api/voice/confirm-commitment", {
@@ -57,7 +57,7 @@ export default function ConfirmScreen({
   };
   return (
     <div style={styles.container}>
-      {firstRun && <span style={styles.stamp}>참견이 등장.</span>}
+      {firstRun && <span style={styles.stamp}>참견이 등장</span>}
       {reaction && <p style={styles.reaction}>{reaction}</p>}
       <p style={styles.headline}>이건 기억해야지~</p>
       <div style={styles.commitmentBox}>

@@ -53,7 +53,7 @@ export default function DiscoveryScreen({ onBack }: { onBack: () => void }) {
     setError(null);
     try {
       const { data: { session } } = await supabaseClient.auth.getSession();
-      if (!session) throw new Error("로그인 세션이 없어.");
+      if (!session) throw new Error("로그인 세션이 없어");
 
       const res = await fetch("/api/insight-card", {
         method: "POST",
@@ -65,7 +65,7 @@ export default function DiscoveryScreen({ onBack }: { onBack: () => void }) {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "카드를 만들지 못했어.");
+        throw new Error(body.error || "카드를 만들지 못했어");
       }
 
       const blob = await res.blob();
@@ -91,7 +91,7 @@ export default function DiscoveryScreen({ onBack }: { onBack: () => void }) {
       // 사용자가 공유 시트를 그냥 닫은 것도 AbortError로 들어오는데, 이건 실패가 아니라서 무시.
       if (e?.name === "AbortError") return;
       console.error("[DiscoveryScreen] share failed:", e);
-      setError(e.message || "카드를 만들지 못했어.");
+      setError(e.message || "카드를 만들지 못했어");
     } finally {
       setBusyId(null);
     }
@@ -118,8 +118,8 @@ export default function DiscoveryScreen({ onBack }: { onBack: () => void }) {
           </div>
         ) : insights.length === 0 ? (
           <div style={styles.emptyCard}>
-            <p style={styles.emptyTitle}>아직 발견한 게 없어.</p>
-            <p style={styles.emptySub}>말이 좀 더 쌓이면, 반복되거나 연결되는 걸 알아채서 여기 보여줄게.</p>
+            <p style={styles.emptyTitle}>아직 발견한 게 없어</p>
+            <p style={styles.emptySub}>말이 좀 더 쌓이면, 반복되거나 연결되는 걸 알아채서 여기 보여줄게</p>
           </div>
         ) : (
           insights.map((insight) => (

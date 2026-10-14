@@ -15,24 +15,24 @@ export const dynamic = 'force-dynamic';
 //          알려줄 수단이 하나도 없으면 만들지 않는다(409 no_channel) — 울리지 않을 알람을 걸어두는 건 거짓말이다.
 // ============================================================================
 
-const NOT_READY = { success: false, code: 'not_ready', error: '알람이 아직 준비 안 됐어.' };
+const NOT_READY = { success: false, code: 'not_ready', error: '알람이 아직 준비 안 됐어' };
 
 export async function GET(request: Request) {
   const userId = await getUserIdFromRequest(request);
-  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
   try {
     const [reminders, delivery] = await Promise.all([listForUser(userId), deliveryAbility(userId)]);
     return NextResponse.json({ success: true, data: { reminders, delivery } });
   } catch (err: any) {
     if (isMissingTable(err)) return NextResponse.json(NOT_READY, { status: 503 });
     console.error('[api/user/reminders] 목록 실패:', err?.message);
-    return NextResponse.json({ success: false, error: '알람을 못 불러왔어.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '알람을 못 불러왔어' }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
   const userId = await getUserIdFromRequest(request);
-  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
   const p = await request.json().catch(() => ({}));
   const title = normalizeTitle(p?.title);
   if (!title.ok) return NextResponse.json({ success: false, error: title.error }, { status: 400 });
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     const delivery = await deliveryAbility(userId);
     if (!delivery.push && !delivery.sms) {
       return NextResponse.json(
-        { success: false, code: 'no_channel', error: '지금은 알려줄 방법이 없어. 앱 알림을 켜거나 전화번호 인증이 필요해.', data: { delivery } },
+        { success: false, code: 'no_channel', error: '지금은 알려줄 방법이 없어\n앱 알림을 켜거나 전화번호 인증이 필요해', data: { delivery } },
         { status: 409 }
       );
     }
@@ -61,6 +61,6 @@ export async function POST(request: Request) {
     if (err instanceof ReminderError) return NextResponse.json({ success: false, code: err.code, error: err.message }, { status: err.status });
     if (isMissingTable(err)) return NextResponse.json(NOT_READY, { status: 503 });
     console.error('[api/user/reminders] 만들기 실패:', err?.message);
-    return NextResponse.json({ success: false, error: '알람이 안 걸렸어.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: '알람이 안 걸렸어' }, { status: 500 });
   }
 }

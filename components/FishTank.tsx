@@ -237,7 +237,7 @@ export default function FishTank({ entries, thinking, onTankPress }: FishTankPro
     }
     setEmerging(back.id);
     const t = setTimeout(
-      () => showPeek(back.label ? `어? ${back.label} 얘기 오랜만이네.` : "어? 그 얘기 오랜만이네.", "surprise", 6000),
+      () => showPeek(back.label ? `어? ${back.label} 얘기 오랜만이네` : "어? 그 얘기 오랜만이네", "surprise", 6000),
       1500
     );
     return () => clearTimeout(t);

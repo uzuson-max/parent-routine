@@ -32,9 +32,9 @@ const SOUND_KEY = "ganseobi_sound_enabled"; // lib/fx.ts가 읽는다
 const APP_VERSION = "0.2.0";
 
 const LEVELS: { level: InterventionLevel; label: string; desc: string }[] = [
-  { level: "low", label: "살짝", desc: "내가 부탁한 알림만 문자로 와. 나머지는 앱 안에서만." },
-  { level: "medium", label: "적당히", desc: "하루 한 번까지 먼저 문자해." },
-  { level: "high", label: "자주", desc: "하루 두 번까지, 6시간 간격으로 먼저 문자해." },
+  { level: "low", label: "살짝", desc: "내가 부탁한 알림만 문자로 와\n나머지는 앱 안에서만" },
+  { level: "medium", label: "적당히", desc: "하루 한 번까지 먼저 문자해" },
+  { level: "high", label: "자주", desc: "하루 두 번까지, 6시간 간격으로 먼저 문자해" },
 ];
 const QUIET_STARTS = [21, 22, 23, 24];
 const QUIET_ENDS = [7, 8, 9, 10];
@@ -149,8 +149,8 @@ export default function MyPageScreen({
     } else {
       const r = await subscribePush();
       setPushOn(r === "ok");
-      if (r === "denied") setPushNote("알림이 막혀 있어. 폰 설정 > 알림에서 참견이를 켜줘.");
-      if (r === "failed") setPushNote("지금은 안 되네. 조금 있다 다시 해볼래?");
+      if (r === "denied") setPushNote("알림이 막혀 있어\n폰 설정 > 알림에서 참견이를 켜줘");
+      if (r === "failed") setPushNote("지금은 안 되네\n조금 있다 다시 해볼래?");
     }
     setPushBusy(false);
   };
@@ -211,11 +211,11 @@ export default function MyPageScreen({
         body: JSON.stringify(patch),
       });
       const body = res ? await res.json() : null;
-      if (!body?.success) throw new Error(body?.error || "저장이 안 됐어.");
+      if (!body?.success) throw new Error(body?.error || "저장이 안 됐어");
       setPrefs(body.data);
     } catch (e: any) {
       setPrefs(before);
-      setToast(e.message || "저장이 안 됐어. 조금 있다 다시 해볼래?");
+      setToast(e.message || "저장이 안 됐어\n조금 있다 다시 해볼래?");
     } finally {
       setPrefsBusy(false);
     }
@@ -243,9 +243,9 @@ export default function MyPageScreen({
     if (ok) {
       setNickname(name.slice(0, 20));
       setNickEdit(null);
-      setToast("이제 그렇게 부를게.");
+      setToast("이제 그렇게 부를게");
     } else {
-      setToast("닉네임이 저장 안 됐어.");
+      setToast("닉네임이 저장 안 됐어");
     }
   };
 
@@ -255,7 +255,7 @@ export default function MyPageScreen({
     const { verifyType: vt, error: err } = await requestPhoneLink(newPhone, { allowExistingAccountFallback: false });
     setPhoneBusy(false);
     if (err || !vt) {
-      setPhoneError(err ?? "인증번호를 보내지 못했어.");
+      setPhoneError(err ?? "인증번호를 보내지 못했어");
       return;
     }
     setVerifyType(vt);
@@ -276,7 +276,7 @@ export default function MyPageScreen({
     syncVerifiedPhoneToBackend(newPhone);
     setNewPhone("");
     setCode("");
-    setToast("번호가 바뀌었어.");
+    setToast("번호가 바뀌었어");
   };
 
   const exportRecords = async () => {
@@ -300,7 +300,7 @@ export default function MyPageScreen({
         URL.revokeObjectURL(url);
       }
     } catch (e: any) {
-      if (e?.name !== "AbortError") setToast("기록을 못 꺼냈어. 조금 있다 다시 해볼래?");
+      if (e?.name !== "AbortError") setToast("기록을 못 꺼냈어\n조금 있다 다시 해볼래?");
     } finally {
       setBusy(null);
     }
@@ -318,9 +318,9 @@ export default function MyPageScreen({
       if (!body?.success) throw new Error(body?.error);
       setFeedback("");
       setSheet(null);
-      setToast("잘 받았어. 꼭 읽어볼게.");
+      setToast("잘 받았어\n꼭 읽어볼게");
     } catch (e: any) {
-      setToast(e?.message || "전달이 안 됐어.");
+      setToast(e?.message || "전달이 안 됐어");
     } finally {
       setBusy(null);
     }
@@ -355,7 +355,7 @@ export default function MyPageScreen({
       window.location.href = "/";
     } catch (e: any) {
       setBusy(null);
-      setToast(e?.message || "탈퇴가 안 됐어.");
+      setToast(e?.message || "탈퇴가 안 됐어");
     }
   };
 
@@ -449,12 +449,12 @@ export default function MyPageScreen({
       <p style={s.section}>참견 받는 방법</p>
       <div style={{ ...stickerCard, ...s.group }}>
         {prefs === null ? (
-          <p style={{ ...s.muted, padding: "14px 16px" }}>잠깐만.</p>
+          <p style={{ ...s.muted, padding: "14px 16px" }}>잠깐만</p>
         ) : (
           <>
             <ToggleRow
               label="참견이가 먼저 찾아오기"
-              sub={prefs.outreachEnabled ? "앱 알림이 안 되면 문자로 와." : "앱 안에서만 대답해."}
+              sub={prefs.outreachEnabled ? "앱 알림이 안 되면 문자로 와" : "앱 안에서만 대답해"}
               value={prefs.outreachEnabled}
               disabled={prefsBusy}
               onToggle={() => savePrefs({ outreachEnabled: !prefs.outreachEnabled })}
@@ -464,15 +464,15 @@ export default function MyPageScreen({
               label="앱 알림으로 받기"
               sub={
                 pushSupport() === "needs_install"
-                  ? "홈 화면에 추가한 참견이에서 켤 수 있어."
+                  ? "홈 화면에 추가한 참견이에서 켤 수 있어"
                   : pushSupport() === "unsupported"
-                  ? "이 브라우저에선 안 돼."
+                  ? "이 브라우저에선 안 돼"
                   : pushNote ??
                     (notificationPermission() === "denied"
-                      ? "알림이 막혀 있어. 폰 설정에서 켜줘."
+                      ? "알림이 막혀 있어\n폰 설정에서 켜줘"
                       : pushOn
-                      ? "이 폰으로 찾아갈게. 문자는 안 보내."
-                      : "켜면 문자 대신 알림으로 찾아가.")
+                      ? "이 폰으로 찾아갈게\n문자는 안 보내"
+                      : "켜면 문자 대신 알림으로 찾아가")
               }
               value={!!pushOn}
               disabled={outreachOff || pushBusy || pushOn === null || pushSupport() !== "ok"}
@@ -484,7 +484,7 @@ export default function MyPageScreen({
             <Row
               label="조용한 시간"
               value={`${hourLabel(prefs.quietStartHour)} ~ ${hourLabel(prefs.quietEndHour)}`}
-              sub="이 시간엔 먼저 찾아가지 않아."
+              sub="이 시간엔 먼저 찾아가지 않아"
               disabled={outreachOff}
               onClick={() => setSheet("quiet")}
             />
@@ -503,7 +503,7 @@ export default function MyPageScreen({
       <div style={{ ...stickerCard, ...s.group }}>
         <Row label="지난 어항 보기" onClick={onOpenRecords} />
         <Divider />
-        <Row label="내 기록 내보내기" sub="내가 한 말, 참견이 대답, 편지를 파일 하나로." value={busy === "export" ? "만드는 중..." : undefined} onClick={exportRecords} disabled={busy === "export"} />
+        <Row label="내 기록 내보내기" sub="내가 한 말, 참견이 대답, 편지를 파일 하나로" value={busy === "export" ? "만드는 중..." : undefined} onClick={exportRecords} disabled={busy === "export"} />
       </div>
 
       {/* 도움 */}
@@ -555,7 +555,7 @@ export default function MyPageScreen({
             {sheet === "quiet" && prefs && (
               <>
                 <p style={s.sheetTitle}>조용한 시간</p>
-                <p style={s.sheetDesc}>이 사이에는 참견이가 먼저 문자하지 않아. 내가 부탁한 알림은 예외야.</p>
+                <p style={s.sheetDesc}>이 사이에는 참견이가 먼저 문자하지 않아 내가 부탁한 알림은 예외야</p>
                 <p style={s.pickLabel}>여기서부터</p>
                 <div style={s.pickRow}>
                   {QUIET_STARTS.map((h) => (
@@ -596,7 +596,7 @@ export default function MyPageScreen({
                   style={s.textarea}
                   value={feedback}
                   maxLength={2000}
-                  placeholder="불편했던 거, 바랐던 거, 아무 말이나."
+                  placeholder="불편했던 거, 바랐던 거, 아무 말이나"
                   onChange={(e) => setFeedback(e.target.value)}
                 />
                 <button className="wn-sticker" style={s.primary} disabled={busy === "feedback" || feedback.trim().length < 2} onClick={sendFeedback}>
@@ -610,8 +610,8 @@ export default function MyPageScreen({
                 <p style={s.sheetTitle}>로그아웃할래?</p>
                 <p style={s.sheetDesc}>
                   {currentPhone
-                    ? "다시 들어올 땐 같은 전화번호로 인증하면 기록이 그대로 있어."
-                    : "전화번호가 등록 안 돼 있어서, 로그아웃하면 지금 기록을 다시 못 찾을 수 있어. 먼저 번호를 등록하는 걸 추천해."}
+                    ? "다시 들어올 땐 같은 전화번호로 인증하면 기록이 그대로 있어"
+                    : "전화번호가 등록 안 돼 있어서, 로그아웃하면 지금 기록을 다시 못 찾을 수 있어\n먼저 번호를 등록하는 걸 추천해"}
                 </p>
                 <button className="wn-sticker" style={s.primary} disabled={busy === "logout"} onClick={logout}>
                   {busy === "logout" ? "나가는 중..." : "로그아웃"}
@@ -623,7 +623,7 @@ export default function MyPageScreen({
               <>
                 <p style={s.sheetTitle}>정말 탈퇴할래?</p>
                 <p style={s.sheetDesc}>
-                  녹음, 내가 한 말, 기억, 편지, 설정, 계정이 바로 전부 지워져. 되돌릴 수 없어. 필요하면 먼저 &lsquo;내 기록 내보내기&rsquo;로 받아둬.
+                  녹음, 내가 한 말, 기억, 편지, 설정, 계정이 바로 전부 지워져<br />되돌릴 수 없어<br />필요하면 먼저 &lsquo;내 기록 내보내기&rsquo;로 받아둬
                 </p>
                 <p style={s.pickLabel}>확인을 위해 &lsquo;탈퇴&rsquo;라고 적어줘</p>
                 <input id="my-delete" style={s.input} value={deleteText} onChange={(e) => setDeleteText(e.target.value)} placeholder="탈퇴" />

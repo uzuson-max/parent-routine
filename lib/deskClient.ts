@@ -41,7 +41,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<
     const {
       data: { session },
     } = await supabaseClient.auth.getSession();
-    if (!session) return { ok: false, error: "로그인이 아직 안 됐어. 새로고침하면 돼.", status: 401 };
+    if (!session) return { ok: false, error: "로그인이 아직 안 됐어\n새로고침하면 돼", status: 401 };
     const res = await fetch(path, {
       ...init,
       headers: {
@@ -56,7 +56,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<
     }
     return { ok: true, data: body.data as T };
   } catch {
-    return { ok: false, error: "인터넷이 끊긴 것 같아.", status: 0 };
+    return { ok: false, error: "인터넷이 끊긴 것 같아", status: 0 };
   }
 }
 

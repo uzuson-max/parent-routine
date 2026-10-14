@@ -125,7 +125,7 @@ export default function CalendarScreen({ entries, onBack }: CalendarScreenProps)
         <div className="tactile-lift-in" style={styles.dayDetail}>
           <p style={styles.dayDetailTitle}>{selectedDayLabel}</p>
           {selectedEntries.length === 0 ? (
-            <p style={styles.emptyDayText}>아무 말도 안 한 날.</p>
+            <p style={styles.emptyDayText}>아무 말도 안 한 날</p>
           ) : (
             selectedEntries
               .slice()

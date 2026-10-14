@@ -4,7 +4,7 @@
 // 서버 쪽 검증(문자 바이트 등)은 lib/reminders/core.ts.
 // ============================================================================
 
-export const REMINDER_HEADER = '참견이 알람.';
+export const REMINDER_HEADER = '참견이 알람';
 export const REMINDER_TITLE_MAX = 30; // 화면 입력 한도 — 문자로 가도 90바이트 안에 들어가게
 export const MIN_LEAD_MS = 60 * 1000; // 1분 뒤부터
 export const MAX_AHEAD_MS = 366 * 24 * 60 * 60 * 1000; // 1년 안쪽
@@ -57,9 +57,9 @@ export function isOverdue(status: ReminderStatus, remindAtIso: string, now: Date
 /** 화면에 보여줄 실패 이유 — 사람 말로. */
 export function failureText(lastError: string | null | undefined): string {
   const e = lastError ?? '';
-  if (e.startsWith('late')) return '그때 못 알려줬어. 너무 늦어버려서.';
-  if (e.startsWith('no_channel')) return '알려줄 방법이 없었어. 앱 알림이나 전화번호가 필요해.';
-  return '알려주려다 실패했어.';
+  if (e.startsWith('late')) return '그때 못 알려줬어\n너무 늦어버려서';
+  if (e.startsWith('no_channel')) return '알려줄 방법이 없었어\n앱 알림이나 전화번호가 필요해';
+  return '알려주려다 실패했어';
 }
 
 // ---- 한국 시간 표시/입력 (기기 시간대와 상관없이 한국 시간 기준) ----

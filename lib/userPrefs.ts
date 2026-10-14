@@ -75,21 +75,21 @@ export async function saveUserPrefs(
   const row: Record<string, any> = { user_id: userId, updated_at: new Date().toISOString() };
   if (patch.outreachEnabled !== undefined) row.outreach_enabled = !!patch.outreachEnabled;
   if (patch.interventionLevel !== undefined) {
-    if (!['low', 'medium', 'high'].includes(patch.interventionLevel)) return { ok: false, error: '참견 정도 값이 이상해.' };
+    if (!['low', 'medium', 'high'].includes(patch.interventionLevel)) return { ok: false, error: '참견 정도 값이 이상해' };
     row.intervention_level = patch.interventionLevel;
   }
   if (patch.quietStartHour !== undefined) {
-    if (!QUIET_START_OPTIONS.includes(patch.quietStartHour)) return { ok: false, error: '조용한 시간 값이 이상해.' };
+    if (!QUIET_START_OPTIONS.includes(patch.quietStartHour)) return { ok: false, error: '조용한 시간 값이 이상해' };
     row.quiet_start_hour = patch.quietStartHour;
   }
   if (patch.quietEndHour !== undefined) {
-    if (!QUIET_END_OPTIONS.includes(patch.quietEndHour)) return { ok: false, error: '조용한 시간 값이 이상해.' };
+    if (!QUIET_END_OPTIONS.includes(patch.quietEndHour)) return { ok: false, error: '조용한 시간 값이 이상해' };
     row.quiet_end_hour = patch.quietEndHour;
   }
 
   const { error } = await supabase.from('user_memory').upsert(row, { onConflict: 'user_id' });
   if (error) {
-    if (isMissingColumn(error)) return { ok: false, error: '설정 저장 준비가 아직 안 됐어.', migrationNeeded: true };
+    if (isMissingColumn(error)) return { ok: false, error: '설정 저장 준비가 아직 안 됐어', migrationNeeded: true };
     return { ok: false, error: error.message };
   }
   const { prefs } = await loadUserPrefs(userId);

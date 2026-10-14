@@ -40,7 +40,7 @@ export function acquireMicStream(): Promise<MediaStream> {
   }
   if (pending) return pending;
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-    return Promise.reject(new Error("이 브라우저에선 마이크를 못 써."));
+    return Promise.reject(new Error("이 브라우저에선 마이크를 못 써"));
   }
   pending = navigator.mediaDevices
     .getUserMedia({ audio: true })

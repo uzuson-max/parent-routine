@@ -255,7 +255,7 @@ function NotesPane({
           value={text}
           maxLength={NOTE_MAX}
           rows={3}
-          placeholder="떠오른 거, 사고 싶은 거, 물어볼 거… 여기 띄워도 돼."
+          placeholder="떠오른 거, 사고 싶은 거, 물어볼 거… 여기 띄워도 돼"
           onChange={(e) => changeText(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
@@ -307,7 +307,7 @@ function NotesPane({
             <path d="M40 34 L60 18 L80 34 Z" fill="#fff" stroke={INK} strokeWidth={2.6} strokeLinejoin="round" />
             <path d="M60 18 V34" stroke={INK} strokeWidth={2} />
           </svg>
-          <p>아직 아무것도 안 떠 있어.</p>
+          <p>아직 아무것도 안 떠 있어</p>
         </div>
       )}
       {shown && shown.length === 0 && q && <p className="ss-muted ss-center">“{q}” 들어간 쪽지가 없어.</p>}
@@ -408,7 +408,7 @@ function NoteSlip({
               {err}
             </p>
           )}
-          {saved && !changed && <p className="ss-ok" role="status">고쳐뒀어.</p>}
+          {saved && !changed && <p className="ss-ok" role="status">고쳐뒀어</p>}
           {!confirmDel ? (
             <div className="ss-row ss-wrap-row">
               <button
@@ -437,7 +437,7 @@ function NoteSlip({
             </div>
           ) : (
             <div className="ss-row ss-wrap-row" role="group" aria-label="지울지 확인">
-              <span className="ss-ask">지우면 다시 못 꺼내. 지울까?</span>
+              <span className="ss-ask">지우면 다시 못 꺼내 지울까?</span>
               <button
                 className="ss-btn ss-btn-danger"
                 disabled={busy}
@@ -550,7 +550,7 @@ function AlarmsPane({
       )}
 
       {reminders === null && !desk.remindersError && <p className="ss-muted ss-center">알람 보는 중…</p>}
-      {reminders && reminders.length === 0 && !formOpen && <p className="ss-muted ss-center">걸어둔 알람이 없어.</p>}
+      {reminders && reminders.length === 0 && !formOpen && <p className="ss-muted ss-center">걸어둔 알람이 없어</p>}
 
       {failed.length > 0 && <h3 className="ss-h">못 알려준 거</h3>}
       <ul className="ss-alist">
@@ -587,10 +587,10 @@ function DeliveryLine({ delivery, onChanged }: { delivery: Delivery | null; onCh
   const support = pushSupport();
   const canEnablePush = !delivery.push && support === "ok" && notificationPermission() !== "denied";
   const line = delivery.push
-    ? "앱 알림으로 알려줄게."
+    ? "앱 알림으로 알려줄게"
     : delivery.sms
-    ? "지금은 문자로 알려줄게."
-    : "지금은 알려줄 방법이 없어. 앱 알림을 켜거나 전화번호 인증이 필요해.";
+    ? "지금은 문자로 알려줄게"
+    : "지금은 알려줄 방법이 없어\n앱 알림을 켜거나 전화번호 인증이 필요해";
   return (
     <div className={delivery.push || delivery.sms ? "ss-deliv" : "ss-deliv ss-deliv-warn"} role={delivery.push || delivery.sms ? "note" : "alert"}>
       <span>{line}</span>
@@ -608,9 +608,9 @@ function DeliveryLine({ delivery, onChanged }: { delivery: Delivery | null; onCh
           {state === "busy" ? "잠깐만…" : "앱 알림 켜기"}
         </button>
       )}
-      {state === "denied" && <span className="ss-muted">알림이 꺼져 있어. 폰 설정에서 켜야 해.</span>}
-      {state === "failed" && <span className="ss-muted">앱 알림 켜기가 안 됐어.</span>}
-      {!delivery.push && support === "needs_install" && <span className="ss-muted">아이폰은 홈 화면에 추가하면 앱 알림도 받을 수 있어.</span>}
+      {state === "denied" && <span className="ss-muted">알림이 꺼져 있어 폰 설정에서 켜야 해</span>}
+      {state === "failed" && <span className="ss-muted">앱 알림 켜기가 안 됐어</span>}
+      {!delivery.push && support === "needs_install" && <span className="ss-muted">아이폰은 홈 화면에 추가하면 앱 알림도 받을 수 있어</span>}
     </div>
   );
 }
@@ -671,7 +671,7 @@ function ReminderRow({
       </div>
       <span className="ss-awhen">{kstLabel(r.remindAt, now)}</span>
       {r.status === "sending" && <span className="ss-muted">지금 알려주는 중…</span>}
-      {overdue && <span className="ss-warn">시간이 지났는데 아직 못 알려줬어. 알람 발송기가 안 돌고 있는 것 같아.</span>}
+      {overdue && <span className="ss-warn">시간이 지났는데 아직 못 알려줬어 알람 발송기가 안 돌고 있는 것 같아</span>}
       {r.status === "failed" && <span className="ss-warn">{failureText(r.lastError)}</span>}
       {r.source === "voice" && <span className="ss-muted">말한 일정에서 건 알람</span>}
       {err && (
@@ -746,8 +746,8 @@ function AlarmForm({
       className="ss-form"
       onSubmit={async (e) => {
         e.preventDefault();
-        if (!iso) return setErr("시간을 다시 골라줘.");
-        if (new Date(iso).getTime() < Date.now() + 60_000) return setErr("이미 지난 시간이야.");
+        if (!iso) return setErr("시간을 다시 골라줘");
+        if (new Date(iso).getTime() < Date.now() + 60_000) return setErr("이미 지난 시간이야");
         setBusy(true);
         setErr(null);
         const msg = await onSubmit(title.trim(), iso);

@@ -20,7 +20,7 @@ export default function ResultScreen({
       <Card label="니가 한 말" value={result.transcript} />
       {memoryRef && <Card label="참견이가 떠올린 기억" value={memoryRef} icon />}
       <Card label="참견이가 한 말" value={responseText} highlight />
-      <p style={styles.savedNote}>오늘 기록해뒀어.</p>
+      <p style={styles.savedNote}>오늘 기록해뒀어</p>
       <div style={styles.actions}>
         <button className={TACTILE_PRESS_CLASS} style={styles.talkMoreButton} onClick={onTalkMore}>＋ 더 이야기하기</button>
         <button className={TACTILE_PRESS_CLASS} style={styles.homeButton} onClick={onHome}>홈으로</button>

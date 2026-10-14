@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   const userId = await getUserIdFromRequest(request);
-  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
   const { count, error } = await supabase
     .from('push_subscriptions')
     .select('id', { count: 'exact', head: true })
@@ -25,14 +25,14 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   const userId = await getUserIdFromRequest(request);
-  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
   const body = await request.json().catch(() => ({}));
   const sub = body?.subscription;
   const endpoint = typeof sub?.endpoint === 'string' ? sub.endpoint : '';
   const p256dh = typeof sub?.keys?.p256dh === 'string' ? sub.keys.p256dh : '';
   const auth = typeof sub?.keys?.auth === 'string' ? sub.keys.auth : '';
   if (!endpoint.startsWith('https://') || !p256dh || !auth) {
-    return NextResponse.json({ success: false, error: '구독 정보가 올바르지 않아.' }, { status: 400 });
+    return NextResponse.json({ success: false, error: '구독 정보가 올바르지 않아' }, { status: 400 });
   }
   const { error } = await supabase.from('push_subscriptions').upsert(
     {
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   const userId = await getUserIdFromRequest(request);
-  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
   const body = await request.json().catch(() => ({}));
   const endpoint = typeof body?.endpoint === 'string' ? body.endpoint : '';
   let q = supabase.from('push_subscriptions').delete().eq('user_id', userId);

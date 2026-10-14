@@ -36,9 +36,9 @@ export default function CallingScreen({
       <div style={styles.iconWrap}>
         <IconPhone style={{ width: 32, height: 32, color: "#fff" }} />
       </div>
-      {status === "pending" && <span style={styles.stamp}>참견이 전화 중.</span>}
+      {status === "pending" && <span style={styles.stamp}>참견이 전화 중</span>}
       <p style={styles.copy}>
-        {status === "pending" && "번호 저장했어.\n이건 좀 전화로 얘기하고 싶은데.\n잠깐만. 전화할게."}
+        {status === "pending" && "번호 저장했어\n이건 좀 전화로 얘기하고 싶은데\n잠깐만\n전화할게"}
         {status === "done" && "통화 끝!"}
       </p>
       <button className={TACTILE_PRESS_CLASS} style={styles.homeButton} onClick={onHome}>

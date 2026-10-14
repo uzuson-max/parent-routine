@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   try {
     const userId = await getUserIdFromRequest(request);
     if (!userId) {
-      return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+      return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
     }
 
     // 기존 voice_entries 테이블에서 본인 것만, 최신순으로. 새 테이블 없음.

@@ -37,7 +37,7 @@ export default function MessageScreen({
       <div style={styles.scrollArea}>
         <div style={styles.content}>
           <Mascot pose="기본" size={72} />
-          {firstRun && <span style={styles.stamp}>참견이 등장.</span>}
+          {firstRun && <span style={styles.stamp}>참견이 등장</span>}
           <p style={styles.title}>{title}</p>
           {subtitle && <p style={styles.subtitle}>{subtitle}</p>}
 

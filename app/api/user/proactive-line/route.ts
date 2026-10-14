@@ -109,7 +109,7 @@ async function synthesizeMemoryCallback(memory: MemoryCallbackCandidateRow): Pro
   조언하는 게 아니다.
 - 가장 참견이다운 톤은 "근데?", "그래서?", "그건 어떻게 됐어?"처럼, 예전에 한 말을 근거로 지금은 어떤지
   가볍게 캐묻는 것이다. 하지만 모든 기억에 억지로 질문을 만들어 붙이지 마라 — 질문형이 어색하면 그냥
-  "그 말 아직도 생각나네." 같은 담백한 되던짐도 괜찮다. 중요한 건 형식이 아니라 "진짜 다시 궁금해서
+  "그 말 아직도 생각나네" 같은 담백한 되던짐도 괜찮다. 중요한 건 형식이 아니라 "진짜 다시 궁금해서
   꺼내는 느낌"이지, 정해진 어미를 쓰는 게 아니다.
 - 위 기억 하나만으로 정말 흥미로운 지점이 없다면(그냥 일상적이고 다시 꺼낼 이유가 없는 내용이면) 억지로
   만들지 말고 found:false로 답해라. 애매하면 만들지 않는 쪽을 택해라. 참견이는 아무거나 붙잡고 늘어지는
@@ -188,7 +188,7 @@ export async function GET(request: Request) {
   try {
     const userId = await getUserIdFromRequest(request);
     if (!userId) {
-      return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+      return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
     }
 
     // 1순위: 단일 memory_unit 콜백

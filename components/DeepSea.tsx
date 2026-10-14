@@ -37,11 +37,11 @@ export interface SeaGrowth {
 type Mode = "idle" | "discover" | "growth" | "curious";
 
 const GROWTH_LINES: Record<number, string> = {
-  1: "어, 다시마 싹 났다. 니가 말한 날들이 쌓여서 그래.",
-  2: "조약돌 줍기 시작했어. 니가 다시 꺼낸 얘기들이야.",
-  3: "다시마 숲 생겼어. 이제 안 떠내려가.",
-  4: "조개 정원 생겼다. 니 얘기 진짜 많이 쌓였네.",
-  5: "여기 이제 보물 굴이야. 전부 니 얘기로 만든 거.",
+  1: "어, 다시마 싹 났다\n니가 말한 날들이 쌓여서 그래",
+  2: "조약돌 줍기 시작했어\n니가 다시 꺼낸 얘기들이야",
+  3: "다시마 숲 생겼어\n이제 안 떠내려가",
+  4: "조개 정원 생겼다\n니 얘기 진짜 많이 쌓였네",
+  5: "여기 이제 보물 굴이야\n전부 니 얘기로 만든 거",
 };
 
 function holdingFor(stage: number): OtterHolding {

@@ -50,11 +50,11 @@ function tableMissing(err: { code?: string; message?: string }): boolean {
 
 export async function POST(request: Request) {
   const userId = await getUserIdFromRequest(request);
-  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+  if (!userId) return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
 
   const body = await request.json().catch(() => ({}));
   if (body?.confirm !== '탈퇴') {
-    return NextResponse.json({ success: false, error: "확인 문구가 달라. '탈퇴'라고 적어줘." }, { status: 400 });
+    return NextResponse.json({ success: false, error: "확인 문구가 달라\n'탈퇴'라고 적어줘" }, { status: 400 });
   }
 
   try {
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
   } catch (err: any) {
     console.error('[api/user/delete] 실패:', err?.message);
     return NextResponse.json(
-      { success: false, error: '탈퇴 처리 중 문제가 생겼어. 의견 보내기로 알려주면 직접 지울게.' },
+      { success: false, error: '탈퇴 처리 중 문제가 생겼어\n의견 보내기로 알려주면 직접 지울게' },
       { status: 500 }
     );
   }

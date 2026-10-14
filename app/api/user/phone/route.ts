@@ -11,13 +11,13 @@ function normalizePhone(raw: string): string {
 export async function POST(request: Request) {
   const userId = await getUserIdFromRequest(request);
   if (!userId) {
-    return NextResponse.json({ success: false, error: '인증 세션이 없습니다.' }, { status: 401 });
+    return NextResponse.json({ success: false, error: '인증 세션이 없습니다' }, { status: 401 });
   }
 
   const { phone_number, entryId } = await request.json();
   const normalized = typeof phone_number === 'string' ? normalizePhone(phone_number) : '';
   if (!normalized) {
-    return NextResponse.json({ success: false, error: 'phone_number가 필요합니다.' }, { status: 400 });
+    return NextResponse.json({ success: false, error: 'phone_number가 필요합니다' }, { status: 400 });
   }
 
   const { error: upsertError } = await supabase.from('user_memory').upsert({
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, phone_number: normalized });
     }
     if (entry.user_id !== userId) {
-      return NextResponse.json({ success: false, error: '권한이 없습니다.' }, { status: 403 });
+      return NextResponse.json({ success: false, error: '권한이 없습니다' }, { status: 403 });
     }
 
     await supabase.from('voice_entries').update({ user_phone: normalized }).eq('id', entryId);
