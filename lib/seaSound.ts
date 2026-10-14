@@ -247,7 +247,10 @@ export function recallChime() {
 //   munch 오물오물 — 아주 작게
 //   tik   조약돌 받을 때 똑
 //   ting  주머니에서 꺼낸 돌이 반짝
-export type OtterSound = "tok" | "munch" | "tik" | "ting";
+//   swish 바닥까지 "슝" 다이빙 / 친구가 휙 달아날 때 — 물을 가르는 소리(낮게 쓸려 가는 잡음)
+//   rustle 해초를 톡톡 — 사각사각 아주 작게
+//   boop  친구랑 콩 부딪힐 때 — 동그란 "뿅" + 방울 하나
+export type OtterSound = "tok" | "munch" | "tik" | "ting" | "swish" | "rustle" | "boop";
 
 function noiseBurst(c: AudioContext, out: AudioNode, at: number, dur: number, freq: number, q: number, vol: number, type: BiquadFilterType) {
   const len = Math.max(1, Math.floor(c.sampleRate * dur));
@@ -313,6 +316,14 @@ export function otterSound(kind: OtterSound) {
     noiseBurst(c, out, at, 0.05, 700 + Math.random() * 400, 2.5, 0.12 * k, "bandpass");
   } else if (kind === "tik") {
     tone(c, out, at, 1500 + Math.random() * 300, 1300, 0.04, 0.06 * k);
+  } else if (kind === "swish") {
+    noiseBurst(c, out, at, 0.45, 520, 0.7, 0.32 * k, "lowpass");
+    noiseBurst(c, out, at + 0.05, 0.3, 1100, 1.4, 0.08 * k, "bandpass");
+  } else if (kind === "rustle") {
+    for (let i = 0; i < 3; i++) noiseBurst(c, out, at + i * 0.07 + Math.random() * 0.02, 0.05, 2200 + Math.random() * 800, 3, 0.06 * k, "bandpass");
+  } else if (kind === "boop") {
+    tone(c, out, at, 420, 760, 0.14, 0.09 * k);
+    bubble(c, at + 0.12, 0.5);
   } else {
     tone(c, out, at, 1320, 1320, 0.7, 0.05 * k);
     tone(c, out, at + 0.08, 1760, 1760, 0.6, 0.035 * k);
