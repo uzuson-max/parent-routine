@@ -2,8 +2,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { OtterBody, type OtterExpression, type OtterHolding } from "@/components/Otter";
-import { plop } from "@/lib/seaSound";
+import { OtterBody, type OtterAct, type OtterExpression, type OtterHolding } from "@/components/Otter";
+import { otterSound, plop, type OtterSound } from "@/lib/seaSound";
 import { decideCue, deepTapCue, loadOtterMemory, saveOtterMemory } from "@/lib/otterCues";
 
 // ============================================================================
@@ -25,6 +25,9 @@ import { decideCue, deepTapCue, loadOtterMemory, saveOtterMemory } from "@/lib/o
 //   growth    실제로 단계가 올라갔고 아직 못 봤을 때만 — 뿌듯하게 보여주고, 본 걸로 기록(onSeen)
 //   curious   누르면 갸우뚱하고 한마디 — 지금 실제 상태(다음 알람, 물고기, 쪽지, 조약돌)로만, 같은 말 반복 없이.
 //             할 말을 다 하면 더 지어내지 않고 웃기만 한다(lib/otterCues.ts deepTapCue).
+//   혼자 놀기  아무 일 없을 땐 혼자 논다(동물의숲처럼 — 보고 있으면 편해지는 쪽). 낮에만, 보일 때만.
+//             조개 까기 / 냠냠 / 조약돌 저글링 / 세수 / 겨드랑이 주머니. 물속 소리가 켜져 있으면 작은 소리도 난다.
+//             수달은 이제 홈 위로 그냥 놀러 올라오지 않는다 — 걱정이를 데려올 때만(components/OtterCloseUp.tsx).
 // 기억 회상은 여기서 하지 않는다 — 그건 홈 위쪽 말풍선/기억 캡슐이 기존 데이터로만 한다.
 // ============================================================================
 
@@ -35,6 +38,18 @@ export interface SeaGrowth {
 }
 
 type Mode = "idle" | "discover" | "growth" | "curious";
+
+// 혼자 놀기 — 길이(ms), 표정, 소리(시작 후 언제 무슨 소리). 소리 박자는 아래 CSS 애니메이션 주기와 맞춘다.
+const ACTS: Record<Exclude<OtterAct, "none">, { ms: number; face: OtterExpression; sounds: [number, OtterSound][] }> = {
+  // .otr-act-crack 0.6초 주기, 40% 지점에서 돌에 닿는다
+  crack: { ms: 5400, face: "base", sounds: Array.from({ length: 8 }, (_, i) => [240 + i * 600, "tok"] as [number, OtterSound]) },
+  eat: { ms: 4400, face: "laugh", sounds: [300, 700, 1100, 1900, 2300, 2700, 3500].map((t) => [t, "munch"] as [number, OtterSound]) },
+  // .otr-act-juggle-stone 0.7초마다 반대 손에 떨어진다
+  juggle: { ms: 4900, face: "laugh", sounds: Array.from({ length: 6 }, (_, i) => [700 + i * 700, "tik"] as [number, OtterSound]) },
+  groom: { ms: 3800, face: "sleep", sounds: [] },
+  pocket: { ms: 4200, face: "surprise", sounds: [[1100, "ting"]] },
+};
+const ACT_NAMES = Object.keys(ACTS) as Exclude<OtterAct, "none">[];
 
 const GROWTH_LINES: Record<number, string> = {
   1: "어, 다시마 싹 났다\n니가 말한 날들이 쌓여서 그래",
@@ -91,6 +106,51 @@ export default function DeepSea({
   };
   useEffect(() => clearAll, []);
 
+  // ---- 혼자 놀기 ----
+  const [act, setAct] = useState<OtterAct>("none");
+  const [seen, setSeen] = useState(false); // 심해가 화면에 보이는 중
+  const lastAct = useRef<OtterAct>("none");
+  useEffect(() => {
+    let reduce = false;
+    try {
+      reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch {
+      /* 그대로 */
+    }
+    if (mode !== "idle" || night || busy || away || !seen || reduce) {
+      setAct("none");
+      return;
+    }
+    const ts: ReturnType<typeof setTimeout>[] = [];
+    let alive = true;
+    const loop = (first: boolean) => {
+      // 쉬었다가(둥둥) → 하나 골라서 → 끝나면 다시 쉬기
+      const rest = first ? 1800 + Math.random() * 1500 : 3500 + Math.random() * 4500;
+      ts.push(
+        setTimeout(() => {
+          if (!alive) return;
+          const pool = ACT_NAMES.filter((a) => a !== lastAct.current);
+          const next = pool[Math.floor(Math.random() * pool.length)];
+          lastAct.current = next;
+          setAct(next);
+          ACTS[next].sounds.forEach(([t, snd]) => ts.push(setTimeout(() => alive && otterSound(snd), t)));
+          ts.push(
+            setTimeout(() => {
+              if (!alive) return;
+              setAct("none");
+              loop(false);
+            }, ACTS[next].ms)
+          );
+        }, rest)
+      );
+    };
+    loop(true);
+    return () => {
+      alive = false;
+      ts.forEach(clearTimeout);
+    };
+  }, [mode, night, busy, away, seen]);
+
   // 연출 중 최신 값을 읽으려고
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
@@ -127,6 +187,7 @@ export default function DeepSea({
         if (e.isIntersecting && e.intersectionRatio >= 0.5) {
           if (inView.current) return;
           inView.current = true;
+          setSeen(true);
           if (busyRef.current) return;
           if (pendingRef.current) {
             showGrowth();
@@ -143,6 +204,7 @@ export default function DeepSea({
           later(() => setMode("idle"), cue.ms + 200);
         } else if (!e.isIntersecting || e.intersectionRatio < 0.2) {
           inView.current = false;
+          setSeen(false);
         }
       },
       { threshold: [0, 0.2, 0.5, 0.8] }
@@ -180,7 +242,7 @@ export default function DeepSea({
 
   const upright = mode === "discover" || mode === "growth";
   const expr: OtterExpression =
-    mode === "growth" ? "proud" : mode !== "idle" && face ? face : night ? "sleep" : "base";
+    mode === "growth" ? "proud" : mode !== "idle" && face ? face : night ? "sleep" : act !== "none" ? ACTS[act].face : "base";
 
   return (
     <section
@@ -248,7 +310,7 @@ export default function DeepSea({
           {upright ? (
             <OtterBody pose="upright" expression={expr} holding={holdingFor(stage)} kelp={stage >= 3} wave={mode === "discover"} width={124} />
           ) : (
-            <OtterBody pose="float" expression={expr} holding={holdingFor(stage)} kelp={stage >= 3} width={200} />
+            <OtterBody pose="float" expression={expr} holding={holdingFor(stage)} kelp={stage >= 3} act={upright ? "none" : act} width={200} />
           )}
         </button>
         {night && !upright && (
@@ -380,6 +442,24 @@ const CSS = `
 @keyframes ds-burst{0%{opacity:0;scale:.3}30%{opacity:1;scale:1.1}100%{opacity:0;scale:.6}}
 .ds-floor{position:absolute;left:0;right:0;bottom:0;height:200px;pointer-events:none}
 .ds-sand{position:absolute;left:-6px;right:-6px;bottom:0;width:calc(100% + 12px);height:90px;display:block}
+/* 혼자 놀기 동작 — 소리 박자(위 ACTS)와 주기를 맞춘다 */
+.ds-otter [class^="otr-act-"]{transform-box:view-box}
+.ds-otter .otr-act-crack{animation:ds-crack .6s cubic-bezier(.5,0,.6,1) infinite}
+@keyframes ds-crack{0%{transform:translateY(-10px)}40%{transform:translateY(3px)}52%{transform:translateY(0)}100%{transform:translateY(-10px)}}
+.ds-otter .otr-act-eat{transform-origin:154px 68px;animation:ds-eat .4s ease-in-out infinite alternate}
+@keyframes ds-eat{from{transform:rotate(-4deg) translateY(1px)}to{transform:rotate(3deg) translateY(-2px)}}
+.ds-otter .otr-act-juggle-stone{animation:ds-juggle .7s ease-in-out infinite alternate}
+@keyframes ds-juggle{0%{transform:translate(0,0)}50%{transform:translate(10px,-34px)}100%{transform:translate(20px,0)}}
+.ds-otter .otr-act-juggle-l{animation:ds-paw .7s ease-in-out infinite alternate}
+.ds-otter .otr-act-juggle-r{animation:ds-paw .7s ease-in-out infinite alternate-reverse}
+@keyframes ds-paw{from{transform:translateY(-5px)}to{transform:translateY(1px)}}
+.ds-otter .otr-act-groom-l{animation:ds-groom .5s ease-in-out infinite}
+.ds-otter .otr-act-groom-r{animation:ds-groom .5s ease-in-out infinite reverse}
+@keyframes ds-groom{0%{transform:translate(0,0)}25%{transform:translate(2px,-3px)}50%{transform:translate(0,-5px)}75%{transform:translate(-2px,-2px)}100%{transform:translate(0,0)}}
+.ds-otter .otr-act-pocket{animation:ds-pocket 4.2s ease-in-out both}
+@keyframes ds-pocket{0%,8%{transform:translate(0,0)}26%,74%{transform:translate(44px,-28px)}92%,100%{transform:translate(0,0)}}
+.ds-otter .otr-act-pocket-shine{transform-box:fill-box;transform-origin:50% 50%;animation:ds-shine 4.2s ease-in-out both}
+@keyframes ds-shine{0%,24%{opacity:0;transform:scale(.3)}32%{opacity:1;transform:scale(1.2)}66%{opacity:1;transform:scale(1)}76%,100%{opacity:0;transform:scale(.3)}}
 @media (prefers-reduced-motion: reduce){
   .ds-drift,.ds-ray,.ds-mote,.ds-sway,.ds-glow,.ds-float,.ds-up,.ds-proud,.ds-zz,.ds-burst span,.ds-otter .otr-wave,.ds-otter .otr-tail{animation:none}
   .ds-burst{display:none}

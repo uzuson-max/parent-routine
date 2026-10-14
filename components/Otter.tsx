@@ -19,6 +19,9 @@
 
 export type OtterExpression = "base" | "tilt" | "surprise" | "laugh" | "remember" | "proud" | "sleep" | "sly" | "stare" | "angry";
 export type OtterHolding = "none" | "pebble" | "shell" | "pearl" | "note"; // note = 물 위 쪽지(알람/메모 얘기할 때)
+// 심해에서 혼자 노는 동작(누운 자세 전용) — 움직임은 바깥 CSS(.otr-act-*)가 맡는다. components/DeepSea.tsx
+//   crack 배 위 돌에 조개 탁탁 / eat 조개 오물오물 / juggle 조약돌 저글링 / groom 세수 / pocket 겨드랑이 주머니에서 돌 꺼내 보기
+export type OtterAct = "none" | "crack" | "eat" | "juggle" | "groom" | "pocket";
 
 export const OTTER = {
   INK: "#1B1630",
@@ -37,6 +40,10 @@ const INK = OTTER.INK;
 const line = { stroke: INK, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, fill: "none" };
 
 /** 손에 든 것 — 조약돌/조개/진주. (cx, cy) 가운데, s 크기 배율 */
+function paw(cx: number, cy: number) {
+  return <ellipse cx={cx} cy={cy} rx={7} ry={5.5} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.4} />;
+}
+
 function heldItem(item: OtterHolding, cx: number, cy: number, s = 1) {
   if (item === "none") return null;
   if (item === "pebble")
@@ -258,11 +265,13 @@ export function OtterBody({
   holding = "none",
   kelp = false,
   wave = false,
+  act = "none",
   width = 200,
   className,
   style,
 }: {
   pose?: "float" | "upright";
+  act?: OtterAct;
   expression?: OtterExpression;
   holding?: OtterHolding;
   kelp?: boolean;
@@ -319,12 +328,61 @@ export function OtterBody({
       <path d="M58 74 C62 64 88 62 116 62 C138 62 150 66 150 74 C148 82 130 86 104 86 C80 86 58 84 58 74 Z" fill={OTTER.MUZZLE} />
       {/* 다시마 띠 */}
       {kelp && <path d="M86 58 C84 72 86 90 90 104 L100 104 C96 90 94 72 96 57 Z" fill="#2FAF6A" stroke={INK} strokeWidth={2.4} strokeLinejoin="round" />}
-      {/* 배 위에 올린 것 + 앞발 */}
-      {heldItem(holding, 124, 62, 1)}
-      <ellipse cx={114} cy={66} rx={7} ry={5.5} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.4} />
-      <ellipse cx={134} cy={66} rx={7} ry={5.5} fill={OTTER.FUR_DARK} stroke={INK} strokeWidth={2.4} />
+      {/* 배 위에 올린 것 + 앞발 — 노는 중이면 그 동작으로 */}
+      {act === "none" && (
+        <>
+          {heldItem(holding, 124, 62, 1)}
+          {paw(114, 66)}
+          {paw(134, 66)}
+        </>
+      )}
+      {act === "crack" && (
+        <>
+          {/* 배 위 돌 — 진짜 수달처럼 */}
+          <ellipse cx={123} cy={63} rx={14} ry={6.5} fill="#A9B4C2" stroke={INK} strokeWidth={2.4} />
+          <g className="otr-act-crack">
+            {heldItem("shell", 123, 40, 1.45)}
+            {paw(110, 47)}
+            {paw(136, 47)}
+          </g>
+        </>
+      )}
+      {act === "juggle" && (
+        <>
+          <g className="otr-act-juggle-stone">{heldItem("pebble", 114, 54, 1.15)}</g>
+          <g className="otr-act-juggle-l">{paw(114, 64)}</g>
+          <g className="otr-act-juggle-r">{paw(134, 64)}</g>
+        </>
+      )}
+      {act === "pocket" && (
+        <>
+          {paw(134, 66)}
+          <g className="otr-act-pocket">
+            {heldItem(holding === "none" ? "pebble" : holding, 104, 60, 1)}
+            {paw(104, 66)}
+          </g>
+          <path className="otr-act-pocket-shine" d="M160 18 L162 23 L167 25 L162 27 L160 32 L158 27 L153 25 L158 23 Z" fill="#FFE066" stroke={INK} strokeWidth={1.8} strokeLinejoin="round" />
+        </>
+      )}
       {/* 머리 — 살짝 들어서 이쪽 */}
       <g transform="translate(138 8) scale(0.84) rotate(-8 50 56)">{otterFaceG(expression, { props: false })}</g>
+      {/* 머리 앞에 오는 손 */}
+      {act === "eat" && (
+        <g className="otr-act-eat">
+          <g transform="translate(154 60) rotate(-20) scale(1.45)">
+            <path d="M-9 4 Q-10 -7 0 -8 Q10 -7 9 4 Z" fill="#FFF0E0" stroke={INK} strokeWidth={2.2} strokeLinejoin="round" />
+            <ellipse cx={0} cy={-1} rx={4.5} ry={3} fill="#F6A0A8" />
+          </g>
+          {paw(146, 70)}
+          {paw(162, 72)}
+        </g>
+      )}
+      {act === "groom" && (
+        <>
+          <g className="otr-act-groom-l">{paw(158, 60)}</g>
+          <g className="otr-act-groom-r">{paw(200, 58)}</g>
+        </>
+      )}
     </svg>
   );
 }

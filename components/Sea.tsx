@@ -154,6 +154,7 @@ interface WorryData {
 
 const SKY_PX = 150; // 수면 위로 보이는 바다 위(하늘·섬·조각배) 높이 — 상단 안전영역 아래부터. components/SeaSky.tsx
 const MAX_BOTTLES_SHOWN = 4;
+const OTTER_VISITS = false;
 const WORRY_PEEK_KEY = "ganseobi_worry_peeked_v1";
 
 export default function Sea({
@@ -347,10 +348,12 @@ export default function Sea({
   const [peek, setPeek] = useState<{ text: string; expr: PeekExpression; key: number } | null>(null);
   const [emerging, setEmerging] = useState<string | null>(null);
   const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showPeek = (text: string, expr: PeekExpression, ms: number) => {
-    setPeek({ text, expr, key: Date.now() });
-    if (peekTimer.current) clearTimeout(peekTimer.current);
-    peekTimer.current = setTimeout(() => setPeek(null), ms);
+  // 예전엔 화면 오른쪽에서 수달이 고개를 내밀며 말했다(PeekMascot). 이제 수달은 심해에서 혼자 지내고
+  // 화면 위로는 걱정이를 데려올 때만 올라온다 — 여기 한마디는 물고기 생각 말풍선으로만 띄운다.
+  const showPeek = (text: string, _expr: PeekExpression, ms: number) => {
+    setThought({ text, key: Date.now() });
+    if (thoughtTimer.current) clearTimeout(thoughtTimer.current);
+    thoughtTimer.current = setTimeout(() => setThought(null), Math.min(ms, 3200));
   };
   useEffect(() => {
     if (!lineages) return;
@@ -488,6 +491,9 @@ export default function Sea({
   const visitStateRef = useRef({ visitBusy, quiet, night, deepFacts, visible, school });
   visitStateRef.current = { visitBusy, quiet, night, deepFacts, visible, school };
   const tryVisit = () => {
+    // 수달이 그냥 놀러 올라오는 건 껐다 — "의미 없이 올라오면 짜친다". 수달은 심해(DeepSea)에서 혼자 지내고,
+    // 화면 위로는 걱정이를 데려올 때만 온다(OtterCloseUp). 다시 켜려면 OTTER_VISITS = true.
+    if (!OTTER_VISITS) return;
     const st = visitStateRef.current;
     if (visitActive.current || st.visitBusy || document.hidden) return;
     let reduce = false;
@@ -1056,6 +1062,10 @@ export default function Sea({
         )}
 
         {/* 아래가 더 있다는 표시 — 글자 없이 화살표만. 아직 못 본 변화가 있으면 노랗게 빛난다. */}
+        {/* 아래에서 보글보글 — 심해에서 참견이가 뭔가 하고 있다는 힌트(수달은 이제 위로 놀러 오지 않는다) */}
+        {[0, 1, 2].map((i) => (
+          <span key={i} className="sea-hint-bub" style={{ left: 28 + i * 7, animationDelay: `${i * 1.3}s`, width: 6 + (i % 2) * 3, height: 6 + (i % 2) * 3 }} aria-hidden />
+        ))}
         <div className={growthCue ? "sea-down sea-down-glow" : "sea-down"} aria-hidden>
           <svg width="16" height="16" viewBox="0 0 16 16">
             <path d="M3 3 L8 7.5 L13 3 M3 8.5 L8 13 L13 8.5" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
@@ -1383,6 +1393,8 @@ const CSS = `
 .sea-emerge{animation:sea-emerge 2.4s cubic-bezier(.3,1.2,.5,1) .3s both}
 @keyframes sea-emerge{0%{transform:translate(120px,160px) scale(.7);opacity:0}25%{opacity:1}100%{transform:none;opacity:1}}
 .sea-down{position:absolute;left:20px;bottom:calc(96px + env(safe-area-inset-bottom,0px));z-index:10;display:flex;align-items:center;gap:4px;padding:6px;border-radius:999px;background:rgba(255,255,255,.18);color:#fff;font-size:13px;animation:sea-hint 2.6s ease-in-out infinite}
+.sea-hint-bub{position:absolute;bottom:calc(120px + env(safe-area-inset-bottom,0px));z-index:9;border-radius:50%;border:1.5px solid rgba(255,255,255,.75);background:rgba(255,255,255,.15);pointer-events:none;opacity:0;animation:sea-hint-bub 4s ease-in infinite}
+@keyframes sea-hint-bub{0%{transform:translate(0,0);opacity:0}15%{opacity:.9}100%{transform:translate(6px,-120px);opacity:0}}
 .sea-down-glow{background:rgba(255,226,107,.85);color:#1B1630;box-shadow:0 0 18px rgba(255,226,107,.9)}
 .sea-cue{position:absolute;left:0;right:0;bottom:0;height:46%;z-index:4;pointer-events:none}
 .sea-cue span{position:absolute;bottom:-20px;width:17px;height:17px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fffbe0 0%,#FFE066 45%,rgba(255,224,102,.35) 100%);box-shadow:0 0 18px 6px rgba(255,226,107,.8);animation:sea-cue 4.4s ease-in infinite}
@@ -1459,6 +1471,7 @@ const CSS = `
 @media (prefers-reduced-motion: reduce){
   .sea-bottle,.sea-bottle-due{animation:none!important}
   .sea-swim,.sea-bob,.ft-tail,.ft-eye,.sea-sway,.sea-surface,.sea-bubble,.sea-ray,.sea-zz,.sea-emerge,.sea-peek-face,.sea-down{animation:none}
+  .sea-hint-bub{display:none}
   .sea-cue span{animation:none;opacity:.9;bottom:24px}
   .sea-visitor{display:none}
 }

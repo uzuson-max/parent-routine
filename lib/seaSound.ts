@@ -241,3 +241,80 @@ export function recallChime() {
   });
   bubble(c, c.currentTime + 0.45, 0.4);
 }
+
+// ---- 심해에서 혼자 노는 참견이 소리(components/DeepSea.tsx) — 물속 소리가 켜져 있을 때만 ----
+//   tok   조개를 배 위 돌에 탁 — 물속이라 둔하게(저역 통과)
+//   munch 오물오물 — 아주 작게
+//   tik   조약돌 받을 때 똑
+//   ting  주머니에서 꺼낸 돌이 반짝
+export type OtterSound = "tok" | "munch" | "tik" | "ting";
+
+function noiseBurst(c: AudioContext, out: AudioNode, at: number, dur: number, freq: number, q: number, vol: number, type: BiquadFilterType) {
+  const len = Math.max(1, Math.floor(c.sampleRate * dur));
+  const buf = c.createBuffer(1, len, c.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = c.createBufferSource();
+  src.buffer = buf;
+  const f = c.createBiquadFilter();
+  f.type = type;
+  f.frequency.value = freq;
+  f.Q.value = q;
+  const g = c.createGain();
+  g.gain.setValueAtTime(vol, at);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  src.connect(f);
+  f.connect(g);
+  g.connect(out);
+  src.start(at);
+  src.stop(at + dur + 0.02);
+  src.onended = () => {
+    try {
+      g.disconnect();
+      f.disconnect();
+    } catch {
+      /* 이미 끊김 */
+    }
+  };
+}
+
+function tone(c: AudioContext, out: AudioNode, at: number, f0: number, f1: number, dur: number, vol: number) {
+  const osc = c.createOscillator();
+  const g = c.createGain();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(f0, at);
+  osc.frequency.exponentialRampToValueAtTime(f1, at + dur);
+  g.gain.setValueAtTime(0.0001, at);
+  g.gain.exponentialRampToValueAtTime(vol, at + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  osc.connect(g);
+  g.connect(out);
+  osc.start(at);
+  osc.stop(at + dur + 0.02);
+  osc.onended = () => {
+    try {
+      g.disconnect();
+    } catch {
+      /* 이미 끊김 */
+    }
+  };
+}
+
+export function otterSound(kind: OtterSound) {
+  if (!playing || !ctx || !master) return;
+  const c = ctx;
+  const out = master;
+  const at = c.currentTime + 0.005;
+  const k = night ? 0.6 : 1;
+  if (kind === "tok") {
+    noiseBurst(c, out, at, 0.07, 900 + Math.random() * 300, 1.2, 0.5 * k, "lowpass");
+    tone(c, out, at, 180 + Math.random() * 40, 90, 0.08, 0.18 * k);
+  } else if (kind === "munch") {
+    noiseBurst(c, out, at, 0.05, 700 + Math.random() * 400, 2.5, 0.12 * k, "bandpass");
+  } else if (kind === "tik") {
+    tone(c, out, at, 1500 + Math.random() * 300, 1300, 0.04, 0.06 * k);
+  } else {
+    tone(c, out, at, 1320, 1320, 0.7, 0.05 * k);
+    tone(c, out, at + 0.08, 1760, 1760, 0.6, 0.035 * k);
+  }
+}
