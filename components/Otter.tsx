@@ -1,4 +1,5 @@
 // components/Otter.tsx
+import { LEAF_COLORS, mapleG } from "@/components/MapleLeaf";
 // ============================================================================
 // 참견이 = 수달. 얼굴(OtterFace)과 전신(OtterBody) 두 가지만 있고, 앱 어디서나 같은 수달이다.
 // ----------------------------------------------------------------------------
@@ -18,7 +19,7 @@
 // ============================================================================
 
 export type OtterExpression = "base" | "tilt" | "surprise" | "laugh" | "remember" | "proud" | "sleep" | "sly" | "stare" | "angry";
-export type OtterHolding = "none" | "pebble" | "shell" | "pearl" | "note"; // note = 물 위 쪽지(알람/메모 얘기할 때)
+export type OtterHolding = "none" | "pebble" | "shell" | "pearl" | "note" | "leaf"; // note = 물 위 쪽지(알람/메모 얘기할 때), leaf = 가을에 주운 단풍잎
 // 심해에서 혼자 노는 동작(누운 자세 전용) — 움직임은 바깥 CSS(.otr-act-*)가 맡는다. components/DeepSea.tsx
 //   crack 배 위 돌에 조개 탁탁 / eat 조개 오물오물 / juggle 조약돌 저글링 / groom 세수 / pocket 겨드랑이 주머니에서 돌 꺼내 보기
 export type OtterAct = "none" | "crack" | "eat" | "juggle" | "groom" | "pocket";
@@ -53,6 +54,7 @@ function heldItem(item: OtterHolding, cx: number, cy: number, s = 1) {
         <ellipse cx={-2.6} cy={-2} rx={2.4} ry={1.4} fill="#FFFFFF" opacity={0.85} />
       </g>
     );
+  if (item === "leaf") return <g>{mapleG(LEAF_COLORS[0], cx, cy - 8, 1.6 * s, -18, 2.4)}</g>;
   if (item === "note")
     return (
       <g transform={`translate(${cx} ${cy}) scale(${s}) rotate(-8)`}>

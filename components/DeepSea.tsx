@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import { OtterBody, OtterSwim, type OtterAct, type OtterExpression, type OtterHolding } from "@/components/Otter";
 import { otterSound, plop, type OtterSound } from "@/lib/seaSound";
 import { decideCue, deepTapCue, loadOtterMemory, saveOtterMemory } from "@/lib/otterCues";
+import { useSeason } from "@/lib/season";
+import { LEAF_COLORS, mapleG } from "@/components/MapleLeaf";
 
 // ============================================================================
 // 심해 — 지금 어항 바로 아래, 참견이(수달)가 사는 곳.
@@ -32,6 +34,9 @@ import { decideCue, deepTapCue, loadOtterMemory, saveOtterMemory } from "@/lib/o
 //   - 쉬는 동안엔 조개 까기 / 냠냠 / 조약돌 저글링 / 세수 / 겨드랑이 주머니.
 //   - 실제 시간과 같이 흐른다 — 아침엔 기지개부터, 밤엔 둘이 손잡고 잔다(진짜 수달처럼 떠내려가지 않게).
 //   - 해초·친구는 눌러볼 수 있다(몇 초짜리 작은 손짓). 물속 소리가 켜져 있으면 작은 소리도 난다.
+//   - 가을(lib/season.ts)엔 단풍잎이 수면에서 심해까지 천천히 가라앉고 바닥에도 몇 장 쌓여 있다. 빛도 조금 노을빛.
+//     참견이가 바닥에 내려가 잎을 주워 배 위에 올려두고 다니다가, 친구한테 주거나 다음에 내려갈 때 내려놓는다.
+//     가라앉는 잎은 눌러볼 수 있다(빙글).
 //   - 사용자를 쳐다보지 않고 자기 일에 빠져 있다. 이쪽을 보는 건 말할 때(discover/growth/curious)뿐.
 //   수달은 홈 위로 그냥 놀러 올라오지 않는다 — 걱정이를 데려올 때만(components/OtterCloseUp.tsx).
 //   올라가 있는 동안(away)에도 친구는 남아서 논다 — 집이 텅 비지 않게.
@@ -102,6 +107,19 @@ const EASE_DART = "cubic-bezier(.2,.7,.3,1)";
 const WEEDS = [
   { x: 0.2, h: 108, c1: "#3FBF8A", c2: "#2A9C6E" },
   { x: 0.78, h: 88, c1: "#55C9A0", c2: "#2FA57A" },
+];
+
+// 가을 — 천천히 가라앉는 잎(심해 위→아래)과 바닥에 쌓인 잎
+const FALL_LEAVES = [
+  { left: 14, size: 32, dur: 30, delay: -6, c: 0 },
+  { left: 46, size: 26, dur: 38, delay: -21, c: 2 },
+  { left: 70, size: 30, dur: 34, delay: -13, c: 1 },
+  { left: 88, size: 24, dur: 42, delay: -32, c: 3 },
+];
+const GROUND_LEAVES = [
+  { x: 0.36, c: 0, rot: -28 },
+  { x: 0.58, c: 2, rot: 24 },
+  { x: 0.9, c: 1, rot: 70 },
 ];
 
 function holdingFor(stage: number): OtterHolding {
@@ -258,6 +276,21 @@ export default function DeepSea({
   };
   const [friendSpin, setFriendSpin] = useState(0);
 
+  // ---- 가을 ----
+  const autumn = useSeason() === "autumn";
+  const autumnRef = useRef(autumn);
+  autumnRef.current = autumn;
+  // 주운 단풍잎 — 누가 들고 있는지(바닥의 몇 번째 잎인지)
+  const [leaf, setLeaf] = useState<{ who: "main" | "friend" | null; idx: number | null }>({ who: null, idx: null });
+  const leafRef = useRef(leaf);
+  leafRef.current = leaf;
+  const [leafSpin, setLeafSpin] = useState(FALL_LEAVES.map(() => 0));
+  const tapLeaf = (i: number) => {
+    plop();
+    otterSound("rustle");
+    setLeafSpin((ls) => ls.map((n, j) => (j === i ? n + 1 : n)));
+  };
+
   // ---- 참견이의 하루 ----
   useEffect(() => {
     if (!ready || mode !== "idle" || night || busy || away || !seen || reduce) return;
@@ -320,10 +353,13 @@ export default function DeepSea({
     const dive = async () => {
       const { W, H } = size();
       const b = mainNow.current;
+      // 가을이고 아무도 잎을 안 들고 있으면, 반쯤은 해초 대신 바닥의 단풍잎을 주우러 간다
+      const goLeaf = autumnRef.current && leafRef.current.who === null && Math.random() < 0.5;
+      const li = Math.floor(Math.random() * GROUND_LEAVES.length);
       const wi = Math.floor(Math.random() * WEEDS.length);
-      const wx = WEEDS[wi].x * W;
-      const side = wx < W / 2 ? 1 : -1; // 해초의 안쪽(화면 가운데 쪽)에 선다
-      const tx = clamp(wx + side * 52, W_UP / 2, W - W_UP / 2);
+      const wx = goLeaf ? GROUND_LEAVES[li].x * W : WEEDS[wi].x * W;
+      const side = wx < W / 2 ? 1 : -1; // 해초(잎)의 안쪽(화면 가운데 쪽)에 선다
+      const tx = clamp(wx + side * (goLeaf ? 34 : 52), W_UP / 2, W - W_UP / 2);
       const ty = H - FLOOR_BASE - UP_H / 2 - 4;
       const f1 = faceToward(b.x, tx, b.facing);
       // 1) 아래로 몸을 기울이고 잠깐 움츠렸다가
@@ -336,7 +372,22 @@ export default function DeepSea({
       // 3) 도착 — 서서 해초를 톡톡
       setMain((o) => ({ ...o, pose: "upright", tilt: 0, facing: wx > tx ? 1 : -1, face: "surprise" }));
       if (!(await wait(700))) return false;
-      const pokes = 2 + Math.floor(Math.random() * 2);
+      if (goLeaf) {
+        // 잎을 톡 건드려 보고 → 줍는다(배 위에 올려두고 다닌다)
+        setMain((o) => ({ ...o, lean: o.lean + 1, face: "tilt" }));
+        snd("rustle", 120);
+        if (!(await wait(1100))) return false;
+        setLeaf({ who: "main", idx: li });
+        snd("ting");
+        setMain((o) => ({ ...o, face: "laugh" }));
+        if (!(await wait(1600))) return false;
+      } else if (leafRef.current.who === "main") {
+        // 들고 다니던 잎은 여기 내려놓는다
+        setLeaf({ who: null, idx: null });
+        snd("tik");
+        if (!(await wait(600))) return false;
+      }
+      const pokes = goLeaf ? 0 : 2 + Math.floor(Math.random() * 2);
       for (let i = 0; i < pokes; i++) {
         setMain((o) => ({ ...o, lean: o.lean + 1, face: i === 0 ? "tilt" : "laugh" }));
         hitWeed(wi);
@@ -382,6 +433,11 @@ export default function DeepSea({
       boopAt((tx + fp.x) / 2 + side * 17, fp.y - 40);
       setFriend((o) => ({ ...o, face: "laugh", x: o.x + side * 22, ms: 420, ease: EASE_DART }));
       setMain((o) => ({ ...o, x: o.x - side * 16, ms: 420, ease: EASE_DART }));
+      // 들고 있던 단풍잎은 친구한테 준다
+      if (leafRef.current.who === "main") {
+        setLeaf((l) => ({ ...l, who: "friend" }));
+        snd("ting", 300);
+      }
       if (!(await wait(1100))) return false;
       // 술래잡기 — 친구가 휙 달아나고 참견이가 쫓아간다
       for (let i = 0; i < 2; i++) {
@@ -461,6 +517,8 @@ export default function DeepSea({
         setFriend((o) => ({ ...o, pose: "float", tilt: 0, act: "none", x: p.x, y: p.y, ms, ease: EASE_SLOW, facing: faceToward(o.x, p.x, o.facing) }));
         if (!(await wait(ms))) return;
         if (friendHeld.current) continue;
+        // 받은 단풍잎은 한참 들고 다니다가 놓친다(바닥으로 돌아간다)
+        if (leafRef.current.who === "friend" && Math.random() < 0.3) setLeaf({ who: null, idx: null });
         if (Math.random() < 0.45) {
           const a = FRIEND_ACTS[Math.floor(Math.random() * FRIEND_ACTS.length)];
           setFriend((o) => ({ ...o, act: a }));
@@ -618,6 +676,8 @@ export default function DeepSea({
   const fAct: OtterAct = friend.pose === "float" && !night ? friend.act : "none";
   const fExpr: OtterExpression = night ? "sleep" : friend.face ?? (fAct !== "none" ? ACTS[fAct as PlayAct].face : "base");
   const { W } = ready ? size() : { W: 375 };
+  const mainHold: OtterHolding = leaf.who === "main" ? "leaf" : holdingFor(stage);
+  const friendHold: OtterHolding = leaf.who === "friend" ? "leaf" : "none";
   const sayLeft = clamp(main.x, Math.min(150, W / 2), Math.max(W - 150, W / 2));
   const sayTop = Math.max(main.y - (pose === "upright" ? UP_H / 2 + 8 : 60), 96);
 
@@ -636,8 +696,22 @@ export default function DeepSea({
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
 
       {/* 깊은 곳까지 내려오는 희미한 빛 */}
-      <div className="ds-ray" style={{ left: "22%" }} />
-      <div className="ds-ray" style={{ left: "64%", width: 40, animationDelay: "-2.4s" }} />
+      <div className={`ds-ray ${autumn ? "ds-ray-warm" : ""}`} style={{ left: "22%" }} />
+      <div className={`ds-ray ${autumn ? "ds-ray-warm" : ""}`} style={{ left: "64%", width: 40, animationDelay: "-2.4s" }} />
+
+      {/* 가을 — 천천히 가라앉는 단풍잎. 눌러보면 빙글 */}
+      {autumn &&
+        FALL_LEAVES.map((l, i) => (
+          <div key={i} className="ds-fall" style={{ left: `${l.left}%`, animationDuration: `${l.dur}s`, animationDelay: `${l.delay}s`, opacity: night ? 0.75 : 1 }}>
+            <div className="ds-fall-sway" style={{ animationDelay: `${l.delay / 3}s` }}>
+              <button className={`ds-leafbtn ${leafSpin[i] ? (leafSpin[i] % 2 ? "ds-spinA" : "ds-spinB") : ""}`} onClick={() => tapLeaf(i)} aria-label="단풍잎">
+                <svg width={l.size} height={l.size} viewBox="0 0 24 24" style={{ overflow: "visible", display: "block" }} aria-hidden>
+                  {mapleG(LEAF_COLORS[l.c], 12, 12, 1, 0, 1.8)}
+                </svg>
+              </button>
+            </div>
+          </div>
+        ))}
 
       {/* 떠다니는 작은 빛 알갱이 */}
       {MOTES.map((m, i) => (
@@ -745,6 +819,15 @@ export default function DeepSea({
             </svg>
           </>
         )}
+        {/* 가을 — 바닥에 쌓인 단풍잎(참견이가 주워 가면 그 자리는 빈다) */}
+        {autumn &&
+          GROUND_LEAVES.map((g, i) =>
+            leaf.idx === i ? null : (
+              <svg key={i} className="ds-deco" width="38" height="26" viewBox="0 4 24 16" style={{ left: `calc(${g.x * 100}% - 19px)`, bottom: 42 + (i % 2) * 6, zIndex: 4 }} aria-hidden>
+                {mapleG(LEAF_COLORS[g.c], 12, 12, 0.9, g.rot, 1.8)}
+              </svg>
+            )
+          )}
         <svg className="ds-sand" viewBox="0 0 332 84" preserveAspectRatio="none" aria-hidden>
           <path className="ds-ol" d="M-4 40 C40 30 80 44 120 36 C160 26 200 42 240 34 C280 26 310 38 336 32 V90 H-4 Z" fill={night ? "#C9AE70" : "#E8C77A"} />
           {SAND_PEBBLES.map(([cx, cy, rx, ry, c], i) => (
@@ -763,9 +846,9 @@ export default function DeepSea({
               aria-label="참견이 친구"
             >
               {friend.pose === "swim" ? (
-                <OtterSwim expression={fExpr} width={W_SWIM * FRIEND_K} />
+                <OtterSwim expression={fExpr} holding={friendHold} width={W_SWIM * FRIEND_K} />
               ) : (
-                <OtterBody pose="float" expression={fExpr} act={fAct} width={W_FLOAT * FRIEND_K} />
+                <OtterBody pose="float" expression={fExpr} holding={friendHold} act={fAct} width={W_FLOAT * FRIEND_K} />
               )}
             </button>
           </div>
@@ -792,11 +875,11 @@ export default function DeepSea({
                 aria-label="참견이"
               >
                 {pose === "swim" ? (
-                  <OtterSwim expression={expr} holding={holdingFor(stage)} width={W_SWIM} />
+                  <OtterSwim expression={expr} holding={mainHold} width={W_SWIM} />
                 ) : pose === "upright" ? (
-                  <OtterBody pose="upright" expression={expr} holding={holdingFor(stage)} kelp={stage >= 3} wave={mode === "discover"} width={W_UP} />
+                  <OtterBody pose="upright" expression={expr} holding={mainHold} kelp={stage >= 3} wave={mode === "discover"} width={W_UP} />
                 ) : (
-                  <OtterBody pose="float" expression={expr} holding={holdingFor(stage)} kelp={stage >= 3} act={act} width={W_FLOAT} />
+                  <OtterBody pose="float" expression={expr} holding={mainHold} kelp={stage >= 3} act={act} width={W_FLOAT} />
                 )}
               </button>
             </div>
@@ -861,6 +944,12 @@ const CSS = `
 .ds-root{position:relative;height:max(94dvh,640px);overflow:hidden}
 .ds-ray{position:absolute;top:-10px;width:30px;height:70%;background:linear-gradient(rgba(255,255,255,.12),rgba(255,255,255,0));transform:rotate(14deg);transform-origin:top;animation:ds-shimmer 6s ease-in-out infinite alternate;pointer-events:none}
 @keyframes ds-shimmer{from{opacity:.4}to{opacity:1}}
+.ds-ray-warm{background:linear-gradient(rgba(255,214,150,.2),rgba(255,214,150,0))}
+.ds-fall{position:absolute;top:-30px;z-index:3;animation:ds-fall linear infinite;pointer-events:none}
+@keyframes ds-fall{0%{transform:translateY(0);opacity:0}6%{opacity:1}88%{opacity:1}100%{transform:translateY(calc(max(94dvh,640px) - 96px));opacity:0}}
+.ds-fall-sway{animation:ds-fall-sway 5s ease-in-out infinite alternate}
+@keyframes ds-fall-sway{0%{transform:translateX(-22px) rotate(-35deg)}100%{transform:translateX(26px) rotate(40deg)}}
+.ds-leafbtn{display:block;padding:8px;margin:-8px;border:0;background:none;cursor:pointer;pointer-events:auto;-webkit-tap-highlight-color:transparent}
 .ds-mote{position:absolute;width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.55);animation:ds-mote 9s ease-in-out infinite;pointer-events:none}
 @keyframes ds-mote{0%,100%{transform:translate(0,0);opacity:.15}50%{transform:translate(10px,-26px);opacity:.8}}
 .ds-ol{stroke:#1B1630;stroke-width:3;stroke-linejoin:round;stroke-linecap:round}
@@ -950,6 +1039,7 @@ const CSS = `
 .ds-otter .otr-act-pocket-shine{transform-box:fill-box;transform-origin:50% 50%;animation:ds-shine 4.2s ease-in-out both}
 @keyframes ds-shine{0%,24%{opacity:0;transform:scale(.3)}32%{opacity:1;transform:scale(1.2)}66%{opacity:1;transform:scale(1)}76%,100%{opacity:0;transform:scale(.3)}}
 @media (prefers-reduced-motion: reduce){
+  .ds-fall{display:none}
   .ds-ray,.ds-mote,.ds-sway,.ds-blade,.ds-glow,.ds-float,.ds-swim,.ds-up,.ds-proud,.ds-zz,.ds-burst span,.ds-turning,.ds-spinA,.ds-spinB,.ds-leanA,.ds-leanB,.ds-boop,.ds-wbub,.ds-otter .otr-wave,.ds-otter .otr-tail,.ds-otter .otr-swim-tail,.ds-otter .otr-swim-paw{animation:none}
   .ds-flip,.ds-tilt{transition:none}
   .ds-burst{display:none}

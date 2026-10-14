@@ -11,6 +11,8 @@ import DeepSea, { type SeaGrowth } from "@/components/DeepSea";
 import SeaOtter from "@/components/SeaOtter";
 import { OtterFace } from "@/components/Otter";
 import SeaSky from "@/components/SeaSky";
+import { useSeason } from "@/lib/season";
+import { LEAF_COLORS, mapleG } from "@/components/MapleLeaf";
 import { WorryCloseUp } from "@/components/OtterCloseUp";
 import { MIN_FOR_RATE, WORRY_REACT, worryAsk, worryVerdict, worryWhen, type WorryAnswer } from "@/lib/worryCopy";
 import { loadOtterMemory, pickVisit, saveOtterMemory, type Visit } from "@/lib/otterCues";
@@ -171,6 +173,7 @@ export default function Sea({
 }: SeaProps) {
   const nowRef = useRef<HTMLElement>(null); // 첫 화면(이번 달 바다) — 수달이 놀러 오는 무대
   const rootRef = useRef<HTMLDivElement>(null);
+  const autumn = useSeason() === "autumn";
   const [width, setWidth] = useState(375);
   useEffect(() => {
     const el = rootRef.current;
@@ -732,6 +735,21 @@ export default function Sea({
         >
           <path d="M0 18 Q47.5 6 95 18 T190 18 T285 18 T380 18 T475 18 T570 18 T665 18 T760 18" fill="none" stroke="#FFFFFF" strokeWidth={4} opacity={0.9} />
         </svg>
+
+        {/* 가을 — 수면에 떠다니는 단풍잎(lib/season.ts) */}
+        {autumn &&
+          SURFACE_LEAVES.map((l, i) => (
+            <div
+              key={i}
+              className="sea-fleaf"
+              style={{ left: `${l.left}%`, top: `calc(env(safe-area-inset-top, 0px) + ${skyPx - 13}px)`, animationDuration: `${l.dur}s`, animationDelay: `${l.delay}s` }}
+              aria-hidden
+            >
+              <svg width={l.size} height={l.size * 0.62} viewBox="0 6 24 15" style={{ overflow: "visible", display: "block" }}>
+                {mapleG(LEAF_COLORS[l.c], 12, 13, 1, l.rot, 1.8)}
+              </svg>
+            </div>
+          ))}
 
         {/* 햇빛(밤엔 달빛처럼 약하게) */}
         <div className="sea-ray" style={{ left: "14%", top: `calc(env(safe-area-inset-top, 0px) + ${skyPx - 4}px)`, opacity: night ? 0.35 : 1 }} />
@@ -1339,6 +1357,13 @@ function frySvg(color: string, night: boolean) {
 const WEED = "M20 140 C8 110 30 95 18 70 C8 48 28 35 20 6 C34 30 22 50 30 72 C40 98 24 112 28 140 Z";
 
 
+// 가을 수면 단풍잎 — 수면을 따라 천천히 이쪽저쪽 흘러간다
+const SURFACE_LEAVES = [
+  { left: 8, size: 20, dur: 26, delay: -4, c: 0, rot: -20 },
+  { left: 33, size: 16, dur: 34, delay: -15, c: 2, rot: 30 },
+  { left: 62, size: 18, dur: 30, delay: -9, c: 1, rot: 10 },
+];
+
 const BUBBLES: React.CSSProperties[] = [
   { left: "78%", bottom: "18%", width: 13, height: 13, animationDuration: "6.5s" },
   { left: "80%", bottom: "18%", width: 8, height: 8, animationDuration: "6.5s", animationDelay: "-2.2s" },
@@ -1468,7 +1493,12 @@ const CSS = `
 .sea-bottle-due{animation:sea-bottle-due 1.3s ease-in-out infinite!important}
 @keyframes sea-bottle-due{0%,100%{transform:translateY(0) rotate(-12deg)}25%{transform:translateY(-6px) rotate(10deg)}50%{transform:translateY(0) rotate(-6deg)}75%{transform:translateY(-3px) rotate(12deg)}}
 .sea-bottle-q{position:absolute;right:-12px;top:-14px;width:22px;height:22px;border-radius:50%;background:#F9C7DC;border:2.5px solid #1B1630;font-size:14px;line-height:18px;text-align:center;color:#1B1630}
+.sea-fleaf{position:absolute;z-index:6;pointer-events:none;animation:sea-fleaf ease-in-out infinite alternate}
+.sea-fleaf svg{transform-origin:50% 60%;animation:sea-fleaf-bob 2.8s ease-in-out infinite alternate}
+@keyframes sea-fleaf{from{translate:-26px 0}to{translate:44px 0}}
+@keyframes sea-fleaf-bob{from{transform:translateY(-1.5px) rotate(-8deg)}to{transform:translateY(2px) rotate(8deg)}}
 @media (prefers-reduced-motion: reduce){
+  .sea-fleaf,.sea-fleaf svg{animation:none}
   .sea-bottle,.sea-bottle-due{animation:none!important}
   .sea-swim,.sea-bob,.ft-tail,.ft-eye,.sea-sway,.sea-surface,.sea-bubble,.sea-ray,.sea-zz,.sea-emerge,.sea-peek-face,.sea-down{animation:none}
   .sea-hint-bub{display:none}

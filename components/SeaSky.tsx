@@ -1,6 +1,9 @@
 // components/SeaSky.tsx
 "use client";
 
+import { useSeason } from "@/lib/season";
+import { LEAF_COLORS, mapleG } from "@/components/MapleLeaf";
+
 // ============================================================================
 // 바다 위 — 홈 맨 위에 늘 보이는 하늘과 먼바다.
 // ----------------------------------------------------------------------------
@@ -9,6 +12,8 @@
 //   - 수평선 위 작은 섬(야자수 두 그루)
 //   - 먼바다 위를 조각배 하나가 아주 천천히 노 저으며 왼쪽↔오른쪽 오간다(뱃사공은 밀짚모자)
 //   - 맨 아래 흰 물결선이 수면 — 그 아래부터 물속(components/Sea.tsx). 걱정 병은 이 수면에 떠 있다.
+// 가을(lib/season.ts)엔 수평선 쪽 하늘이 노을빛으로 조금 따뜻해지고, 섬에 단풍나무 한 그루가 서고,
+// 단풍잎이 바람에 날려 하늘을 가로질러 수면으로 떨어진다.
 // 눌러지는 것은 없다(장식). 움직임 줄이기 설정이면 전부 멈춘다.
 // 높이는 Sea.tsx의 SKY_PX — 아래 레이아웃 숫자(수평선/배 위치)는 그 높이 기준이다.
 // ============================================================================
@@ -16,6 +21,7 @@
 const INK = "#1B1630";
 
 export default function SeaSky({ night, height }: { night: boolean; height: number }) {
+  const autumn = useSeason() === "autumn";
   return (
     <div
       className={`ssk-root ${night ? "ssk-night" : ""}`}
@@ -23,7 +29,9 @@ export default function SeaSky({ night, height }: { night: boolean; height: numb
         height: `calc(env(safe-area-inset-top, 0px) + ${height}px)`,
         background: night
           ? "linear-gradient(#0F2148 0%, #1D3B6E 55%, #36639A 100%)"
-          : "linear-gradient(#4FB4EE 0%, #8FD3F7 45%, #D4F1FF 100%)",
+          : autumn
+            ? "linear-gradient(#5AB2E8 0%, #A5D8F2 48%, #FFE2C2 100%)"
+            : "linear-gradient(#4FB4EE 0%, #8FD3F7 45%, #D4F1FF 100%)",
       }}
       aria-hidden
     >
@@ -79,6 +87,16 @@ export default function SeaSky({ night, height }: { night: boolean; height: numb
         </svg>
       ))}
 
+      {/* 가을 — 바람에 날리는 단풍잎 */}
+      {autumn &&
+        SKY_LEAVES.map((l, i) => (
+          <div key={i} className="ssk-leaf" style={{ top: `calc(env(safe-area-inset-top, 0px) + ${l.top}px)`, animationDuration: `${l.dur}s`, animationDelay: `${l.delay}s` }}>
+            <svg width={l.size} height={l.size} viewBox="0 0 24 24" style={{ overflow: "visible", display: "block", opacity: night ? 0.7 : 1 }}>
+              {mapleG(LEAF_COLORS[l.c], 12, 12, 1, 0, 1.8)}
+            </svg>
+          </div>
+        ))}
+
       {/* 먼바다 — 수평선부터 수면까지 */}
       <div className="ssk-far" style={{ background: night ? "linear-gradient(#2F6EA8, #3E8FCB)" : "linear-gradient(#3DB3EA, #8BE0FA)" }}>
         {GLINTS.map(([l, b, w, d], i) => (
@@ -106,6 +124,18 @@ export default function SeaSky({ night, height }: { night: boolean; height: numb
           <path d="M63 28 C68 22 76 23 79 29 C74 27 68 28 63 30 Z" fill="#3FBF6E" stroke={INK} strokeWidth={1.8} strokeLinejoin="round" />
         </g>
         <circle cx="49" cy="15" r="2.4" fill="#8A5A3C" stroke={INK} strokeWidth={1.2} />
+        {/* 가을 — 단풍나무 한 그루 */}
+        {autumn && (
+          <g>
+            <path d="M24 45 L24 33" stroke={INK} strokeWidth={4.6} strokeLinecap="round" />
+            <path d="M24 45 L24 33" stroke="#9A5B33" strokeWidth={2.2} strokeLinecap="round" />
+            <g className="ssk-palm" style={{ animationDelay: "-0.6s" }}>
+              <path d="M13 30 C9 22 15 15 21 17 C22 10 31 10 32 17 C38 16 41 24 36 29 C34 34 16 35 13 30 Z" fill={night ? "#B5482E" : "#E8572E"} stroke={INK} strokeWidth={2} strokeLinejoin="round" />
+              <circle cx="20" cy="24" r="3.2" fill={night ? "#C77A2E" : "#F6A13A"} />
+              <circle cx="29" cy="20" r="2.6" fill={night ? "#C9A23A" : "#F6C945"} />
+            </g>
+          </g>
+        )}
       </svg>
 
       {/* 조각배 — 먼바다를 천천히 오간다 */}
@@ -152,6 +182,13 @@ function boatSvg(night: boolean) {
     </svg>
   );
 }
+
+// 하늘을 가로지르는 단풍잎 — [top px, size, 걸리는 초, delay, 색]
+const SKY_LEAVES = [
+  { top: 30, size: 20, dur: 17, delay: -3, c: 0 },
+  { top: 64, size: 16, dur: 22, delay: -12, c: 1 },
+  { top: 14, size: 18, dur: 26, delay: -19, c: 2 },
+];
 
 const CLOUDS = [
   { w: 92, top: 26, dur: 150, delay: -40 },
@@ -205,7 +242,13 @@ const CSS = `
 @keyframes ssk-wake{0%,100%{opacity:.2}50%{opacity:.9}}
 .ssk-night .ssk-boat-track,.ssk-night .ssk-boat-flip{animation-duration:160s}
 .ssk-night .ssk-oar,.ssk-night .ssk-wake{animation-duration:2.6s}
+.ssk-leaf{position:absolute;left:100%;animation:ssk-blow linear infinite}
+.ssk-leaf svg{animation:ssk-flutter 1.6s ease-in-out infinite alternate}
+@keyframes ssk-blow{0%{transform:translate(20px,0) rotate(0deg)}35%{transform:translate(-36vw,22px) rotate(160deg)}70%{transform:translate(-70vw,40px) rotate(300deg)}100%{transform:translate(calc(-100vw - 40px),70px) rotate(440deg)}}
+@keyframes ssk-flutter{from{transform:scaleX(1)}to{transform:scaleX(.45)}}
 @media (prefers-reduced-motion: reduce){
+  .ssk-leaf,.ssk-leaf svg{animation:none}
+  .ssk-leaf{display:none}
   .ssk-rays,.ssk-star,.ssk-cloud,.ssk-glint,.ssk-palm,.ssk-boat-track,.ssk-boat-flip,.ssk-boat-rock,.ssk-oar,.ssk-wake{animation:none}
   .ssk-cloud{transform:translateX(-50vw)}
   .ssk-boat-track{left:18%}
