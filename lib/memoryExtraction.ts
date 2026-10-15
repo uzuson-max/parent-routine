@@ -105,7 +105,26 @@ candidate를 만들지 않는 것: "ㅋㅋ", "졸려", "배고파", "오늘 날�
     "stance": "positive|negative|neutral|uncertain" | null, "raw_quote": "..." | null }
 ] }`;
 
-export async function extractMemoryCandidates(transcript: string): Promise<ExtractionResult> {
+// 강 돌다리처럼 "질문에 대한 대답"일 때 — 질문을 같이 줘야 "피아노"가 "언젠가 해보고 싶은 것: 피아노"로 저장된다.
+export interface ExtractionQuestionContext {
+  question: string;
+  label: string;
+}
+
+function buildUserMessage(transcript: string, ctx?: ExtractionQuestionContext): string {
+  if (!ctx) return `방금 한 말: "${transcript}"`;
+  return [
+    `참견이가 던진 질문: "${ctx.question}"`,
+    `방금 한 대답: "${transcript}"`,
+    '',
+    `이 대답은 질문에 답한 것이다. 대답 원문만으로는 뜻이 비어 보여도 질문의 의미를 살려 기억을 만든다.`,
+    `- 대답의 핵심을 담은 기억 하나는 content에 "${ctx.label}"이라는 의미가 드러나게 쓴다. (예: "언젠가 해보고 싶은 것으로 피아노를 꼽음")`,
+    `- raw_quote는 대답 원문 그대로(질문 문구를 섞지 않는다).`,
+    `- 대답에 다른 사실·사람·사건이 함께 나오면 평소처럼 따로 뽑는다.`,
+  ].join('\n');
+}
+
+export async function extractMemoryCandidates(transcript: string, ctx?: ExtractionQuestionContext): Promise<ExtractionResult> {
   const startedAt = Date.now();
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -118,7 +137,7 @@ export async function extractMemoryCandidates(transcript: string): Promise<Extra
         model: 'gpt-4o-mini',
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: `방금 한 말: "${transcript}"` },
+          { role: 'user', content: buildUserMessage(transcript, ctx) },
         ],
         response_format: { type: 'json_object' },
         // 1차 수정: 추출은 원문 충실도가 중요하다 — 0.4 → 0.2.

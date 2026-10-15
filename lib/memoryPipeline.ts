@@ -139,7 +139,9 @@ export async function runMemoryPipeline(
   entryId: string,
   userId: string,
   transcript: string,
-  sourceChannel: 'voice' | 'text' | 'sms_reply'
+  sourceChannel: 'voice' | 'text' | 'sms_reply',
+  // 강 돌다리 대답이면 질문 맥락 + 앵커 중요도(lib/stage.ts stageMemoryContext). 평소 녹음은 없음 — 동작 그대로.
+  questionContext?: { question: string; label: string; importanceFloor: number }
 ): Promise<MemoryPipelineResult> {
   try {
     if (!transcript || !transcript.trim() || transcript === '(음성 변환 실패)') {
@@ -160,7 +162,19 @@ export async function runMemoryPipeline(
       return { ...EMPTY_RESULT, skippedReason: 'already_processed' };
     }
 
-    const { candidates } = await extractMemoryCandidates(transcript);
+    const { candidates: extracted } = await extractMemoryCandidates(
+      transcript,
+      questionContext ? { question: questionContext.question, label: questionContext.label } : undefined
+    );
+    // 앵커 — 질문에 대한 대답은 일부러 꺼낸 진한 말이라, 중요도를 바닥값 밑으로 내리지 않고
+    // "이 대화 안에서만"(contextual)으로 버려지지 않게 한다. 나중에 홈 바다/편지에서 더 잘 돌아온다.
+    const candidates = questionContext
+      ? extracted.map((c) => ({
+          ...c,
+          importance: Math.max(c.importance, questionContext.importanceFloor),
+          retention: c.retention === 'contextual' ? ('temporary' as typeof c.retention) : c.retention,
+        }))
+      : extracted;
 
     if (candidates.length === 0) {
       return { ran: true, extractedCount: 0, insertedCount: 0, skippedCount: 0, candidates: [] };

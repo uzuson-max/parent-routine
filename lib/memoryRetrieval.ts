@@ -31,6 +31,8 @@ export interface RelevantMemoryUnit {
   // 1차 수정 — 그 기억을 말할 때의 입장/원문. stance는 memory_units.stance 컬럼이 추가된 뒤에만 채워진다.
   stance?: Stance | null;
   raw_quote?: string | null;
+  // 이 기억이 나온 녹음 — 강 조개가 "그때 그 목소리"를 다시 틀 때 쓴다.
+  source_entry_id?: string | null;
 }
 
 const TRAILING_PARTICLES = [
@@ -502,6 +504,7 @@ export async function retrieveRelevantMemoriesWithTrace(
       status: m.status,
       stance: m.stance ?? null,
       raw_quote: m.raw_quote ?? null,
+      source_entry_id: m.source_entry_id ?? null,
       created_at: m.created_at,
       last_referenced_at: m.last_referenced_at,
       relevanceScore: score,

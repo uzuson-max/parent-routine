@@ -25,11 +25,17 @@ export interface StageDay {
   intro?: Record<StageTone, string[]>;
   // 마지막 한마디를 AI가 만들 때 줄 지시
   outroGuide?: string;
+  // 엔진 기억에 저장할 때 붙일 의미(질문 맥락). [첫 질문, 두 번째 질문]
+  memoryLabel: [string, string?];
+  // 앵커 — 이 대답에서 나온 기억은 이 중요도 밑으로 내려가지 않는다(홈 바다·편지에서 더 자주 돌아오게)
+  importanceFloor: number;
 }
 
 export const STAGE_DAYS: StageDay[] = [
   {
     day: 1,
+    memoryLabel: ["언젠가 해보고 싶다고 꼽은 것"],
+    importanceFloor: 0.85,
     what: "언젠가 하고 싶은 것",
     question: {
       mild: "요즘 '언젠가 해봐야지' 하는 거 있어?",
@@ -38,6 +44,8 @@ export const STAGE_DAYS: StageDay[] = [
   },
   {
     day: 2,
+    memoryLabel: ["이번 주 안에 꼭 하겠다고 한 것(본인 예측)"],
+    importanceFloor: 0.7,
     what: "이번 주 안에 할 것(예측)",
     question: {
       mild: "이번 주 안에 이건 진짜 할 거다 싶은 거 하나 있어?",
@@ -46,6 +54,8 @@ export const STAGE_DAYS: StageDay[] = [
   },
   {
     day: 3,
+    memoryLabel: ["인생에서 가장 중요하다고 꼽은 가치와 그 이유"],
+    importanceFloor: 0.9,
     what: "인생에서 가장 중요한 가치 + 왜",
     question: {
       mild: "니 인생에서 제일 중요한 거 하나만 꼽으면 뭐야? 왜 그거야?",
@@ -54,6 +64,8 @@ export const STAGE_DAYS: StageDay[] = [
   },
   {
     day: 4,
+    memoryLabel: ["요즘 돈이나 시간이 가장 많이 새는 곳"],
+    importanceFloor: 0.75,
     what: "요즘 돈·시간이 제일 많이 새는 곳",
     question: {
       mild: "요즘 돈이나 시간, 제일 많이 새는 데가 어디야?",
@@ -69,6 +81,8 @@ export const STAGE_DAYS: StageDay[] = [
   },
   {
     day: 5,
+    memoryLabel: ["요즘 부러운 사람과 부러운 점"],
+    importanceFloor: 0.75,
     what: "요즘 부러운 사람",
     question: {
       mild: "요즘 괜히 부러운 사람 있어? 뭐가 부러운데?",
@@ -84,6 +98,8 @@ export const STAGE_DAYS: StageDay[] = [
   },
   {
     day: 6,
+    memoryLabel: ["남들이 자신을 소개할 거라 예상한 말", "듣고 싶은 자기소개"],
+    importanceFloor: 0.85,
     what: "남이 보는 나 + 듣고 싶은 나",
     question: {
       mild: "남들이 니를 소개할 때 뭐라고 할 것 같아?",
@@ -103,6 +119,8 @@ export const STAGE_DAYS: StageDay[] = [
   },
   {
     day: 7,
+    memoryLabel: ["일주일 뒤 다시 꼽은 언젠가 해보고 싶은 것"],
+    importanceFloor: 0.85,
     what: "언젠가 하고 싶은 것(다시) — 결산",
     question: {
       mild: "일주일 전에도 물어봤었는데, 지금 '언젠가' 하고 싶은 건 뭐야?",
@@ -130,5 +148,24 @@ export function kstDate(iso: string | Date): string {
   return new Date(t + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-// 돌아오는 순간 — 말풍선과 목소리를 번갈아 재생하는 조각들
-export type ReturnSegment = { kind: "say"; text: string } | { kind: "voice"; day: number };
+// 돌아오는 순간 — 말풍선과 목소리를 번갈아 재생하는 조각들.
+// voice: day(강 N일차 대답) 또는 entryId(바다에 던져둔 자유 녹음 — 엔진 기억이 찾아낸 것). label은 화면에 붙는 이름.
+export type ReturnSegment =
+  | { kind: "say"; text: string }
+  | { kind: "voice"; day?: number; entryId?: string; label?: string; quote?: string };
+
+// 엔진(lib/memoryPipeline.ts)에 넘기는 질문 맥락
+export interface StageMemoryContext {
+  question: string;
+  label: string;
+  importanceFloor: number;
+}
+
+export function stageMemoryContext(day: number, part: number): StageMemoryContext | null {
+  const cfg = stageDay(day);
+  if (!cfg) return null;
+  const label = part === 2 ? cfg.memoryLabel[1] : cfg.memoryLabel[0];
+  const question = part === 2 ? cfg.followUp?.mild : cfg.question.mild;
+  if (!label || !question) return null;
+  return { question, label, importanceFloor: cfg.importanceFloor };
+}

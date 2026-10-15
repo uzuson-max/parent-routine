@@ -16,6 +16,7 @@ import { STAGE_DAYS, stageDay, type ReturnSegment, type StageTone } from "@/lib/
 // 강은 위에서 아래로, 홈의 바다로 흘러간다. 돌 하나 = 질문 하나 = 하루 하나.
 //   - 오늘 돌: 수달이 올라가 기다린다. 누르면 질문 → 물속 녹음 화면(홈과 같은 녹음 → 바다에 물고기로도 들어감)
 //   - 돌아오는 날(4·5·6·7일): 수달이 조개를 들고 기다리다가, 답하고 나면 조개를 까서 "그때 니 목소리"를 들려준다
+//     엔진 기억이 딱 맞는 바다 자유 녹음을 찾으면 그 목소리도 같이 나온다(api/stage/answer)
 //   - 내일 돌: 반쯤 물에 잠겨 있다(카운트다운·연속 기록 없음, 빠져도 실패 없음)
 //   - 7일 다음은 물안개 — "저 너머도 가볼래?"(다음 구간 열리면 알려주기 = 관심 신호만 모음)
 // 질문/짝/문구: lib/stage.ts · 진행: /api/stage · 저장: /api/stage/answer · 목소리: /api/stage/voice
@@ -169,6 +170,9 @@ export default function RiverScreen({
       form.append("audio", blob, "recording.webm");
       form.append("phone", phone);
       form.append("persona", "coach");
+      // 강 모드 — 엔진이 질문 맥락과 함께 기억하고, 홈 대답·전화·걱정이는 만들지 않는다(api/voice/upload)
+      form.append("stage_day", String(day));
+      form.append("stage_part", String(part));
       if (confirmed) form.append("speech_confirmed", "1");
       const up = await authed("/api/voice/upload", { method: "POST", body: form });
       const upBody = await up.json().catch(() => null);
@@ -517,9 +521,9 @@ function LookBack({ done, tone, onReplay }: { done: DayDone; tone: StageTone; on
             className="wn-sticker"
             style={{ ...smallBtn, marginTop: 8 }}
             disabled={player.state === "loading"}
-            onClick={() => player.play(done.day, i + 1)}
+            onClick={() => player.play(`day=${done.day}&part=${i + 1}`)}
           >
-            {player.state === "playing" && player.current === `${done.day}-${i + 1}` ? "듣는 중…" : "그때 목소리 듣기"}
+            {player.state === "playing" && player.current === `day=${done.day}&part=${i + 1}` ? "듣는 중…" : "그때 목소리 듣기"}
           </button>
         </div>
       ))}
@@ -548,7 +552,7 @@ function ShellReturn({ segments }: { segments: ReturnSegment[] }) {
       const ms = Math.min(4200, 1300 + seg.text.length * 45);
       timers.current.push(setTimeout(() => setStep((s) => s + 1), ms));
     } else {
-      player.play(seg.day, 1).then(() => setStep((s) => s + 1));
+      player.play(voiceQuery(seg)).then(() => setStep((s) => s + 1));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
@@ -596,9 +600,12 @@ function ShellReturn({ segments }: { segments: ReturnSegment[] }) {
                   <i />
                   <i />
                 </span>
-                {seg.day}일차 니 목소리
+                <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                  {seg.label ?? `${seg.day}일차 니 목소리`}
+                  {seg.quote && <small style={{ fontSize: 12, opacity: 0.65, fontFamily: "system-ui, sans-serif" }}>“{seg.quote}”</small>}
+                </span>
                 {i < step && (
-                  <button className="wn-sticker" style={{ ...smallBtn, marginLeft: "auto" }} onClick={() => player.play(seg.day, 1)}>
+                  <button className="wn-sticker" style={{ ...smallBtn, marginLeft: "auto" }} onClick={() => player.play(voiceQuery(seg))}>
                     다시
                   </button>
                 )}
@@ -611,6 +618,11 @@ function ShellReturn({ segments }: { segments: ReturnSegment[] }) {
       )}
     </div>
   );
+}
+
+// 조개 속 목소리 → 재생 요청 주소(강 N일차 대답 또는 바다 자유 녹음)
+function voiceQuery(seg: Extract<ReturnSegment, { kind: "voice" }>): string {
+  return seg.entryId ? `entry=${encodeURIComponent(seg.entryId)}` : `day=${seg.day ?? 1}&part=1`;
 }
 
 // ── 지난 목소리 재생 — Web Audio로 디코딩(아이폰 녹음이 webm 이름표를 달고 있어도 재생되게) ──────
@@ -650,9 +662,10 @@ function useVoicePlayer() {
     }
   };
 
-  const play = async (day: number, part: number): Promise<void> => {
+  // query: "day=3&part=1" 또는 "entry=<id>" (/api/stage/voice)
+  const play = async (query: string): Promise<void> => {
     setError(null);
-    setCurrent(`${day}-${part}`);
+    setCurrent(query);
     try {
       srcRef.current?.stop();
     } catch {
@@ -662,7 +675,7 @@ function useVoicePlayer() {
       setState("loading");
       const c = ctx();
       await c.resume();
-      const res = await authed(`/api/stage/voice?day=${day}&part=${part}`);
+      const res = await authed(`/api/stage/voice?${query}`);
       const body = await res.json();
       if (!body?.success) throw new Error(body?.error || "그 목소리를 못 찾았어");
       const audio = await fetch(body.data.url);

@@ -17,6 +17,7 @@ import { waitUntil } from '@vercel/functions';
 import OpenAI from 'openai';
 import { looksLikeNoSpeech } from '@/lib/noSpeech';
 import { loadUserPrefs, allowsCalls } from '@/lib/userPrefs';
+import { stageMemoryContext } from '@/lib/stage';
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -113,6 +114,10 @@ async function handleUpload(request: Request, onTranscript?: (t: TranscriptReady
     const topicFromForm = (formData.get('topic') as string | null)?.trim() || undefined;
     // 사용자가 "이렇게 말한 거 맞아?"에 [맞아]를 눌러 다시 보낸 녹음 — 무음/환각 의심 검사를 건너뛴다.
     const speechConfirmed = formData.get('speech_confirmed') === '1';
+    // 강 돌다리 대답 — 이 녹음은 "질문에 대한 대답"이다(app/screens/RiverScreen.tsx가 stage_day/stage_part를 붙여 보낸다).
+    // 받아쓰기·저장·바다 물고기·엔진 기억은 평소처럼 하되, 홈 대답 생성·전화·걱정이 자동 생성은 하지 않는다
+    // (강 화면은 자기 질문/조개 흐름이 있어서 홈 대답을 쓰지 않고, 질문에 답했는데 전화가 울리면 안 되니까).
+    const stageCtx = stageMemoryContext(Number(formData.get('stage_day')), Number(formData.get('stage_part') || '1'));
     if (!audio && !textInput) {
       return NextResponse.json({ success: false, error: '오디오 또는 텍스트가 필요합니다' }, { status: 400 });
     }
@@ -220,6 +225,24 @@ async function handleUpload(request: Request, onTranscript?: (t: TranscriptReady
     if (onTranscript && transcript !== '(음성 변환 실패)') {
       onTranscript({ transcript, entry_id: String(entry.id) });
       timer.mark('transcript_sent');
+    }
+
+    // 강 돌다리 대답 — 여기서 끝낸다. 엔진 기억에는 질문 맥락과 함께 앵커로 저장(대답을 돌려준 뒤 뒤에서).
+    if (stageCtx) {
+      const stageUpdate = {
+        transcript,
+        call_state: 'no_action',
+        response: { stage: { day: Number(formData.get('stage_day')), part: Number(formData.get('stage_part') || '1'), question: stageCtx.question } },
+      };
+      const { error: stageUpdateError } = await supabase.from('voice_entries').update(stageUpdate).eq('id', entry.id);
+      if (stageUpdateError) console.error('[upload] 강 대답 저장 실패:', stageUpdateError.message);
+      if (transcript !== '(음성 변환 실패)') {
+        const entryId = String(entry.id);
+        later('memory-pipeline', () => runMemoryPipeline(entryId, userId, transcript, audio ? 'voice' : 'text', stageCtx));
+      }
+      timer.mark('finish');
+      timer.log(`entry=${entry.id} stage`);
+      return NextResponse.json({ success: true, data: { ...entry, ...stageUpdate } });
     }
 
     // 전화 여부 판단에만 쓰는 설정 — 미리 읽기 시작해두고 마지막에 받는다.
