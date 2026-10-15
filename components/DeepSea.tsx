@@ -30,7 +30,9 @@ import { LEAF_COLORS, mapleG } from "@/components/MapleLeaf";
 //   - 기본은 느리다. 사용자가 대신 지켜보는 거니까 둥둥 천천히 다른 곳으로 떠간다(좌우 왕복 X, 심해 전체).
 //   - 방향을 바꿀 땐 순간 뒤집기 대신 몸을 굴리듯 돈다. 가끔 몸을 세워 두리번.
 //   - 가끔만 빠르다 — 위에서 바닥까지 "슝" 다이빙해서 해초를 톡톡 건드리고, 천천히 올라온다.
-//   - 친구 수달이 같이 산다. 말은 안 한다(말 거는 건 참견이 하나뿐). 각자 놀다가 가끔 둘이 콩 부딪히고 술래잡기.
+//   - 친구 수달이 같이 산다. 말은 안 한다(말 거는 건 참견이 하나뿐). 둘은 연인이 아니라 단짝 — 하트 같은 연애 기호는 쓰지 않는다.
+//     각자 놀다가 가끔 같이 논다: 술래잡기(콩 부딪히면 반짝 별) / 조약돌 캐치볼 / 거품 고리(참견이가 후 불면 친구가 톡 터뜨림).
+//     저녁 아지트에선 가끔 빛 플랑크톤 불꽃놀이를 같이 구경한다.
 //   - 쉬는 동안엔 조개 까기 / 냠냠 / 조약돌 저글링 / 세수 / 겨드랑이 주머니.
 //   - 실제 시간과 같이 흐른다 — 아침엔 기지개부터, 밤엔 둘이 손잡고 잔다(진짜 수달처럼 떠내려가지 않게).
 //   - 해초·친구는 눌러볼 수 있다(몇 초짜리 작은 손짓). 물속 소리가 켜져 있으면 작은 소리도 난다.
@@ -136,6 +138,7 @@ const benchTop = (W: number) => BENCH_BOTTOM + 48 * (benchW(W) / 240);
 const VENT_W = 84;
 const VENT_BOTTOM = 46;
 const VENT_MOUTH = VENT_BOTTOM + 58; // 열수구 입구 — 아래에서 px
+const FIRE_COLORS = ["#FFE066", "#8BE0C0", "#FF9EC4", "#B9A7F2", "#9CD8FF"];
 
 // 가을 — 천천히 가라앉는 잎(심해 위→아래)과 바닥에 쌓인 잎
 const FALL_LEAVES = [
@@ -304,6 +307,24 @@ export default function DeepSea({
     later(() => setBoops((bs) => bs.filter((b) => b.key !== key)), 1600);
   };
   const [friendSpin, setFriendSpin] = useState(0);
+
+  // 캐치볼 조약돌 — 한 번 던질 때마다 새로(key) 그린다
+  const [ball, setBall] = useState<{ key: number; x0: number; y0: number; x1: number; y1: number; ms: number; go: boolean } | null>(null);
+  const throwBall = (x0: number, y0: number, x1: number, y1: number, ms: number) => {
+    const key = Date.now() + Math.random();
+    setBall({ key, x0, y0, x1, y1, ms, go: false });
+    later(() => setBall((b) => (b && b.key === key ? { ...b, go: true } : b)), 40);
+  };
+  // 거품 고리
+  const [rings, setRings] = useState<{ key: number; x: number; y: number }[]>([]);
+  // 빛 플랑크톤 불꽃
+  const [fires, setFires] = useState<{ key: number; x: number; y: number; c: string }[]>([]);
+  const fireAt = (x: number, y: number) => {
+    const key = Date.now() + Math.random();
+    const c = FIRE_COLORS[Math.floor(Math.random() * FIRE_COLORS.length)];
+    setFires((fs) => [...fs.slice(-4), { key, x, y, c }]);
+    later(() => setFires((fs) => fs.filter((f) => f.key !== key)), 2200);
+  };
 
   // ---- 가을 ----
   const autumn = useSeason() === "autumn";
@@ -550,6 +571,127 @@ export default function DeepSea({
       return wait(rand(1500, 2500));
     };
 
+    // 친구 데려오기 — 지금 자리에서 멈춰 세운다
+    const holdFriend = () => {
+      friendHeld.current = true;
+      const fp = readPos(friendEl.current) ?? { x: friendNow.current.x, y: friendNow.current.y };
+      setFriend((o) => ({ ...o, x: fp.x, y: fp.y, ms: 0, act: "none", tilt: 0 }));
+      return fp;
+    };
+
+    // 조약돌 캐치볼 — 마주 보고 서서 주고받기. 마지막에 가끔 놓친다
+    const catchBall = async () => {
+      const fp = holdFriend();
+      const { W, H } = size();
+      const b = mainNow.current;
+      const y = clamp((b.y + fp.y) / 2, Math.max(TOP_KEEP + 30, H * 0.25), H * 0.58);
+      const gap = Math.min(176, W * 0.48);
+      const mainLeft = b.x <= fp.x;
+      const mx = W / 2 + (mainLeft ? -gap / 2 : gap / 2);
+      const fx = W / 2 + (mainLeft ? gap / 2 : -gap / 2);
+      const fm = faceToward(b.x, mx, b.facing);
+      const ff = faceToward(fp.x, fx, friendNow.current.facing);
+      setMain((o) => ({ ...o, pose: "swim", act: "none", face: "base", facing: fm, tilt: swimTilt(fm, mx - o.x, y - o.y) }));
+      setFriend((o) => ({ ...o, pose: "swim", face: "base", facing: ff, tilt: swimTilt(ff, fx - o.x, y - o.y) }));
+      if (!(await wait(400))) return false;
+      const ms = clamp((Math.max(Math.hypot(mx - b.x, y - b.y), Math.hypot(fx - fp.x, y - fp.y)) / (SWIM_SPEED * 0.8)) * 1000, 1600, 5000);
+      setMain((o) => ({ ...o, x: mx, y, ms, ease: EASE_SLOW }));
+      setFriend((o) => ({ ...o, x: fx, y: y + 8, ms, ease: EASE_SLOW }));
+      if (!(await wait(ms))) return false;
+      const mf: 1 | -1 = mainLeft ? 1 : -1;
+      setMain((o) => ({ ...o, pose: "upright", tilt: 0, facing: mf, face: "laugh" }));
+      setFriend((o) => ({ ...o, pose: "upright", tilt: 0, facing: (mf * -1) as 1 | -1, face: "laugh" }));
+      if (!(await wait(800))) return false;
+      const n = 5 + Math.floor(Math.random() * 3);
+      let fromMain = true;
+      for (let i = 0; i < n; i++) {
+        const miss = i === n - 1 && Math.random() < 0.4;
+        const x0 = fromMain ? mx : fx;
+        const x1 = fromMain ? fx : mx;
+        const dir = x1 > x0 ? 1 : -1;
+        if (fromMain) setMain((o) => ({ ...o, lean: o.lean + 1, face: "base" }));
+        else setFriend((o) => ({ ...o, lean: o.lean + 1, face: "base" }));
+        snd("tik");
+        const t = miss ? 1700 : 1000;
+        throwBall(x0 + dir * 22, y + 4, miss ? x1 + dir * 60 : x1 - dir * 20, miss ? size().H - FLOOR_BASE - 14 : y + 4, t);
+        if (!(await wait(t))) return false;
+        if (miss) {
+          // 놓쳤다 — 데굴데굴 바닥으로. 둘 다 웃음
+          if (fromMain) setFriend((o) => ({ ...o, face: "surprise" }));
+          else setMain((o) => ({ ...o, face: "surprise" }));
+          snd("tok");
+          if (!(await wait(900))) return false;
+          setMain((o) => ({ ...o, face: "laugh" }));
+          setFriend((o) => ({ ...o, face: "laugh" }));
+          break;
+        }
+        snd("tik");
+        if (fromMain) setFriend((o) => ({ ...o, face: i % 2 ? "laugh" : "surprise" }));
+        else setMain((o) => ({ ...o, face: i % 2 ? "laugh" : "surprise" }));
+        if (!(await wait(450))) return false;
+        fromMain = !fromMain;
+      }
+      if (!(await wait(1400))) return false;
+      setBall(null);
+      setMain((o) => ({ ...o, pose: "float", face: null }));
+      setFriend((o) => ({ ...o, pose: "float", face: null }));
+      friendHeld.current = false;
+      return wait(rand(2000, 3500));
+    };
+
+    // 거품 고리 — 참견이가 후 불면 친구가 쫓아가서 톡 터뜨린다
+    const bubbleRings = async () => {
+      holdFriend();
+      const { H } = size();
+      const b = mainNow.current;
+      const y = clamp(b.y, TOP_KEEP + 120, H * 0.6);
+      setMain((o) => ({ ...o, pose: "upright", tilt: 0, act: "none", face: "base", y, ms: 700, ease: EASE_SLOW }));
+      if (!(await wait(900))) return false;
+      for (let i = 0; i < 3; i++) {
+        const rx = b.x + rand(-14, 14);
+        const ry = y - UP_H / 2 + 10;
+        const key = Date.now() + Math.random();
+        setMain((o) => ({ ...o, face: "surprise", lean: o.lean + 1 }));
+        setRings((rs) => [...rs.slice(-3), { key, x: rx, y: ry }]);
+        snd("boop");
+        // 고리는 1.6초 동안 120px 올라간다 — 친구가 그 자리로 휙
+        const side = i % 2 ? 1 : -1;
+        const tx = rx + side * 46;
+        const ty = ry - 120;
+        const f = friendNow.current;
+        const ff = faceToward(f.x, rx, f.facing);
+        setFriend((o) => ({ ...o, pose: "swim", face: "laugh", facing: ff, tilt: swimTilt(ff, tx - o.x, ty - o.y), x: tx, y: ty, ms: 1500, ease: EASE_DART }));
+        if (!(await wait(1600))) return false;
+        setRings((rs) => rs.filter((r) => r.key !== key));
+        boopAt(rx, ry - 132);
+        snd("tik");
+        setMain((o) => ({ ...o, face: "laugh" }));
+        setFriend((o) => ({ ...o, pose: "float", tilt: 0, facing: (side * -1) as 1 | -1 }));
+        if (!(await wait(1100))) return false;
+      }
+      if (!(await wait(1200))) return false;
+      setMain((o) => ({ ...o, pose: "float", face: null }));
+      setFriend((o) => ({ ...o, face: null }));
+      friendHeld.current = false;
+      return wait(rand(2000, 3500));
+    };
+
+    // 저녁 — 아지트에 앉아서 빛 플랑크톤 불꽃놀이 구경
+    const fireworks = async () => {
+      if (!(await sitDen(1200))) return false;
+      const d = den();
+      const n = 4 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < n; i++) {
+        fireAt(clamp(d.bx + rand(-100, 150), 40, d.W - 40), Math.max(d.top - rand(210, 320), TOP_KEEP));
+        snd("spark");
+        setMain((o) => ({ ...o, face: i % 2 ? "laugh" : "surprise" }));
+        if (!(await wait(rand(1000, 1700)))) return false;
+      }
+      if (!(await wait(1500))) return false;
+      setMain((o) => ({ ...o, face: null }));
+      return true;
+    };
+
     // 친구랑 — 다가가서 콩, 술래잡기 두 번, 나란히 둥둥
     const playFriend = async () => {
       friendHeld.current = true;
@@ -617,7 +759,7 @@ export default function DeepSea({
         if (!(await sitDen(rand(6000, 9000)))) return;
         while (alive) {
           const r = Math.random();
-          const ok = r < 0.45 ? await sitDen(rand(8000, 14000)) : r < 0.8 ? await roast() : await drift([0.52, 0.7]);
+          const ok = r < 0.38 ? await sitDen(rand(8000, 14000)) : r < 0.68 ? await roast() : r < 0.86 ? await fireworks() : await drift([0.52, 0.7]);
           if (!ok) return;
         }
         return;
@@ -637,7 +779,7 @@ export default function DeepSea({
               : pick === "dive"
                 ? await dive()
                 : pick === "friend"
-                  ? await playFriend()
+                  ? await [playFriend, catchBall, bubbleRings][Math.floor(Math.random() * 3)]()
                   : (await sitDen(rand(5000, 8000))) && (Math.random() < 0.5 ? await roast() : true);
         if (!ok) return;
       }
@@ -726,11 +868,11 @@ export default function DeepSea({
   // ---- 밤 — 둘이 손잡고 쿨쿨(떠내려가지 않게) ----
   useEffect(() => {
     if (!ready || !night || mode !== "idle") return; // 말하고 나면 다시 잠자리로
-    // 아지트 바위 턱에 나란히 앉아 서로 기대어 존다(열수구 불빛 옆)
+    // 아지트 바위 턱에 각자 자리에 앉아 꾸벅꾸벅 존다(열수구 불빛 옆)
     const d = den();
     const ms = reduce ? 0 : 4000;
-    setMain((b) => ({ ...b, pose: "upright", tilt: 7, act: "none", face: null, carry: null, facing: 1, x: d.bx - 44, y: d.top - UP_H / 2 + 8, ms, ease: EASE_SLOW }));
-    setFriend((b) => ({ ...b, pose: "upright", tilt: -7, act: "none", face: null, facing: -1, x: d.bx + 42, y: d.top - (UP_H * FRIEND_K) / 2 + 8, ms, ease: EASE_SLOW }));
+    setMain((b) => ({ ...b, pose: "upright", tilt: 0, act: "none", face: null, carry: null, facing: 1, x: d.bx - 52, y: d.top - UP_H / 2 + 8, ms, ease: EASE_SLOW }));
+    setFriend((b) => ({ ...b, pose: "upright", tilt: 0, act: "none", face: null, facing: -1, x: d.bx + 58, y: d.top - (UP_H * FRIEND_K) / 2 + 8, ms, ease: EASE_SLOW }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, night, mode]);
 
@@ -1082,13 +1224,15 @@ export default function DeepSea({
               onClick={tapFriend}
               aria-label="참견이 친구"
             >
-              {friend.pose === "swim" ? (
-                <OtterSwim expression={fExpr} holding={friendHold} width={W_SWIM * FRIEND_K} />
-              ) : friend.pose === "upright" ? (
-                <OtterBody pose="upright" expression={fExpr} holding={friendHold} width={W_UP * FRIEND_K} />
-              ) : (
-                <OtterBody pose="float" expression={fExpr} holding={friendHold} act={fAct} width={W_FLOAT * FRIEND_K} />
-              )}
+              <div className={friend.lean ? (friend.lean % 2 ? "ds-leanA" : "ds-leanB") : ""}>
+                {friend.pose === "swim" ? (
+                  <OtterSwim expression={fExpr} holding={friendHold} width={W_SWIM * FRIEND_K} />
+                ) : friend.pose === "upright" ? (
+                  <OtterBody pose="upright" expression={fExpr} holding={friendHold} width={W_UP * FRIEND_K} />
+                ) : (
+                  <OtterBody pose="float" expression={fExpr} holding={friendHold} act={fAct} width={W_FLOAT * FRIEND_K} />
+                )}
+              </div>
             </button>
           </div>
         </div>
@@ -1139,12 +1283,54 @@ export default function DeepSea({
         )}
       </div>
 
-      {/* 콩! — 둘이 부딪힐 때 */}
+      {/* 콩! / 톡! — 반짝 별(연애 기호인 하트는 안 쓴다) */}
       {boops.map((b) => (
         <span key={b.key} className="ds-boop" style={{ left: b.x, top: b.y }} aria-hidden>
-          <svg width="26" height="24" viewBox="0 0 26 24">
-            <path d="M13 22 C4 15 1 10 1 6.5 C1 3 3.6 1 6.6 1 C9.4 1 11.4 2.8 13 5 C14.6 2.8 16.6 1 19.4 1 C22.4 1 25 3 25 6.5 C25 10 22 15 13 22 Z" fill="#FF9EC4" stroke="#1B1630" strokeWidth={2.2} strokeLinejoin="round" />
+          <svg width="34" height="30" viewBox="0 0 34 30" style={{ overflow: "visible" }}>
+            <path d="M14 2 L16.4 10.6 L25 13 L16.4 15.4 L14 24 L11.6 15.4 L3 13 L11.6 10.6 Z" fill="#FFE066" stroke="#1B1630" strokeWidth={2} strokeLinejoin="round" />
+            <path d="M28 2 L29 5.5 L32.5 6.5 L29 7.5 L28 11 L27 7.5 L23.5 6.5 L27 5.5 Z" fill="#FFFFFF" stroke="#1B1630" strokeWidth={1.4} strokeLinejoin="round" />
+            <circle cx="28" cy="23" r="2.4" fill="#8BE0C0" stroke="#1B1630" strokeWidth={1.4} />
           </svg>
+        </span>
+      ))}
+
+      {/* 캐치볼 조약돌 */}
+      {ball && (
+        <div
+          key={ball.key}
+          className="ds-ball"
+          style={{
+            transform: `translate(${ball.go ? ball.x1 : ball.x0}px, ${ball.go ? ball.y1 : ball.y0}px)`,
+            transition: ball.go ? `transform ${ball.ms}ms linear` : "none",
+          }}
+          aria-hidden
+        >
+          <span className="ds-ball-arc" style={{ animationDuration: `${ball.ms}ms` }}>
+            <svg width="24" height="19" viewBox="0 0 18 14" style={{ display: "block" }}>
+              <ellipse cx="9" cy="7" rx="7.5" ry="5.6" fill="#9CC9EC" stroke="#1B1630" strokeWidth={2} />
+              <ellipse cx="6.4" cy="5" rx="2.2" ry="1.3" fill="#FFFFFF" opacity={0.85} />
+            </svg>
+          </span>
+        </div>
+      )}
+
+      {/* 거품 고리 */}
+      {rings.map((r) => (
+        <span key={r.key} className="ds-ring" style={{ left: r.x, top: r.y }} aria-hidden>
+          <svg width="40" height="22" viewBox="0 0 40 22" style={{ display: "block", overflow: "visible" }}>
+            <ellipse cx="20" cy="11" rx="17" ry="7.5" fill="none" stroke="#FFFFFF" strokeWidth={4} opacity={0.85} />
+            <ellipse cx="20" cy="11" rx="17" ry="7.5" fill="none" stroke="#BDE8FF" strokeWidth={1.6} />
+          </svg>
+        </span>
+      ))}
+
+      {/* 빛 플랑크톤 불꽃 — 저녁 아지트 */}
+      {fires.map((f) => (
+        <span key={f.key} className="ds-fire" style={{ left: f.x, top: f.y }} aria-hidden>
+          <span className="ds-fire-core" style={{ background: f.c }} />
+          {Array.from({ length: 12 }).map((_, i) => (
+            <span key={i} className="ds-fire-dot" style={{ background: i % 3 === 0 ? "#FFFFFF" : f.c, ["--a" as any]: `${i * 30}deg`, ["--r" as any]: `${58 + (i % 2) * 18}px` }} />
+          ))}
         </span>
       ))}
 
@@ -1272,7 +1458,17 @@ const CSS = `
 .ds-burst{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none}
 .ds-burst span{position:absolute;left:-6px;top:-6px;width:12px;height:12px;border-radius:50%;background:#FFE066;border:2px solid #1B1630;opacity:0;animation:ds-burst 1.4s ease-out .6s both}
 @keyframes ds-burst{0%{opacity:0;scale:.3}30%{opacity:1;scale:1.1}100%{opacity:0;scale:.6}}
-.ds-boop{position:absolute;z-index:7;pointer-events:none;margin-left:-13px;animation:ds-boop 1.5s ease-out both}
+.ds-boop{position:absolute;z-index:7;pointer-events:none;margin-left:-14px;animation:ds-boop 1.5s ease-out both}
+.ds-ball{position:absolute;left:-12px;top:-10px;z-index:7;pointer-events:none}
+.ds-ball-arc{display:block;animation:ds-arc ease-in-out both}
+@keyframes ds-arc{0%{transform:translateY(0) rotate(0)}50%{transform:translateY(-58px) rotate(200deg)}100%{transform:translateY(0) rotate(400deg)}}
+.ds-ring{position:absolute;z-index:7;margin-left:-20px;margin-top:-11px;pointer-events:none;animation:ds-ring 1.6s ease-out forwards}
+@keyframes ds-ring{0%{transform:translateY(0) scale(.4);opacity:0}15%{opacity:1}100%{transform:translateY(-120px) scale(1.25);opacity:1}}
+.ds-fire{position:absolute;z-index:2;width:0;height:0;pointer-events:none}
+.ds-fire-core{position:absolute;left:-20px;top:-20px;width:40px;height:40px;border-radius:50%;filter:blur(6px);opacity:0;animation:ds-firecore 1.6s ease-out forwards}
+@keyframes ds-firecore{0%{opacity:0;transform:scale(.3)}15%{opacity:.9;transform:scale(1.6)}100%{opacity:0;transform:scale(2.4)}}
+.ds-fire-dot{position:absolute;left:-4px;top:-4px;width:8px;height:8px;border-radius:50%;box-shadow:0 0 6px rgba(255,255,255,.75);opacity:0;animation:ds-firedot 2s cubic-bezier(.2,.7,.3,1) forwards}
+@keyframes ds-firedot{0%{opacity:0;transform:rotate(var(--a)) translateY(0) scale(.6)}12%{opacity:1}70%{opacity:.9;transform:rotate(var(--a)) translateY(calc(var(--r) * -1)) scale(1)}100%{opacity:0;transform:rotate(var(--a)) translateY(calc(var(--r) * -1 - 6px)) scale(.5)}}
 @keyframes ds-boop{0%{transform:translateY(8px) scale(.3);opacity:0}20%{transform:translateY(0) scale(1.15);opacity:1}100%{transform:translateY(-46px) scale(.9);opacity:0}}
 
 .ds-floor{position:absolute;left:0;right:0;bottom:0;height:200px;pointer-events:none}
@@ -1307,6 +1503,7 @@ const CSS = `
 @keyframes ds-shine{0%,24%{opacity:0;transform:scale(.3)}32%{opacity:1;transform:scale(1.2)}66%{opacity:1;transform:scale(1)}76%,100%{opacity:0;transform:scale(.3)}}
 @media (prefers-reduced-motion: reduce){
   .ds-fall{display:none}
+  .ds-ball-arc,.ds-ring,.ds-fire-core,.ds-fire-dot{animation:none}
   .ds-warm,.ds-lamp,.ds-lamp-glow,.ds-lamp .ds-tent,.ds-vent-glow,.ds-ember,.ds-crack,.ds-breathe{animation:none}
   .ds-vbub{display:none}
   .ds-ray,.ds-mote,.ds-sway,.ds-blade,.ds-glow,.ds-float,.ds-swim,.ds-up,.ds-proud,.ds-zz,.ds-burst span,.ds-turning,.ds-spinA,.ds-spinB,.ds-leanA,.ds-leanB,.ds-boop,.ds-wbub,.ds-otter .otr-wave,.ds-otter .otr-tail,.ds-otter .otr-swim-tail,.ds-otter .otr-swim-paw{animation:none}
