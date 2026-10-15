@@ -16,10 +16,11 @@ import { LEAF_COLORS, mapleG } from "@/components/MapleLeaf";
 //   remember 기억남 — 조약돌을 들고 반짝 (실제로 기억을 꺼냈을 때만 쓴다)
 //   proud    뿌듯 — 심해가 실제로 자랐을 때
 //   sleep    쿨쿨 — 밤, 대기
+//   read     책 읽는 중 — 눈을 내리깔고 입은 살짝(심해 아지트에서 안경 쓰고 책 볼 때)
 // ============================================================================
 
-export type OtterExpression = "base" | "tilt" | "surprise" | "laugh" | "remember" | "proud" | "sleep" | "sly" | "stare" | "angry";
-export type OtterHolding = "none" | "pebble" | "shell" | "pearl" | "note" | "leaf"; // note = 물 위 쪽지(알람/메모 얘기할 때), leaf = 가을에 주운 단풍잎
+export type OtterExpression = "base" | "tilt" | "surprise" | "laugh" | "remember" | "proud" | "sleep" | "sly" | "stare" | "angry" | "read";
+export type OtterHolding = "none" | "pebble" | "shell" | "pearl" | "note" | "leaf" | "book"; // note = 물 위 쪽지(알람/메모 얘기할 때), leaf = 가을에 주운 단풍잎
 // 심해에서 혼자 노는 동작(누운 자세 전용) — 움직임은 바깥 CSS(.otr-act-*)가 맡는다. components/DeepSea.tsx
 //   crack 배 위 돌에 조개 탁탁 / eat 조개 오물오물 / juggle 조약돌 저글링 / groom 세수 / pocket 겨드랑이 주머니에서 돌 꺼내 보기
 export type OtterAct = "none" | "crack" | "eat" | "juggle" | "groom" | "pocket";
@@ -54,6 +55,19 @@ function heldItem(item: OtterHolding, cx: number, cy: number, s = 1) {
         <ellipse cx={-2.6} cy={-2} rx={2.4} ry={1.4} fill="#FFFFFF" opacity={0.85} />
       </g>
     );
+  if (item === "book")
+    return (
+      <g transform={`translate(${cx} ${cy}) scale(${s})`}>
+        {/* 표지 */}
+        <path d="M-25 -8 L-25 12 C-16 9 -6 9 0 13 C6 9 16 9 25 12 L25 -8 Z" fill="#5B8DEF" stroke={INK} strokeWidth={2.2} strokeLinejoin="round" />
+        {/* 펼친 두 쪽 */}
+        <path d="M0 -8 C-6 -12 -16 -12 -22 -9 L-22 9 C-16 6 -6 6 0 10 Z" fill="#FFFDF4" stroke={INK} strokeWidth={2.2} strokeLinejoin="round" />
+        <path d="M0 -8 C6 -12 16 -12 22 -9 L22 9 C16 6 6 6 0 10 Z" fill="#FFFDF4" stroke={INK} strokeWidth={2.2} strokeLinejoin="round" />
+        <path d="M-18 -4 H-5 M-18 0 H-5 M-18 4 H-9 M5 -4 H18 M5 0 H18 M5 4 H13" {...line} strokeWidth={1.4} opacity={0.6} />
+        {/* 넘어가는 쪽 — 움직임은 바깥 CSS(.otr-page) */}
+        <path className="otr-page" d="M0 -8 C6 -12 16 -12 22 -9 L22 9 C16 6 6 6 0 10 Z" fill="#FFF3D6" stroke={INK} strokeWidth={2} strokeLinejoin="round" opacity={0} />
+      </g>
+    );
   if (item === "leaf") return <g>{mapleG(LEAF_COLORS[0], cx, cy - 8, 1.6 * s, -18, 2.4)}</g>;
   if (item === "note")
     return (
@@ -82,7 +96,7 @@ function heldItem(item: OtterHolding, cx: number, cy: number, s = 1) {
  * 2026-10-14: 넓적한 콩 모양 머리, 얼굴 아래 절반이 크림색, 크고 동그란 눈(갈색 눈동자 + 하이라이트), 작은 w 입.
  * 표정은 눈·눈썹·입만 바꾼다. 선은 앱 바다와 같은 남색 잉크.
  */
-export function otterFaceG(expression: OtterExpression, opts: { props?: boolean } = {}) {
+export function otterFaceG(expression: OtterExpression, opts: { props?: boolean; glasses?: boolean } = {}) {
   const props = opts.props !== false;
   const e = expression;
   const earUp = e === "surprise" ? -3 : 0;
@@ -185,6 +199,12 @@ export function otterFaceG(expression: OtterExpression, opts: { props?: boolean 
         </>
       )}
       {e === "sleep" && <path d="M25 53 Q33 59 41 53 M59 53 Q67 59 75 53" {...line} strokeWidth={2.6} />}
+      {e === "read" && (
+        <>
+          {eye(33, { px: 0.8, py: 4.2, pr: 5.6, lid: true })}
+          {eye(67, { px: 0.8, py: 4.2, pr: 5.6, lid: true })}
+        </>
+      )}
 
       {/* 코 */}
       <path d="M45 62 Q50 58.5 55 62 Q54 67 50 67.5 Q46 67 45 62 Z" fill={INK} />
@@ -205,6 +225,17 @@ export function otterFaceG(expression: OtterExpression, opts: { props?: boolean 
         </>
       )}
       {e === "sleep" && <path d="M47 73 Q50 75 53 73" {...line} strokeWidth={2} />}
+      {e === "read" && <path d="M50 67.5 L50 70 M45 72 Q50 75.5 55 72" {...line} strokeWidth={2} />}
+
+      {/* 안경 — 동그란 뿔테 */}
+      {opts.glasses && (
+        <g>
+          <circle cx={33} cy={52} r={14} fill="#FFFFFF" fillOpacity={0.16} stroke={INK} strokeWidth={2.6} />
+          <circle cx={67} cy={52} r={14} fill="#FFFFFF" fillOpacity={0.16} stroke={INK} strokeWidth={2.6} />
+          <path d="M47 50 Q50 47 53 50 M19 49 L9 44 M81 49 L91 44" {...line} strokeWidth={2.4} />
+          <path d="M26 44 Q29 41 33 41" fill="none" stroke="#FFFFFF" strokeWidth={1.8} strokeLinecap="round" opacity={0.8} />
+        </g>
+      )}
 
       {/* 기억남 — 앞발로 조약돌을 꺼내 들고 반짝 */}
       {e === "remember" && props && (
@@ -268,11 +299,13 @@ export function OtterBody({
   kelp = false,
   wave = false,
   act = "none",
+  glasses = false,
   width = 200,
   className,
   style,
 }: {
   pose?: "float" | "upright";
+  glasses?: boolean;
   act?: OtterAct;
   expression?: OtterExpression;
   holding?: OtterHolding;
@@ -309,7 +342,7 @@ export function OtterBody({
           )}
         </g>
         {/* 머리 */}
-        <g transform="translate(14 -6) scale(1.12)">{otterFaceG(expression, { props: false })}</g>
+        <g transform="translate(14 -6) scale(1.12)">{otterFaceG(expression, { props: false, glasses })}</g>
         {(expression === "proud" || expression === "remember") && (
           <path d="M122 12 L124 17 L129 19 L124 21 L122 26 L120 21 L115 19 L120 17 Z" fill="#FFE066" stroke={INK} strokeWidth={1.8} strokeLinejoin="round" />
         )}
@@ -367,7 +400,7 @@ export function OtterBody({
         </>
       )}
       {/* 머리 — 살짝 들어서 이쪽 */}
-      <g transform="translate(138 8) scale(0.84) rotate(-8 50 56)">{otterFaceG(expression, { props: false })}</g>
+      <g transform="translate(138 8) scale(0.84) rotate(-8 50 56)">{otterFaceG(expression, { props: false, glasses })}</g>
       {/* 머리 앞에 오는 손 */}
       {act === "eat" && (
         <g className="otr-act-eat">

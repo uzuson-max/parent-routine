@@ -33,6 +33,9 @@ import { LEAF_COLORS, mapleG } from "@/components/MapleLeaf";
 //   - 친구 수달이 같이 산다. 말은 안 한다(말 거는 건 참견이 하나뿐). 둘은 연인이 아니라 단짝 — 하트 같은 연애 기호는 쓰지 않는다.
 //     각자 놀다가 가끔 같이 논다: 술래잡기(콩 부딪히면 반짝 별) / 조약돌 캐치볼 / 거품 고리(참견이가 후 불면 친구가 톡 터뜨림).
 //     저녁 아지트에선 가끔 빛 플랑크톤 불꽃놀이를 같이 구경한다.
+//   - 아지트에 앉으면 안경 쓰고 책을 본다(오래 — 수십 초~1분 넘게). 가끔 책장 넘기고, 피식 웃고, 꾸벅 졸다 깬다.
+//     친구도 떠다니기만 하지 않고 자주 아지트에 와서 책을 본다. 친구가 책 보고 있으면 참견이도 옆에 와서 같이 본다.
+//   - 놀이도 짧게 끝내지 않는다(2026-10-15 "봐도 힐링되게 오래, 천천히").
 //   - 쉬는 동안엔 조개 까기 / 냠냠 / 조약돌 저글링 / 세수 / 겨드랑이 주머니.
 //   - 실제 시간과 같이 흐른다 — 아침엔 기지개부터, 밤엔 둘이 손잡고 잔다(진짜 수달처럼 떠내려가지 않게).
 //   - 해초·친구는 눌러볼 수 있다(몇 초짜리 작은 손짓). 물속 소리가 켜져 있으면 작은 소리도 난다.
@@ -72,6 +75,8 @@ interface Body {
   act: OtterAct;
   lean: number; // 해초 톡톡 — 바뀔 때마다 한 번 기울인다
   carry: OtterHolding | null; // 잠깐 들고 있는 것(구우려는 조개 등) — 없으면 평소 것
+  book: boolean; // 안경 쓰고 책 보는 중
+  page: number; // 책장 넘김 — 바뀔 때마다 한 장
 }
 
 type DayPart = "morning" | "day" | "evening";
@@ -112,9 +117,9 @@ const UP_H = (W_UP * 190) / 140;
 const FLOOR_BASE = 56; // 바닥 장식이 서는 높이(아래에서)
 
 // 속도 — 기본은 느리게(px/초), 다이빙만 빠르게
-const DRIFT_SPEED = 16;
-const FRIEND_DRIFT_SPEED = 13;
-const SWIM_SPEED = 75;
+const DRIFT_SPEED = 11;
+const FRIEND_DRIFT_SPEED = 9;
+const SWIM_SPEED = 50;
 const EASE_SLOW = "cubic-bezier(.45,.05,.55,.95)";
 const EASE_DIVE = "cubic-bezier(.55,0,.8,1)";
 const EASE_DART = "cubic-bezier(.2,.7,.3,1)";
@@ -202,7 +207,7 @@ function waterPoint(W: number, H: number, from?: { x: number; y: number }, band:
   return best;
 }
 
-const START: Body = { x: 0, y: 0, ms: 0, ease: EASE_SLOW, facing: 1, pose: "float", tilt: 0, face: null, act: "none", lean: 0, carry: null };
+const START: Body = { x: 0, y: 0, ms: 0, ease: EASE_SLOW, facing: 1, pose: "float", tilt: 0, face: null, act: "none", lean: 0, carry: null, book: false, page: 0 };
 
 /** 방향을 바꾸면 잠깐 몸을 굴린다(순간 뒤집기 대신) */
 function useTurning(facing: 1 | -1) {
@@ -271,6 +276,7 @@ export default function DeepSea({
   const friendNow = useRef(friend);
   friendNow.current = friend;
   const friendHeld = useRef(false); // 참견이랑 노는 중 — 친구 혼자 놀기를 잠깐 멈춘다
+  const friendReading = useRef(false); // 친구가 아지트에서 책 보는 중
   const [ready, setReady] = useState(false);
   const [seen, setSeen] = useState(false); // 심해가 화면에 보이는 중
   const [reduce, setReduce] = useState(false);
@@ -415,7 +421,7 @@ export default function DeepSea({
       const { W, H } = size();
       const b = mainNow.current;
       const p = waterPoint(W, H, b, band);
-      const ms = clamp((Math.hypot(p.x - b.x, p.y - b.y) / DRIFT_SPEED) * 1000, 5000, 15000);
+      const ms = clamp((Math.hypot(p.x - b.x, p.y - b.y) / DRIFT_SPEED) * 1000, 7000, 20000);
       setMain((o) => ({ ...o, pose: "float", tilt: 0, act: "none", face: null, x: p.x, y: p.y, ms, ease: EASE_SLOW, facing: faceToward(o.x, p.x, o.facing) }));
       if (!(await wait(ms))) return false;
       if (Math.random() < 0.55) {
@@ -423,11 +429,15 @@ export default function DeepSea({
         const a = pool[Math.floor(Math.random() * pool.length)];
         lastAct = a;
         setMain((o) => ({ ...o, act: a }));
-        ACTS[a].sounds.forEach(([t, s]) => snd(s, t));
-        if (!(await wait(ACTS[a].ms))) return false;
+        // 한 번 하고 끝내지 않고 두세 번 이어서
+        const reps = 2 + Math.floor(Math.random() * 2);
+        for (let k = 0; k < reps; k++) {
+          ACTS[a].sounds.forEach(([t, s]) => snd(s, t));
+          if (!(await wait(ACTS[a].ms))) return false;
+        }
         setMain((o) => ({ ...o, act: "none" }));
       }
-      return wait(rand(2000, 4500));
+      return wait(rand(4000, 8000));
     };
 
     // 몸 세워서 두리번
@@ -526,22 +536,46 @@ export default function DeepSea({
       return wait(ms);
     };
 
-    // 아지트 바위 턱에 앉아 있기 — 등불 보기, 꾸벅, 혼자 웃기
-    const sitDen = async (ms: number) => {
+    // 아지트 바위 턱에 앉아서 안경 쓰고 책 보기(read=false면 그냥 앉아 있기)
+    const sitDen = async (ms: number, read = true) => {
       const d = den();
       const sx = d.bx - 52;
       const sy = d.top - UP_H / 2 + 8;
       const cur = mainNow.current;
       if (Math.hypot(cur.x - sx, cur.y - sy) > 12 && !(await swimTo(sx, sy))) return false;
-      setMain((o) => ({ ...o, pose: "upright", tilt: 0, facing: 1, face: null, act: "none", carry: null }));
-      const faces: (OtterExpression | null)[] = [null, "sly", "sleep", "laugh", null, "tilt"];
+      setMain((o) => ({ ...o, pose: "upright", tilt: 0, facing: 1, face: read ? "read" : null, act: "none", carry: null, book: read }));
       let left = ms;
       while (left > 0) {
-        const f = faces[Math.floor(Math.random() * faces.length)];
-        setMain((o) => ({ ...o, face: f }));
-        const t = rand(2200, 3800);
+        const t = rand(6000, 10000);
         if (!(await wait(t))) return false;
         left -= t;
+        if (!read) {
+          const faces: (OtterExpression | null)[] = [null, "sly", "sleep", "laugh"];
+          setMain((o) => ({ ...o, face: faces[Math.floor(Math.random() * faces.length)] }));
+          continue;
+        }
+        const r = Math.random();
+        if (r < 0.62) {
+          // 책장 넘김
+          setMain((o) => ({ ...o, page: o.page + 1 }));
+          snd("page", 200);
+        } else if (r < 0.8) {
+          // 읽다가 피식
+          setMain((o) => ({ ...o, face: Math.random() < 0.5 ? "laugh" : "sly" }));
+          if (!(await wait(2400))) return false;
+          setMain((o) => ({ ...o, face: "read" }));
+        } else {
+          // 꾸벅 졸다가 화들짝
+          setMain((o) => ({ ...o, face: "sleep" }));
+          if (!(await wait(4000))) return false;
+          setMain((o) => ({ ...o, face: "surprise" }));
+          if (!(await wait(800))) return false;
+          setMain((o) => ({ ...o, face: "read" }));
+        }
+      }
+      if (read) {
+        setMain((o) => ({ ...o, book: false, face: "laugh" }));
+        if (!(await wait(1500))) return false;
       }
       setMain((o) => ({ ...o, face: null }));
       return true;
@@ -553,11 +587,11 @@ export default function DeepSea({
       if (!(await swimTo(clamp(d.vx - 62, W_UP / 2, d.W - W_UP / 2), d.H - FLOOR_BASE - UP_H / 2 - 4))) return false;
       setMain((o) => ({ ...o, pose: "upright", tilt: 0, facing: 1, face: "base", carry: "shell" }));
       if (!(await wait(700))) return false;
-      for (let i = 0; i < 3; i++) {
-        setMain((o) => ({ ...o, lean: o.lean + 1, face: i === 2 ? "surprise" : "tilt" }));
+      for (let i = 0; i < 5; i++) {
+        setMain((o) => ({ ...o, lean: o.lean + 1, face: i === 4 ? "surprise" : i % 2 ? "base" : "tilt" }));
         ventPuff();
         snd("sizzle", 150);
-        if (!(await wait(1400))) return false;
+        if (!(await wait(2000))) return false;
       }
       setMain((o) => ({ ...o, face: "laugh" }));
       snd("ting");
@@ -565,8 +599,10 @@ export default function DeepSea({
       const d2 = den();
       if (!(await swimTo(Math.max(d2.bx - 62, W_FLOAT / 2 - 6), d2.top - 30, SWIM_SPEED * 0.6))) return false;
       setMain((o) => ({ ...o, pose: "float", tilt: 0, facing: 1, carry: null, act: "eat" }));
-      ACTS.eat.sounds.forEach(([t, s2]) => snd(s2, t));
-      if (!(await wait(ACTS.eat.ms))) return false;
+      for (let k = 0; k < 3; k++) {
+        ACTS.eat.sounds.forEach(([t, s2]) => snd(s2, t));
+        if (!(await wait(ACTS.eat.ms))) return false;
+      }
       setMain((o) => ({ ...o, act: "none", face: null }));
       return wait(rand(1500, 2500));
     };
@@ -575,7 +611,7 @@ export default function DeepSea({
     const holdFriend = () => {
       friendHeld.current = true;
       const fp = readPos(friendEl.current) ?? { x: friendNow.current.x, y: friendNow.current.y };
-      setFriend((o) => ({ ...o, x: fp.x, y: fp.y, ms: 0, act: "none", tilt: 0 }));
+      setFriend((o) => ({ ...o, x: fp.x, y: fp.y, ms: 0, act: "none", tilt: 0, book: false }));
       return fp;
     };
 
@@ -602,7 +638,7 @@ export default function DeepSea({
       setMain((o) => ({ ...o, pose: "upright", tilt: 0, facing: mf, face: "laugh" }));
       setFriend((o) => ({ ...o, pose: "upright", tilt: 0, facing: (mf * -1) as 1 | -1, face: "laugh" }));
       if (!(await wait(800))) return false;
-      const n = 5 + Math.floor(Math.random() * 3);
+      const n = 12 + Math.floor(Math.random() * 7);
       let fromMain = true;
       for (let i = 0; i < n; i++) {
         const miss = i === n - 1 && Math.random() < 0.4;
@@ -612,7 +648,7 @@ export default function DeepSea({
         if (fromMain) setMain((o) => ({ ...o, lean: o.lean + 1, face: "base" }));
         else setFriend((o) => ({ ...o, lean: o.lean + 1, face: "base" }));
         snd("tik");
-        const t = miss ? 1700 : 1000;
+        const t = miss ? 2200 : 1500;
         throwBall(x0 + dir * 22, y + 4, miss ? x1 + dir * 60 : x1 - dir * 20, miss ? size().H - FLOOR_BASE - 14 : y + 4, t);
         if (!(await wait(t))) return false;
         if (miss) {
@@ -628,7 +664,7 @@ export default function DeepSea({
         snd("tik");
         if (fromMain) setFriend((o) => ({ ...o, face: i % 2 ? "laugh" : "surprise" }));
         else setMain((o) => ({ ...o, face: i % 2 ? "laugh" : "surprise" }));
-        if (!(await wait(450))) return false;
+        if (!(await wait(900))) return false;
         fromMain = !fromMain;
       }
       if (!(await wait(1400))) return false;
@@ -647,27 +683,27 @@ export default function DeepSea({
       const y = clamp(b.y, TOP_KEEP + 120, H * 0.6);
       setMain((o) => ({ ...o, pose: "upright", tilt: 0, act: "none", face: "base", y, ms: 700, ease: EASE_SLOW }));
       if (!(await wait(900))) return false;
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 6; i++) {
         const rx = b.x + rand(-14, 14);
         const ry = y - UP_H / 2 + 10;
         const key = Date.now() + Math.random();
         setMain((o) => ({ ...o, face: "surprise", lean: o.lean + 1 }));
         setRings((rs) => [...rs.slice(-3), { key, x: rx, y: ry }]);
         snd("boop");
-        // 고리는 1.6초 동안 120px 올라간다 — 친구가 그 자리로 휙
+        // 고리는 2.4초 동안 120px 올라간다 — 친구가 그 자리로 천천히
         const side = i % 2 ? 1 : -1;
         const tx = rx + side * 46;
         const ty = ry - 120;
         const f = friendNow.current;
         const ff = faceToward(f.x, rx, f.facing);
-        setFriend((o) => ({ ...o, pose: "swim", face: "laugh", facing: ff, tilt: swimTilt(ff, tx - o.x, ty - o.y), x: tx, y: ty, ms: 1500, ease: EASE_DART }));
-        if (!(await wait(1600))) return false;
+        setFriend((o) => ({ ...o, pose: "swim", face: "laugh", facing: ff, tilt: swimTilt(ff, tx - o.x, ty - o.y), x: tx, y: ty, ms: 2300, ease: EASE_SLOW }));
+        if (!(await wait(2400))) return false;
         setRings((rs) => rs.filter((r) => r.key !== key));
         boopAt(rx, ry - 132);
         snd("tik");
         setMain((o) => ({ ...o, face: "laugh" }));
         setFriend((o) => ({ ...o, pose: "float", tilt: 0, facing: (side * -1) as 1 | -1 }));
-        if (!(await wait(1100))) return false;
+        if (!(await wait(1800))) return false;
       }
       if (!(await wait(1200))) return false;
       setMain((o) => ({ ...o, pose: "float", face: null }));
@@ -678,14 +714,14 @@ export default function DeepSea({
 
     // 저녁 — 아지트에 앉아서 빛 플랑크톤 불꽃놀이 구경
     const fireworks = async () => {
-      if (!(await sitDen(1200))) return false;
+      if (!(await sitDen(1200, false))) return false;
       const d = den();
-      const n = 4 + Math.floor(Math.random() * 3);
+      const n = 8 + Math.floor(Math.random() * 5);
       for (let i = 0; i < n; i++) {
         fireAt(clamp(d.bx + rand(-100, 150), 40, d.W - 40), Math.max(d.top - rand(210, 320), TOP_KEEP));
         snd("spark");
         setMain((o) => ({ ...o, face: i % 2 ? "laugh" : "surprise" }));
-        if (!(await wait(rand(1000, 1700)))) return false;
+        if (!(await wait(rand(1800, 3000)))) return false;
       }
       if (!(await wait(1500))) return false;
       setMain((o) => ({ ...o, face: null }));
@@ -722,7 +758,7 @@ export default function DeepSea({
       }
       if (!(await wait(1100))) return false;
       // 술래잡기 — 친구가 휙 달아나고 참견이가 쫓아간다
-      for (let i = 0; i < 2; i++) {
+      for (let i = 0; i < 3; i++) {
         const { W: W2, H: H2 } = size();
         const fNow = friendNow.current;
         const q = waterPoint(W2, H2, fNow);
@@ -730,22 +766,22 @@ export default function DeepSea({
         setFriend((o) => ({ ...o, pose: "swim", face: "laugh", facing: ff, tilt: swimTilt(ff, q.x - o.x, q.y - o.y) }));
         if (!(await wait(250))) return false;
         snd("swish");
-        setFriend((o) => ({ ...o, x: q.x, y: q.y, ms: 1300, ease: EASE_DART }));
+        setFriend((o) => ({ ...o, x: q.x, y: q.y, ms: 2000, ease: EASE_DART }));
         if (!(await wait(380))) return false;
         const m = mainNow.current;
         const s2: 1 | -1 = m.x < q.x ? 1 : -1;
         tx = clamp(q.x - s2 * 118, W_SWIM / 2, W2 - W_SWIM / 2);
         const fm = faceToward(m.x, tx, m.facing);
-        setMain((o) => ({ ...o, pose: "swim", face: "laugh", facing: fm, tilt: swimTilt(fm, tx - o.x, q.y - o.y), x: tx, y: q.y, ms: 1700, ease: EASE_DART }));
-        if (!(await wait(1750))) return false;
+        setMain((o) => ({ ...o, pose: "swim", face: "laugh", facing: fm, tilt: swimTilt(fm, tx - o.x, q.y - o.y), x: tx, y: q.y, ms: 2600, ease: EASE_DART }));
+        if (!(await wait(2650))) return false;
         setMain((o) => ({ ...o, pose: "float", tilt: 0, facing: s2 }));
         setFriend((o) => ({ ...o, pose: "float", tilt: 0, facing: (s2 * -1) as 1 | -1 }));
         snd("boop");
         boopAt((tx + q.x) / 2, q.y - 40);
         if (!(await wait(900))) return false;
       }
-      // 나란히 둥둥
-      if (!(await wait(2600))) return false;
+      // 나란히 둥둥 — 한참
+      if (!(await wait(7000))) return false;
       setMain((o) => ({ ...o, face: null }));
       setFriend((o) => ({ ...o, face: null }));
       friendHeld.current = false;
@@ -759,7 +795,7 @@ export default function DeepSea({
         if (!(await sitDen(rand(6000, 9000)))) return;
         while (alive) {
           const r = Math.random();
-          const ok = r < 0.38 ? await sitDen(rand(8000, 14000)) : r < 0.68 ? await roast() : r < 0.86 ? await fireworks() : await drift([0.52, 0.7]);
+          const ok = r < 0.55 ? await sitDen(rand(50000, 90000)) : r < 0.75 ? await roast() : r < 0.92 ? await fireworks() : await drift([0.52, 0.7]);
           if (!ok) return;
         }
         return;
@@ -768,7 +804,7 @@ export default function DeepSea({
       let last = "";
       while (alive) {
         const r = Math.random();
-        let pick = r < 0.38 ? "drift" : r < 0.5 ? "look" : r < 0.7 ? "dive" : r < 0.86 ? "friend" : "den";
+        let pick = r < 0.3 ? "drift" : r < 0.38 ? "look" : r < 0.52 ? "dive" : r < 0.74 ? "friend" : "den";
         if (pick === last && pick !== "drift") pick = "drift";
         last = pick;
         const ok =
@@ -779,8 +815,10 @@ export default function DeepSea({
               : pick === "dive"
                 ? await dive()
                 : pick === "friend"
-                  ? await [playFriend, catchBall, bubbleRings][Math.floor(Math.random() * 3)]()
-                  : (await sitDen(rand(5000, 8000))) && (Math.random() < 0.5 ? await roast() : true);
+                  ? friendReading.current
+                    ? await sitDen(rand(40000, 80000)) // 친구가 책 보고 있으면 옆에 와서 같이 본다
+                    : await [playFriend, catchBall, bubbleRings][Math.floor(Math.random() * 3)]()
+                  : (await sitDen(rand(35000, 70000))) && (Math.random() < 0.4 ? await roast() : true);
         if (!ok) return;
       }
     };
@@ -807,28 +845,62 @@ export default function DeepSea({
       const d = den();
       return { x: d.bx + 58, y: d.top - (UP_H * FRIEND_K) / 2 + 8, d };
     };
-    // 저녁 — 친구도 아지트로. 바위 턱 오른쪽에 앉아서 졸다가, 가끔 누워서 냠냠
-    const evening = async () => {
+    // 아지트 자기 자리로 헤엄쳐 가서 앉기
+    const goSeat = async () => {
       const s0 = seatOf();
       const b = friendNow.current;
-      const f = faceToward(b.x, s0.x, b.facing);
-      setFriend((o) => ({ ...o, pose: "swim", act: "none", facing: f, tilt: swimTilt(f, s0.x - o.x, s0.y - o.y) }));
-      if (!(await wait(400))) return;
-      const ms0 = clamp((Math.hypot(s0.x - b.x, s0.y - b.y) / (SWIM_SPEED * 0.6)) * 1000, 2000, 8000);
-      setFriend((o) => ({ ...o, x: s0.x, y: s0.y, ms: ms0, ease: EASE_SLOW }));
-      if (!(await wait(ms0))) return;
-      setFriend((o) => ({ ...o, pose: "upright", tilt: 0, facing: -1, face: null }));
-      while (alive) {
-        if (!(await wait(rand(9000, 16000)))) return;
-        if (Math.random() < 0.35) {
-          const s = seatOf();
-          setFriend((o) => ({ ...o, pose: "float", facing: -1, x: Math.min(s.d.bx + 84, s.d.W - (W_FLOAT * FRIEND_K) / 2 + 6), y: s.d.top - 24, ms: 900, ease: EASE_SLOW, act: "eat" }));
-          if (!(await wait(ACTS.eat.ms + 900))) return;
-          setFriend((o) => ({ ...o, act: "none", pose: "upright", x: s.x, y: s.y, ms: 700 }));
+      if (Math.hypot(b.x - s0.x, b.y - s0.y) > 12) {
+        const f = faceToward(b.x, s0.x, b.facing);
+        setFriend((o) => ({ ...o, pose: "swim", act: "none", facing: f, tilt: swimTilt(f, s0.x - o.x, s0.y - o.y) }));
+        if (!(await wait(400))) return false;
+        const ms0 = clamp((Math.hypot(s0.x - b.x, s0.y - b.y) / (SWIM_SPEED * 0.6)) * 1000, 2500, 10000);
+        setFriend((o) => ({ ...o, x: s0.x, y: s0.y, ms: ms0, ease: EASE_SLOW }));
+        if (!(await wait(ms0))) return false;
+      }
+      setFriend((o) => ({ ...o, pose: "upright", tilt: 0, facing: -1, face: null, act: "none" }));
+      return true;
+    };
+    // 안경 쓰고 책 보기 — 오래. 책장 넘기고, 피식, 꾸벅
+    const readSeat = async (ms: number) => {
+      if (!(await goSeat())) return false;
+      friendReading.current = true;
+      setFriend((o) => ({ ...o, book: true, face: "read" }));
+      let left = ms;
+      while (left > 0 && alive && !friendHeld.current) {
+        const t = rand(7000, 11000);
+        if (!(await wait(t))) return false;
+        left -= t;
+        const r = Math.random();
+        if (r < 0.6) {
+          setFriend((o) => ({ ...o, page: o.page + 1 }));
+          otterSound("page");
+        } else if (r < 0.8) {
+          setFriend((o) => ({ ...o, face: "laugh" }));
+          if (!(await wait(2200))) return false;
+          setFriend((o) => ({ ...o, face: "read" }));
         } else {
-          const faces: (OtterExpression | null)[] = [null, "sleep", "laugh", "sly"];
-          setFriend((o) => ({ ...o, face: faces[Math.floor(Math.random() * faces.length)] }));
+          setFriend((o) => ({ ...o, face: "sleep" }));
+          if (!(await wait(4500))) return false;
+          setFriend((o) => ({ ...o, face: "read" }));
         }
+      }
+      friendReading.current = false;
+      setFriend((o) => ({ ...o, book: false, face: null }));
+      return wait(1500);
+    };
+    // 바위 턱에 누워서 냠냠
+    const lieEat = async () => {
+      const s = seatOf();
+      setFriend((o) => ({ ...o, pose: "float", facing: -1, x: Math.min(s.d.bx + 84, s.d.W - (W_FLOAT * FRIEND_K) / 2 + 6), y: s.d.top - 24, ms: 1200, ease: EASE_SLOW, act: "eat" }));
+      if (!(await wait(ACTS.eat.ms * 2 + 1200))) return false;
+      setFriend((o) => ({ ...o, act: "none", pose: "upright", x: s.x, y: s.y, ms: 900 }));
+      return wait(1000);
+    };
+    // 저녁 — 친구도 아지트로. 거의 책 보고, 가끔 누워서 냠냠
+    const evening = async () => {
+      while (alive) {
+        if (!(await readSeat(rand(50000, 90000)))) return;
+        if (Math.random() < 0.4 && !(await lieEat())) return;
       }
     };
     const run = async () => {
@@ -842,7 +914,12 @@ export default function DeepSea({
         const { W, H } = size();
         const b = friendNow.current;
         const p = waterPoint(W, H, b, [0.2, 0.62]);
-        const ms = clamp((Math.hypot(p.x - b.x, p.y - b.y) / FRIEND_DRIFT_SPEED) * 1000, 6000, 16000);
+        // 반쯤은 아지트에 가서 책을 본다 — 떠다니기만 하지 않게
+        if (Math.random() < 0.45) {
+          if (!(await readSeat(rand(40000, 90000)))) return;
+          continue;
+        }
+        const ms = clamp((Math.hypot(p.x - b.x, p.y - b.y) / FRIEND_DRIFT_SPEED) * 1000, 9000, 22000);
         setFriend((o) => ({ ...o, pose: "float", tilt: 0, act: "none", x: p.x, y: p.y, ms, ease: EASE_SLOW, facing: faceToward(o.x, p.x, o.facing) }));
         if (!(await wait(ms))) return;
         if (friendHeld.current) continue;
@@ -851,15 +928,16 @@ export default function DeepSea({
         if (Math.random() < 0.45) {
           const a = FRIEND_ACTS[Math.floor(Math.random() * FRIEND_ACTS.length)];
           setFriend((o) => ({ ...o, act: a }));
-          if (!(await wait(ACTS[a].ms))) return;
+          if (!(await wait(ACTS[a].ms * (2 + Math.floor(Math.random() * 2))))) return;
           setFriend((o) => ({ ...o, act: "none" }));
         }
-        if (!(await wait(rand(3000, 7000)))) return;
+        if (!(await wait(rand(5000, 10000)))) return;
       }
     };
     run();
     return () => {
       alive = false;
+      friendReading.current = false;
       ts.forEach(clearTimeout);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -871,8 +949,8 @@ export default function DeepSea({
     // 아지트 바위 턱에 각자 자리에 앉아 꾸벅꾸벅 존다(열수구 불빛 옆)
     const d = den();
     const ms = reduce ? 0 : 4000;
-    setMain((b) => ({ ...b, pose: "upright", tilt: 0, act: "none", face: null, carry: null, facing: 1, x: d.bx - 52, y: d.top - UP_H / 2 + 8, ms, ease: EASE_SLOW }));
-    setFriend((b) => ({ ...b, pose: "upright", tilt: 0, act: "none", face: null, facing: -1, x: d.bx + 58, y: d.top - (UP_H * FRIEND_K) / 2 + 8, ms, ease: EASE_SLOW }));
+    setMain((b) => ({ ...b, pose: "upright", tilt: 0, act: "none", face: null, carry: null, book: false, facing: 1, x: d.bx - 52, y: d.top - UP_H / 2 + 8, ms, ease: EASE_SLOW }));
+    setFriend((b) => ({ ...b, pose: "upright", tilt: 0, act: "none", face: null, book: false, facing: -1, x: d.bx + 58, y: d.top - (UP_H * FRIEND_K) / 2 + 8, ms, ease: EASE_SLOW }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, night, mode]);
 
@@ -1005,8 +1083,9 @@ export default function DeepSea({
   const { W } = ready ? size() : { W: 375 };
   const bw = benchW(W);
   const warm = night ? 0.75 : evening ? 1 : 0.5; // 아지트 불빛 세기
-  const mainHold: OtterHolding = main.carry ?? (leaf.who === "main" ? "leaf" : holdingFor(stage));
-  const friendHold: OtterHolding = leaf.who === "friend" ? "leaf" : "none";
+  const mainHold: OtterHolding = main.book ? "book" : main.carry ?? (leaf.who === "main" ? "leaf" : holdingFor(stage));
+  const friendHold: OtterHolding = friend.book ? "book" : leaf.who === "friend" ? "leaf" : "none";
+  const pageCls = (b: Body) => (b.page ? (b.page % 2 ? " ds-pageA" : " ds-pageB") : "");
   const sayLeft = clamp(main.x, Math.min(150, W / 2), Math.max(W - 150, W / 2));
   const sayTop = Math.max(main.y - (pose === "upright" ? UP_H / 2 + 8 : 60), TOP_KEEP - 30);
 
@@ -1224,11 +1303,11 @@ export default function DeepSea({
               onClick={tapFriend}
               aria-label="참견이 친구"
             >
-              <div className={friend.lean ? (friend.lean % 2 ? "ds-leanA" : "ds-leanB") : ""}>
+              <div className={(friend.lean ? (friend.lean % 2 ? "ds-leanA" : "ds-leanB") : "") + pageCls(friend)}>
                 {friend.pose === "swim" ? (
                   <OtterSwim expression={fExpr} holding={friendHold} width={W_SWIM * FRIEND_K} />
                 ) : friend.pose === "upright" ? (
-                  <OtterBody pose="upright" expression={fExpr} holding={friendHold} width={W_UP * FRIEND_K} />
+                  <OtterBody pose="upright" expression={fExpr} holding={friendHold} glasses={friend.book} width={W_UP * FRIEND_K} />
                 ) : (
                   <OtterBody pose="float" expression={fExpr} holding={friendHold} act={fAct} width={W_FLOAT * FRIEND_K} />
                 )}
@@ -1251,7 +1330,7 @@ export default function DeepSea({
       >
         <div className="ds-tilt" style={{ transform: `translate(-50%, -50%) rotate(${tilt}deg)` }}>
           <div className={`ds-flip ${mainTurning && pose !== "upright" ? "ds-turning" : ""}`} style={{ transform: `scaleX(${pose === "upright" && mode !== "idle" ? 1 : main.facing})` }}>
-            <div className={main.lean ? (main.lean % 2 ? "ds-leanA" : "ds-leanB") : ""}>
+            <div className={(main.lean ? (main.lean % 2 ? "ds-leanA" : "ds-leanB") : "") + pageCls(main)}>
               <button
                 className={`ds-otter ${pose === "swim" ? "ds-swim" : pose === "upright" ? (night && mode === "idle" ? "ds-breathe" : "ds-up") : night ? "ds-float ds-sleepy" : "ds-float"} ${mode === "growth" ? "ds-proud" : ""}`}
                 onClick={tap}
@@ -1260,7 +1339,7 @@ export default function DeepSea({
                 {pose === "swim" ? (
                   <OtterSwim expression={expr} holding={mainHold} width={W_SWIM} />
                 ) : pose === "upright" ? (
-                  <OtterBody pose="upright" expression={expr} holding={mainHold} kelp={stage >= 3} wave={mode === "discover"} width={W_UP} />
+                  <OtterBody pose="upright" expression={expr} holding={mainHold} glasses={main.book} kelp={stage >= 3} wave={mode === "discover"} width={W_UP} />
                 ) : (
                   <OtterBody pose="float" expression={expr} holding={mainHold} kelp={stage >= 3} act={act} width={W_FLOAT} />
                 )}
@@ -1395,6 +1474,11 @@ const CSS = `
 .ds-ventB .ds-vent-glow{animation:ds-hotB 1.4s ease-out}
 @keyframes ds-hotA{0%{opacity:.8;transform:scale(1)}25%{opacity:1;transform:scale(1.45)}100%{opacity:.8;transform:scale(1)}}
 @keyframes ds-hotB{0%{opacity:.8;transform:scale(1)}25%{opacity:1;transform:scale(1.45)}100%{opacity:.8;transform:scale(1)}}
+.ds-otter .otr-page{transform-box:fill-box;transform-origin:0% 50%}
+.ds-pageA .otr-page{animation:ds-pageA 1.2s ease-in-out}
+.ds-pageB .otr-page{animation:ds-pageB 1.2s ease-in-out}
+@keyframes ds-pageA{0%{opacity:1;transform:scaleX(1)}85%{opacity:1;transform:scaleX(-1)}100%{opacity:0;transform:scaleX(-1)}}
+@keyframes ds-pageB{0%{opacity:1;transform:scaleX(1)}85%{opacity:1;transform:scaleX(-1)}100%{opacity:0;transform:scaleX(-1)}}
 .ds-breathe{animation:ds-breathe 4.8s ease-in-out infinite}
 @keyframes ds-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.025,.975) translateY(2px)}}
 .ds-ray-warm{background:linear-gradient(rgba(255,214,150,.2),rgba(255,214,150,0))}
@@ -1462,7 +1546,7 @@ const CSS = `
 .ds-ball{position:absolute;left:-12px;top:-10px;z-index:7;pointer-events:none}
 .ds-ball-arc{display:block;animation:ds-arc ease-in-out both}
 @keyframes ds-arc{0%{transform:translateY(0) rotate(0)}50%{transform:translateY(-58px) rotate(200deg)}100%{transform:translateY(0) rotate(400deg)}}
-.ds-ring{position:absolute;z-index:7;margin-left:-20px;margin-top:-11px;pointer-events:none;animation:ds-ring 1.6s ease-out forwards}
+.ds-ring{position:absolute;z-index:7;margin-left:-20px;margin-top:-11px;pointer-events:none;animation:ds-ring 2.4s ease-out forwards}
 @keyframes ds-ring{0%{transform:translateY(0) scale(.4);opacity:0}15%{opacity:1}100%{transform:translateY(-120px) scale(1.25);opacity:1}}
 .ds-fire{position:absolute;z-index:2;width:0;height:0;pointer-events:none}
 .ds-fire-core{position:absolute;left:-20px;top:-20px;width:40px;height:40px;border-radius:50%;filter:blur(6px);opacity:0;animation:ds-firecore 1.6s ease-out forwards}
