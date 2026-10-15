@@ -37,6 +37,11 @@ import { LEAF_COLORS, mapleG } from "@/components/MapleLeaf";
 //   - 가을(lib/season.ts)엔 단풍잎이 수면에서 심해까지 천천히 가라앉고 바닥에도 몇 장 쌓여 있다. 빛도 조금 노을빛.
 //     참견이가 바닥에 내려가 잎을 주워 배 위에 올려두고 다니다가, 친구한테 주거나 다음에 내려갈 때 내려놓는다.
 //     가라앉는 잎은 눌러볼 수 있다(빙글).
+//   - 아지트(2026-10-15) — 바닥 가운데 바위 턱(둘이 앉는 자리) + 오른쪽 열수구(물속 아궁이: 주황빛이 일렁이고
+//     방울이 끊임없이 올라온다, 물속 소리를 켜면 타닥타닥) + 바위 턱 위에 떠 있는 해파리 등.
+//     눈이 머물 기준점이다. 낮엔 돌아다니다 가끔 들르고, 저녁(17~21시)엔 둘이 아지트에 돌아와 앉아서
+//     조개를 열수구에 구워 먹고, 밤엔 바위 턱에 나란히 앉아 기대어 존다. 저녁엔 물빛도 조금 어둑해진다.
+//   - 위쪽 한 칸(TOP_KEEP)은 비워둔다 — 로고·소라·메모 버튼을 가리지 않게.
 //   - 사용자를 쳐다보지 않고 자기 일에 빠져 있다. 이쪽을 보는 건 말할 때(discover/growth/curious)뿐.
 //   수달은 홈 위로 그냥 놀러 올라오지 않는다 — 걱정이를 데려올 때만(components/OtterCloseUp.tsx).
 //   올라가 있는 동안(away)에도 친구는 남아서 논다 — 집이 텅 비지 않게.
@@ -64,6 +69,15 @@ interface Body {
   face: OtterExpression | null;
   act: OtterAct;
   lean: number; // 해초 톡톡 — 바뀔 때마다 한 번 기울인다
+  carry: OtterHolding | null; // 잠깐 들고 있는 것(구우려는 조개 등) — 없으면 평소 것
+}
+
+type DayPart = "morning" | "day" | "evening";
+function dayPartAt(d: Date = new Date()): DayPart {
+  const h = d.getHours();
+  if (h >= 6 && h < 10) return "morning";
+  if (h >= 17 && h < 21) return "evening";
+  return "day";
 }
 
 // 혼자 놀기 — 길이(ms), 표정, 소리(시작 후 언제 무슨 소리). 소리 박자는 아래 CSS 애니메이션 주기와 맞춘다.
@@ -105,9 +119,23 @@ const EASE_DART = "cubic-bezier(.2,.7,.3,1)";
 
 // 바닥 해초 — 항상 있다. x는 폭 대비 위치
 const WEEDS = [
-  { x: 0.2, h: 108, c1: "#3FBF8A", c2: "#2A9C6E" },
-  { x: 0.78, h: 88, c1: "#55C9A0", c2: "#2FA57A" },
+  { x: 0.07, h: 108, c1: "#3FBF8A", c2: "#2A9C6E" },
+  { x: 0.67, h: 88, c1: "#55C9A0", c2: "#2FA57A" },
 ];
+
+// 위쪽 한 칸 — 몸 가운데가 이보다 위로 가지 않는다(로고·소라·메모 버튼을 가리지 않게)
+const TOP_KEEP = 190;
+
+// 아지트 — 바위 턱(앉는 자리) / 열수구(물속 아궁이) / 해파리 등. x는 폭 대비
+const DEN_X = 0.4;
+const VENT_X = 0.85;
+const BENCH_BOTTOM = 48;
+const benchW = (W: number) => Math.min(240, W * 0.6);
+/** 바위 턱 위 앉는 면 — 아래에서 px */
+const benchTop = (W: number) => BENCH_BOTTOM + 48 * (benchW(W) / 240);
+const VENT_W = 84;
+const VENT_BOTTOM = 46;
+const VENT_MOUTH = VENT_BOTTOM + 58; // 열수구 입구 — 아래에서 px
 
 // 가을 — 천천히 가라앉는 잎(심해 위→아래)과 바닥에 쌓인 잎
 const FALL_LEAVES = [
@@ -117,9 +145,9 @@ const FALL_LEAVES = [
   { left: 88, size: 24, dur: 42, delay: -32, c: 3 },
 ];
 const GROUND_LEAVES = [
-  { x: 0.36, c: 0, rot: -28 },
-  { x: 0.58, c: 2, rot: 24 },
-  { x: 0.9, c: 1, rot: 70 },
+  { x: 0.2, c: 0, rot: -28 },
+  { x: 0.56, c: 2, rot: 24 },
+  { x: 0.95, c: 1, rot: 70 },
 ];
 
 function holdingFor(stage: number): OtterHolding {
@@ -159,9 +187,10 @@ function readPos(el: HTMLElement | null): { x: number; y: number } | null {
 /** 물속 가운데 아무 곳 — 너무 가깝지도, 화면 끝에서 끝까지도 아니게 */
 function waterPoint(W: number, H: number, from?: { x: number; y: number }, band: [number, number] = [0.12, 0.64]) {
   const mx = Math.min(105, W * 0.28);
-  let best = { x: W / 2, y: H * 0.35 };
+  let best = { x: W / 2, y: Math.max(H * 0.35, TOP_KEEP) };
   for (let i = 0; i < 8; i++) {
-    const p = { x: rand(mx, W - mx), y: rand(H * band[0], H * band[1]) };
+    const y0 = Math.max(H * band[0], TOP_KEEP);
+    const p = { x: rand(mx, W - mx), y: rand(y0, Math.max(H * band[1], y0 + 40)) };
     best = p;
     if (!from) break;
     const d = Math.hypot(p.x - from.x, p.y - from.y);
@@ -170,7 +199,7 @@ function waterPoint(W: number, H: number, from?: { x: number; y: number }, band:
   return best;
 }
 
-const START: Body = { x: 0, y: 0, ms: 0, ease: EASE_SLOW, facing: 1, pose: "float", tilt: 0, face: null, act: "none", lean: 0 };
+const START: Body = { x: 0, y: 0, ms: 0, ease: EASE_SLOW, facing: 1, pose: "float", tilt: 0, face: null, act: "none", lean: 0, carry: null };
 
 /** 방향을 바꾸면 잠깐 몸을 굴린다(순간 뒤집기 대신) */
 function useTurning(facing: 1 | -1) {
@@ -257,7 +286,7 @@ export default function DeepSea({
       /* 그대로 */
     }
     const { W, H } = size();
-    setMain((b) => ({ ...b, x: W * 0.42, y: H * 0.3 }));
+    setMain((b) => ({ ...b, x: W * 0.42, y: Math.max(H * 0.3, TOP_KEEP) }));
     setFriend((b) => ({ ...b, x: W * 0.68, y: H * 0.5 }));
     setReady(true);
   }, []);
@@ -290,6 +319,61 @@ export default function DeepSea({
     otterSound("rustle");
     setLeafSpin((ls) => ls.map((n, j) => (j === i ? n + 1 : n)));
   };
+
+  // ---- 하루의 때 — 실제 시계(확인용: localStorage "ganseobi_daypart" = morning/day/evening) ----
+  const [dayPart, setDayPart] = useState<DayPart>("day");
+  useEffect(() => {
+    const read = () => {
+      let f: string | null = null;
+      try {
+        f = localStorage.getItem("ganseobi_daypart");
+      } catch {
+        /* 그대로 */
+      }
+      setDayPart(f === "morning" || f === "day" || f === "evening" ? f : dayPartAt());
+    };
+    read();
+    const id = setInterval(read, 60000);
+    return () => clearInterval(id);
+  }, []);
+  const evening = dayPart === "evening" && !night;
+
+  // ---- 아지트 ----
+  const den = () => {
+    const { W, H } = size();
+    return { W, H, bx: W * DEN_X, top: H - benchTop(W), vx: W * VENT_X };
+  };
+  const [vent, setVent] = useState({ n: 0, on: false }); // 열수구가 확 끓어오름(조개 굽기/누르기)
+  const ventPuff = () => {
+    setVent((v) => ({ n: v.n + 1, on: true }));
+    later(() => setVent((v) => ({ ...v, on: false })), 1400);
+  };
+  const [lamp, setLamp] = useState(0); // 해파리 등 반짝
+  const tapVent = () => {
+    plop();
+    otterSound("sizzle");
+    ventPuff();
+  };
+  const tapLamp = () => {
+    otterSound("ting");
+    setLamp((n) => n + 1);
+  };
+  // 물속 소리가 켜져 있으면 열수구가 타닥타닥 — 아궁이처럼(심해가 보일 때만)
+  useEffect(() => {
+    if (!seen || reduce) return;
+    let alive = true;
+    let t: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      if (!alive) return;
+      otterSound("crackle");
+      t = setTimeout(tick, (night ? 650 : 260) + Math.random() * (night ? 1500 : 820));
+    };
+    t = setTimeout(tick, 600);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [seen, reduce, night]);
 
   // ---- 참견이의 하루 ----
   useEffect(() => {
@@ -410,6 +494,62 @@ export default function DeepSea({
       return wait(rand(1800, 3200));
     };
 
+    // 어디로 헤엄쳐 가기(보통 속도)
+    const swimTo = async (x: number, y: number, speed = SWIM_SPEED * 0.8) => {
+      const b = mainNow.current;
+      const f = faceToward(b.x, x, b.facing);
+      setMain((o) => ({ ...o, pose: "swim", act: "none", facing: f, tilt: swimTilt(f, x - o.x, y - o.y) }));
+      if (!(await wait(400))) return false;
+      const ms = clamp((Math.hypot(x - b.x, y - b.y) / speed) * 1000, 1600, 7000);
+      setMain((o) => ({ ...o, x, y, ms, ease: EASE_SLOW }));
+      return wait(ms);
+    };
+
+    // 아지트 바위 턱에 앉아 있기 — 등불 보기, 꾸벅, 혼자 웃기
+    const sitDen = async (ms: number) => {
+      const d = den();
+      const sx = d.bx - 52;
+      const sy = d.top - UP_H / 2 + 8;
+      const cur = mainNow.current;
+      if (Math.hypot(cur.x - sx, cur.y - sy) > 12 && !(await swimTo(sx, sy))) return false;
+      setMain((o) => ({ ...o, pose: "upright", tilt: 0, facing: 1, face: null, act: "none", carry: null }));
+      const faces: (OtterExpression | null)[] = [null, "sly", "sleep", "laugh", null, "tilt"];
+      let left = ms;
+      while (left > 0) {
+        const f = faces[Math.floor(Math.random() * faces.length)];
+        setMain((o) => ({ ...o, face: f }));
+        const t = rand(2200, 3800);
+        if (!(await wait(t))) return false;
+        left -= t;
+      }
+      setMain((o) => ({ ...o, face: null }));
+      return true;
+    };
+
+    // 열수구에 조개 굽기 → 바위 턱에 누워서 냠냠
+    const roast = async () => {
+      const d = den();
+      if (!(await swimTo(clamp(d.vx - 62, W_UP / 2, d.W - W_UP / 2), d.H - FLOOR_BASE - UP_H / 2 - 4))) return false;
+      setMain((o) => ({ ...o, pose: "upright", tilt: 0, facing: 1, face: "base", carry: "shell" }));
+      if (!(await wait(700))) return false;
+      for (let i = 0; i < 3; i++) {
+        setMain((o) => ({ ...o, lean: o.lean + 1, face: i === 2 ? "surprise" : "tilt" }));
+        ventPuff();
+        snd("sizzle", 150);
+        if (!(await wait(1400))) return false;
+      }
+      setMain((o) => ({ ...o, face: "laugh" }));
+      snd("ting");
+      if (!(await wait(900))) return false;
+      const d2 = den();
+      if (!(await swimTo(Math.max(d2.bx - 62, W_FLOAT / 2 - 6), d2.top - 30, SWIM_SPEED * 0.6))) return false;
+      setMain((o) => ({ ...o, pose: "float", tilt: 0, facing: 1, carry: null, act: "eat" }));
+      ACTS.eat.sounds.forEach(([t, s2]) => snd(s2, t));
+      if (!(await wait(ACTS.eat.ms))) return false;
+      setMain((o) => ({ ...o, act: "none", face: null }));
+      return wait(rand(1500, 2500));
+    };
+
     // 친구랑 — 다가가서 콩, 술래잡기 두 번, 나란히 둥둥
     const playFriend = async () => {
       friendHeld.current = true;
@@ -472,15 +612,33 @@ export default function DeepSea({
 
     const run = async () => {
       if (!(await wait(rand(1200, 2200)))) return;
-      const h = new Date().getHours();
-      if (h >= 6 && h < 10 && !(await stretch())) return;
+      // 저녁 — 아지트로 돌아와서 앉아 있다가, 조개 구워 먹다가, 근처에서 잠깐 놀다가
+      if (dayPart === "evening") {
+        if (!(await sitDen(rand(6000, 9000)))) return;
+        while (alive) {
+          const r = Math.random();
+          const ok = r < 0.45 ? await sitDen(rand(8000, 14000)) : r < 0.8 ? await roast() : await drift([0.52, 0.7]);
+          if (!ok) return;
+        }
+        return;
+      }
+      if (dayPart === "morning" && !(await stretch())) return;
       let last = "";
       while (alive) {
         const r = Math.random();
-        let pick = r < 0.42 ? "drift" : r < 0.56 ? "look" : r < 0.78 ? "dive" : "friend";
+        let pick = r < 0.38 ? "drift" : r < 0.5 ? "look" : r < 0.7 ? "dive" : r < 0.86 ? "friend" : "den";
         if (pick === last && pick !== "drift") pick = "drift";
         last = pick;
-        const ok = pick === "drift" ? await drift() : pick === "look" ? await lookAround() : pick === "dive" ? await dive() : await playFriend();
+        const ok =
+          pick === "drift"
+            ? await drift()
+            : pick === "look"
+              ? await lookAround()
+              : pick === "dive"
+                ? await dive()
+                : pick === "friend"
+                  ? await playFriend()
+                  : (await sitDen(rand(5000, 8000))) && (Math.random() < 0.5 ? await roast() : true);
         if (!ok) return;
       }
     };
@@ -491,7 +649,7 @@ export default function DeepSea({
       ts.forEach(clearTimeout);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, mode, night, busy, away, seen, reduce]);
+  }, [ready, mode, night, busy, away, seen, reduce, dayPart]);
 
   // ---- 친구 혼자 놀기 — 참견이가 위에 올라가 있어도 계속 ----
   useEffect(() => {
@@ -503,7 +661,36 @@ export default function DeepSea({
         ts.push(setTimeout(() => r(alive), ms));
       });
     setFriend((b) => ({ ...b, pose: "float", tilt: 0, act: "none", face: null }));
+    const seatOf = () => {
+      const d = den();
+      return { x: d.bx + 58, y: d.top - (UP_H * FRIEND_K) / 2 + 8, d };
+    };
+    // 저녁 — 친구도 아지트로. 바위 턱 오른쪽에 앉아서 졸다가, 가끔 누워서 냠냠
+    const evening = async () => {
+      const s0 = seatOf();
+      const b = friendNow.current;
+      const f = faceToward(b.x, s0.x, b.facing);
+      setFriend((o) => ({ ...o, pose: "swim", act: "none", facing: f, tilt: swimTilt(f, s0.x - o.x, s0.y - o.y) }));
+      if (!(await wait(400))) return;
+      const ms0 = clamp((Math.hypot(s0.x - b.x, s0.y - b.y) / (SWIM_SPEED * 0.6)) * 1000, 2000, 8000);
+      setFriend((o) => ({ ...o, x: s0.x, y: s0.y, ms: ms0, ease: EASE_SLOW }));
+      if (!(await wait(ms0))) return;
+      setFriend((o) => ({ ...o, pose: "upright", tilt: 0, facing: -1, face: null }));
+      while (alive) {
+        if (!(await wait(rand(9000, 16000)))) return;
+        if (Math.random() < 0.35) {
+          const s = seatOf();
+          setFriend((o) => ({ ...o, pose: "float", facing: -1, x: Math.min(s.d.bx + 84, s.d.W - (W_FLOAT * FRIEND_K) / 2 + 6), y: s.d.top - 24, ms: 900, ease: EASE_SLOW, act: "eat" }));
+          if (!(await wait(ACTS.eat.ms + 900))) return;
+          setFriend((o) => ({ ...o, act: "none", pose: "upright", x: s.x, y: s.y, ms: 700 }));
+        } else {
+          const faces: (OtterExpression | null)[] = [null, "sleep", "laugh", "sly"];
+          setFriend((o) => ({ ...o, face: faces[Math.floor(Math.random() * faces.length)] }));
+        }
+      }
+    };
     const run = async () => {
+      if (dayPart === "evening") return evening();
       if (!(await wait(rand(2500, 5000)))) return;
       while (alive) {
         if (friendHeld.current) {
@@ -534,18 +721,16 @@ export default function DeepSea({
       ts.forEach(clearTimeout);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, night, busy, seen, reduce]);
+  }, [ready, night, busy, seen, reduce, dayPart]);
 
   // ---- 밤 — 둘이 손잡고 쿨쿨(떠내려가지 않게) ----
   useEffect(() => {
     if (!ready || !night || mode !== "idle") return; // 말하고 나면 다시 잠자리로
-    const { W, H } = size();
-    // 머리끼리 맞대고 — 참견이는 오른쪽을, 친구는 왼쪽을 보고 눕는다
-    const cx = clamp(W / 2 - 85, W_FLOAT / 2 - 10, W - W_FLOAT / 2);
-    const fx = clamp(cx + 172, (W_FLOAT * FRIEND_K) / 2, W - (W_FLOAT * FRIEND_K) / 2 + 10);
+    // 아지트 바위 턱에 나란히 앉아 서로 기대어 존다(열수구 불빛 옆)
+    const d = den();
     const ms = reduce ? 0 : 4000;
-    setMain((b) => ({ ...b, pose: "float", tilt: 0, act: "none", face: null, facing: 1, x: cx, y: H * 0.34, ms, ease: EASE_SLOW }));
-    setFriend((b) => ({ ...b, pose: "float", tilt: 0, act: "none", face: null, facing: -1, x: fx, y: H * 0.34, ms, ease: EASE_SLOW }));
+    setMain((b) => ({ ...b, pose: "upright", tilt: 7, act: "none", face: null, carry: null, facing: 1, x: d.bx - 44, y: d.top - UP_H / 2 + 8, ms, ease: EASE_SLOW }));
+    setFriend((b) => ({ ...b, pose: "upright", tilt: -7, act: "none", face: null, facing: -1, x: d.bx + 42, y: d.top - (UP_H * FRIEND_K) / 2 + 8, ms, ease: EASE_SLOW }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, night, mode]);
 
@@ -676,10 +861,12 @@ export default function DeepSea({
   const fAct: OtterAct = friend.pose === "float" && !night ? friend.act : "none";
   const fExpr: OtterExpression = night ? "sleep" : friend.face ?? (fAct !== "none" ? ACTS[fAct as PlayAct].face : "base");
   const { W } = ready ? size() : { W: 375 };
-  const mainHold: OtterHolding = leaf.who === "main" ? "leaf" : holdingFor(stage);
+  const bw = benchW(W);
+  const warm = night ? 0.75 : evening ? 1 : 0.5; // 아지트 불빛 세기
+  const mainHold: OtterHolding = main.carry ?? (leaf.who === "main" ? "leaf" : holdingFor(stage));
   const friendHold: OtterHolding = leaf.who === "friend" ? "leaf" : "none";
   const sayLeft = clamp(main.x, Math.min(150, W / 2), Math.max(W - 150, W / 2));
-  const sayTop = Math.max(main.y - (pose === "upright" ? UP_H / 2 + 8 : 60), 96);
+  const sayTop = Math.max(main.y - (pose === "upright" ? UP_H / 2 + 8 : 60), TOP_KEEP - 30);
 
   const bodyStyle = (b: Body): React.CSSProperties => ({
     transform: `translate(${b.x}px, ${b.y}px)`,
@@ -698,6 +885,18 @@ export default function DeepSea({
       {/* 깊은 곳까지 내려오는 희미한 빛 */}
       <div className={`ds-ray ${autumn ? "ds-ray-warm" : ""}`} style={{ left: "22%" }} />
       <div className={`ds-ray ${autumn ? "ds-ray-warm" : ""}`} style={{ left: "64%", width: 40, animationDelay: "-2.4s" }} />
+
+      {/* 저녁 — 물빛이 조금 어둑해진다(아지트 불빛이 더 따뜻해 보이게) */}
+      <div className="ds-dusk" style={{ opacity: evening ? 1 : 0 }} aria-hidden />
+      {/* 아지트 불빛 — 열수구와 해파리 등이 바닥을 따뜻하게 비춘다 */}
+      <div
+        className="ds-warm"
+        style={{
+          opacity: warm,
+          background: `radial-gradient(ellipse 46% 34% at ${VENT_X * 100}% 86%, rgba(255,158,64,.42), rgba(255,158,64,0) 70%), radial-gradient(ellipse 40% 30% at ${DEN_X * 100 + 4}% 70%, rgba(255,214,150,.26), rgba(255,214,150,0) 70%)`,
+        }}
+        aria-hidden
+      />
 
       {/* 가을 — 천천히 가라앉는 단풍잎. 눌러보면 빙글 */}
       {autumn &&
@@ -758,6 +957,44 @@ export default function DeepSea({
 
       {/* 바닥 */}
       <div className="ds-floor" aria-hidden={false}>
+        {/* 아지트 — 바위 턱(앉는 자리). 해면 방석 두 개 */}
+        <svg className="ds-deco" width={bw} height={bw / 4} viewBox="0 0 240 60" style={{ left: `calc(${DEN_X * 100}% - ${bw / 2}px)`, bottom: BENCH_BOTTOM, zIndex: 2 }} aria-hidden>
+          <path className="ds-ol" d="M10 58 C2 44 8 22 30 16 C70 6 170 6 212 14 C234 20 240 40 230 58 Z" fill={night ? "#5E6D96" : "#7B8DB8"} />
+          <path d="M30 22 C70 13 170 13 206 20" fill="none" stroke={night ? "#7D8DB8" : "#A3B4DC"} strokeWidth={5} strokeLinecap="round" />
+          <ellipse cx="44" cy="42" rx="7" ry="4" fill="#4FA97D" opacity={0.8} />
+          <ellipse cx="196" cy="46" rx="9" ry="4.5" fill="#4FA97D" opacity={0.8} />
+          <ellipse cx="150" cy="36" rx="3.5" ry="3" fill="#FFFFFF" opacity={0.6} />
+          <ellipse className="ds-ol2" cx="68" cy="14" rx="28" ry="7" fill="#FF9EC4" />
+          <ellipse className="ds-ol2" cx="178" cy="14" rx="24" ry="6.5" fill="#FFC86B" />
+        </svg>
+        {/* 아지트 — 해파리 등(바위 턱 위에 둥둥). 눌러보면 반짝 */}
+        <button
+          className={`ds-lamp ${lamp ? (lamp % 2 ? "ds-lampA" : "ds-lampB") : ""}`}
+          style={{ left: `calc(${DEN_X * 100}% - 23px)`, bottom: benchTop(W) + 150 }}
+          onClick={tapLamp}
+          aria-label="해파리 등"
+        >
+          <span className="ds-lamp-glow" style={{ opacity: night || evening ? 1 : 0.55 }} />
+          <svg width="46" height="62" viewBox="0 0 46 62" style={{ overflow: "visible", display: "block", position: "relative" }} aria-hidden>
+            <path className="ds-tent" d="M12 30 C10 40 16 46 12 58 M20 31 C19 42 24 48 21 60 M28 31 C29 42 24 48 27 60 M35 30 C37 40 31 46 35 57" fill="none" stroke="#1B1630" strokeWidth={2} strokeLinecap="round" />
+            <path className="ds-ol2" d="M4 30 C3 12 13 3 23 3 C33 3 43 12 42 30 C36 27 31 33 23 30 C15 33 10 27 4 30 Z" fill="#F7B8E0" />
+            <ellipse cx="23" cy="18" rx="9" ry="7" fill="#FFF3B0" opacity={night || evening ? 0.95 : 0.7} />
+            <ellipse cx="15" cy="12" rx="3.2" ry="2" fill="#FFFFFF" opacity={0.8} />
+          </svg>
+        </button>
+        {/* 아지트 — 열수구(물속 아궁이). 주황빛이 일렁이고 방울이 올라온다. 눌러보면 확 끓어오름 */}
+        <button className={`ds-vent ${vent.on ? (vent.n % 2 ? "ds-ventA" : "ds-ventB") : ""}`} style={{ left: `calc(${VENT_X * 100}% - ${VENT_W / 2}px)`, bottom: VENT_BOTTOM }} onClick={tapVent} aria-label="열수구">
+          <span className="ds-vent-glow" />
+          <svg width={VENT_W} height="80" viewBox="0 0 84 80" style={{ overflow: "visible", display: "block", position: "relative" }} aria-hidden>
+            <path className="ds-ol" d="M4 80 C10 62 22 48 28 22 L56 22 C62 48 74 62 80 80 Z" fill={night ? "#4A4462" : "#5D5577"} />
+            <path d="M22 66 L30 54 L28 44 M58 70 L54 58 L58 48" fill="none" stroke="#FF9E4A" strokeWidth={2.4} strokeLinecap="round" className="ds-crack" />
+            <ellipse className="ds-ol2" cx="42" cy="22" rx="15" ry="6" fill="#FFB347" />
+            <ellipse className="ds-ember" cx="42" cy="22" rx="9" ry="3.4" fill="#FFE68A" />
+          </svg>
+          {[0, 1, 2, 3, 4].map((k) => (
+            <span key={k} className="ds-vbub" style={{ left: 34 + ((k * 7) % 14), width: 6 + (k % 3) * 3, height: 6 + (k % 3) * 3, animationDelay: `${-k * 0.62}s`, animationDuration: `${2.6 + (k % 3) * 0.5}s` }} />
+          ))}
+        </button>
         {/* 해초 — 항상 있다. 눌러도 되고, 참견이도 내려와서 건드린다 */}
         {WEEDS.map((w, i) => (
           <button
@@ -781,17 +1018,17 @@ export default function DeepSea({
         {/* 1 다시마 싹 */}
         {stage >= 1 && stage < 3 && (
           <>
-            <svg className="ds-deco" width="30" height="90" viewBox="0 0 40 140" style={{ left: "34%", bottom: 64 }}>
+            <svg className="ds-deco" width="30" height="90" viewBox="0 0 40 140" style={{ left: "58%", bottom: 64 }}>
               <path className="ds-ol ds-sway" d={WEED} fill="#46C985" />
             </svg>
-            <svg className="ds-deco" width="22" height="62" viewBox="0 0 40 140" style={{ left: "41%", bottom: 60 }}>
+            <svg className="ds-deco" width="22" height="62" viewBox="0 0 40 140" style={{ left: "63%", bottom: 60 }}>
               <path className="ds-ol ds-sway" d={WEED} fill="#2FAF6A" style={{ animationDelay: "-1.3s" }} />
             </svg>
           </>
         )}
         {/* 2 조약돌 더미 */}
         {stage >= 2 && (
-          <svg className="ds-deco" width="96" height="56" viewBox="0 0 96 56" style={{ right: "30%", bottom: 58, zIndex: 3 }}>
+          <svg className="ds-deco" width="96" height="56" viewBox="0 0 96 56" style={{ left: "-4%", bottom: 50, zIndex: 3 }}>
             <ellipse className="ds-ol2" cx="22" cy="44" rx="16" ry="10" fill="#9CC9EC" />
             <ellipse className="ds-ol2" cx="52" cy="46" rx="18" ry="9" fill="#FF9EC4" />
             <ellipse className="ds-ol2" cx="78" cy="44" rx="14" ry="9" fill="#FFD54A" />
@@ -841,12 +1078,14 @@ export default function DeepSea({
         <div className="ds-tilt" style={{ transform: `translate(-50%, -50%) rotate(${friend.tilt}deg)` }}>
           <div className={`ds-flip ${friendTurning ? "ds-turning" : ""}`} style={{ transform: `scaleX(${friend.facing})` }}>
             <button
-              className={`ds-otter ${friend.pose === "swim" ? "ds-swim" : night ? "ds-float ds-sleepy" : "ds-float"} ${friendSpin ? (friendSpin % 2 ? "ds-spinA" : "ds-spinB") : ""}`}
+              className={`ds-otter ${friend.pose === "swim" ? "ds-swim" : friend.pose === "upright" ? (night ? "ds-breathe" : "ds-up") : night ? "ds-float ds-sleepy" : "ds-float"} ${friendSpin ? (friendSpin % 2 ? "ds-spinA" : "ds-spinB") : ""}`}
               onClick={tapFriend}
               aria-label="참견이 친구"
             >
               {friend.pose === "swim" ? (
                 <OtterSwim expression={fExpr} holding={friendHold} width={W_SWIM * FRIEND_K} />
+              ) : friend.pose === "upright" ? (
+                <OtterBody pose="upright" expression={fExpr} holding={friendHold} width={W_UP * FRIEND_K} />
               ) : (
                 <OtterBody pose="float" expression={fExpr} holding={friendHold} act={fAct} width={W_FLOAT * FRIEND_K} />
               )}
@@ -870,7 +1109,7 @@ export default function DeepSea({
           <div className={`ds-flip ${mainTurning && pose !== "upright" ? "ds-turning" : ""}`} style={{ transform: `scaleX(${pose === "upright" && mode !== "idle" ? 1 : main.facing})` }}>
             <div className={main.lean ? (main.lean % 2 ? "ds-leanA" : "ds-leanB") : ""}>
               <button
-                className={`ds-otter ${pose === "swim" ? "ds-swim" : pose === "upright" ? "ds-up" : night ? "ds-float ds-sleepy" : "ds-float"} ${mode === "growth" ? "ds-proud" : ""}`}
+                className={`ds-otter ${pose === "swim" ? "ds-swim" : pose === "upright" ? (night && mode === "idle" ? "ds-breathe" : "ds-up") : night ? "ds-float ds-sleepy" : "ds-float"} ${mode === "growth" ? "ds-proud" : ""}`}
                 onClick={tap}
                 aria-label="참견이"
               >
@@ -944,6 +1183,34 @@ const CSS = `
 .ds-root{position:relative;height:max(94dvh,640px);overflow:hidden}
 .ds-ray{position:absolute;top:-10px;width:30px;height:70%;background:linear-gradient(rgba(255,255,255,.12),rgba(255,255,255,0));transform:rotate(14deg);transform-origin:top;animation:ds-shimmer 6s ease-in-out infinite alternate;pointer-events:none}
 @keyframes ds-shimmer{from{opacity:.4}to{opacity:1}}
+.ds-dusk{position:absolute;inset:0;background:linear-gradient(rgba(70,40,120,0) 0%,rgba(52,28,96,.32) 100%);transition:opacity 2s ease;pointer-events:none;z-index:1}
+.ds-warm{position:absolute;inset:0;pointer-events:none;z-index:1;transition:opacity 2s ease;animation:ds-flicker 3.2s ease-in-out infinite}
+@keyframes ds-flicker{0%,100%{filter:brightness(1)}30%{filter:brightness(1.18)}55%{filter:brightness(.92)}80%{filter:brightness(1.1)}}
+.ds-lamp{position:absolute;z-index:3;padding:0;margin:0;border:0;background:none;cursor:pointer;pointer-events:auto;-webkit-tap-highlight-color:transparent;animation:ds-lampbob 4.6s ease-in-out infinite alternate}
+@keyframes ds-lampbob{from{transform:translateY(-6px)}to{transform:translateY(6px)}}
+.ds-lamp-glow{position:absolute;left:50%;top:22px;width:110px;height:110px;margin:-55px 0 0 -55px;border-radius:50%;background:radial-gradient(circle,rgba(255,236,170,.55),rgba(255,236,170,0) 68%);animation:ds-glow2 3.4s ease-in-out infinite;pointer-events:none}
+@keyframes ds-glow2{0%,100%{transform:scale(.9)}50%{transform:scale(1.08)}}
+.ds-lamp .ds-tent{animation:ds-tent 2.4s ease-in-out infinite alternate;transform-origin:50% 0;transform-box:fill-box}
+@keyframes ds-tent{from{transform:skewX(-6deg)}to{transform:skewX(6deg)}}
+.ds-lampA .ds-lamp-glow{animation:ds-flashA .9s ease-out}
+.ds-lampB .ds-lamp-glow{animation:ds-flashB .9s ease-out}
+@keyframes ds-flashA{0%{transform:scale(.9);filter:brightness(1)}30%{transform:scale(1.5);filter:brightness(1.6)}100%{transform:scale(1);filter:brightness(1)}}
+@keyframes ds-flashB{0%{transform:scale(.9);filter:brightness(1)}30%{transform:scale(1.5);filter:brightness(1.6)}100%{transform:scale(1);filter:brightness(1)}}
+.ds-vent{position:absolute;z-index:3;padding:0;margin:0;border:0;background:none;cursor:pointer;pointer-events:auto;-webkit-tap-highlight-color:transparent}
+.ds-vent-glow{position:absolute;left:50%;top:22px;width:120px;height:90px;margin:-45px 0 0 -60px;border-radius:50%;background:radial-gradient(ellipse,rgba(255,170,70,.65),rgba(255,170,70,0) 70%);animation:ds-flicker2 1.7s ease-in-out infinite;pointer-events:none}
+@keyframes ds-flicker2{0%,100%{opacity:.75;transform:scale(1)}25%{opacity:1;transform:scale(1.08)}50%{opacity:.6;transform:scale(.95)}75%{opacity:.95;transform:scale(1.04)}}
+.ds-ember{animation:ds-ember 1.3s ease-in-out infinite alternate}
+@keyframes ds-ember{from{opacity:.7}to{opacity:1}}
+.ds-crack{animation:ds-ember 2.1s ease-in-out infinite alternate}
+.ds-vbub{position:absolute;bottom:58px;border-radius:50%;border:2px solid rgba(255,255,255,.8);background:rgba(255,255,255,.12);opacity:0;animation:ds-vbub linear infinite;pointer-events:none}
+@keyframes ds-vbub{0%{transform:translate(0,0) scale(.5);opacity:0}10%{opacity:.95}50%{transform:translate(6px,-90px) scale(.9)}100%{transform:translate(-4px,-190px) scale(1.15);opacity:0}}
+.ds-ventA .ds-vbub,.ds-ventB .ds-vbub{animation-duration:1.1s!important}
+.ds-ventA .ds-vent-glow{animation:ds-hotA 1.4s ease-out}
+.ds-ventB .ds-vent-glow{animation:ds-hotB 1.4s ease-out}
+@keyframes ds-hotA{0%{opacity:.8;transform:scale(1)}25%{opacity:1;transform:scale(1.45)}100%{opacity:.8;transform:scale(1)}}
+@keyframes ds-hotB{0%{opacity:.8;transform:scale(1)}25%{opacity:1;transform:scale(1.45)}100%{opacity:.8;transform:scale(1)}}
+.ds-breathe{animation:ds-breathe 4.8s ease-in-out infinite}
+@keyframes ds-breathe{0%,100%{transform:scale(1,1)}50%{transform:scale(1.025,.975) translateY(2px)}}
 .ds-ray-warm{background:linear-gradient(rgba(255,214,150,.2),rgba(255,214,150,0))}
 .ds-fall{position:absolute;top:-30px;z-index:3;animation:ds-fall linear infinite;pointer-events:none}
 @keyframes ds-fall{0%{transform:translateY(0);opacity:0}6%{opacity:1}88%{opacity:1}100%{transform:translateY(calc(max(94dvh,640px) - 96px));opacity:0}}
@@ -1040,6 +1307,8 @@ const CSS = `
 @keyframes ds-shine{0%,24%{opacity:0;transform:scale(.3)}32%{opacity:1;transform:scale(1.2)}66%{opacity:1;transform:scale(1)}76%,100%{opacity:0;transform:scale(.3)}}
 @media (prefers-reduced-motion: reduce){
   .ds-fall{display:none}
+  .ds-warm,.ds-lamp,.ds-lamp-glow,.ds-lamp .ds-tent,.ds-vent-glow,.ds-ember,.ds-crack,.ds-breathe{animation:none}
+  .ds-vbub{display:none}
   .ds-ray,.ds-mote,.ds-sway,.ds-blade,.ds-glow,.ds-float,.ds-swim,.ds-up,.ds-proud,.ds-zz,.ds-burst span,.ds-turning,.ds-spinA,.ds-spinB,.ds-leanA,.ds-leanB,.ds-boop,.ds-wbub,.ds-otter .otr-wave,.ds-otter .otr-tail,.ds-otter .otr-swim-tail,.ds-otter .otr-swim-paw{animation:none}
   .ds-flip,.ds-tilt{transition:none}
   .ds-burst{display:none}
