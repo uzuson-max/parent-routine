@@ -16,6 +16,7 @@ export const dynamic = 'force-dynamic';
 // ============================================================================
 
 const TABLES_IN_ORDER = [
+  'stage_answers', // 강 돌다리 대답
   'worry_bottles', // 걱정 병
   'reminders', // 알람(메모를 가리킬 수 있어 메모보다 먼저)
   'sea_notes', // 바다 위 메모

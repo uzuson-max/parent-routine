@@ -21,6 +21,7 @@ import DiscoveryScreen from "./screens/DiscoveryScreen";
 import LettersScreen from "./screens/LettersScreen";
 import ArchiveScreen from "./screens/ArchiveScreen";
 import WorriesScreen from "./screens/WorriesScreen";
+import RiverScreen from "./screens/RiverScreen";
 import type { WorldTab } from "@/components/WorldNav";
 import TankRecordingScreen from "./screens/TankRecordingScreen";
 import { BRAND, pageBackground } from "@/lib/theme";
@@ -72,6 +73,7 @@ type Step =
   | "insights"
   | "letters"
   | "worries"
+  | "river"
   | "uploading"
   | "no_action"
   | "awaiting_confirmation"
@@ -236,7 +238,7 @@ export default function Home() {
     firstStepRun.current = false;
     if (step === "landing" && !isFirst) fetchEntries();
     // 홈에서 녹음하던 마이크는 다른 탭으로 나가면 놓아준다(녹음 표시등이 계속 켜져 있지 않게).
-    if (step === "calendar" || step === "archive" || step === "mypage" || step === "insights" || step === "letters" || step === "worries") releaseMicStream();
+    if (step === "calendar" || step === "archive" || step === "mypage" || step === "insights" || step === "letters" || step === "worries" || step === "river") releaseMicStream();
   }, [step]);
 
   // 홈 말풍선을 닫거나 안내만 띄울 때는 대화가 이어지지 않으니 마이크를 놓아준다.
@@ -589,6 +591,10 @@ export default function Home() {
 
       {step === "worries" && (
         <WorriesScreen onNavigate={goTab} unreadLetterCount={unreadLetterCount} />
+      )}
+
+      {step === "river" && (
+        <RiverScreen onNavigate={goTab} unreadLetterCount={unreadLetterCount} />
       )}
 
       {step === "archive" && (
