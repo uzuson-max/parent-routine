@@ -253,7 +253,8 @@ export function recallChime() {
 //   crackle 아지트 열수구(물속 아궁이) 타닥 — 아주 작게, 계속(components/DeepSea.tsx가 박자를 정함)
 //   sizzle  열수구에 조개 구울 때 / 눌렀을 때 — 치익 + 보글
 //   spark   저녁 빛 플랑크톤 불꽃 — 퐁 올라가서 맑게 반짝(작게)
-export type OtterSound = "tok" | "munch" | "tik" | "ting" | "swish" | "rustle" | "boop" | "crackle" | "sizzle" | "spark";
+//   page    아지트에서 책장 넘기는 소리 — 사락
+export type OtterSound = "tok" | "munch" | "tik" | "ting" | "swish" | "rustle" | "boop" | "crackle" | "sizzle" | "spark" | "page";
 
 function noiseBurst(c: AudioContext, out: AudioNode, at: number, dur: number, freq: number, q: number, vol: number, type: BiquadFilterType) {
   const len = Math.max(1, Math.floor(c.sampleRate * dur));
@@ -333,6 +334,9 @@ export function otterSound(kind: OtterSound) {
     noiseBurst(c, out, at, 0.7, 3800, 0.9, 0.05 * k, "highpass");
     bubble(c, at + 0.1, 0.4);
     bubble(c, at + 0.22, 0.7);
+  } else if (kind === "page") {
+    noiseBurst(c, out, at, 0.24, 2600, 0.7, 0.045 * k, "bandpass");
+    noiseBurst(c, out, at + 0.16, 0.1, 4200, 1.2, 0.025 * k, "bandpass");
   } else if (kind === "spark") {
     const notes = [784, 880, 1047, 1175, 1319];
     const f = notes[Math.floor(Math.random() * notes.length)];
