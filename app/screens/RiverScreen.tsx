@@ -68,7 +68,7 @@ async function authed(path: string, init?: RequestInit) {
   const {
     data: { session },
   } = await supabaseClient.auth.getSession();
-  if (!session) throw new Error("세션이 없어. 새로고침해볼래?");
+  if (!session) throw new Error("세션 만료 · 새로고침");
   return fetch(path, {
     ...init,
     headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${session.access_token}` },
@@ -102,11 +102,11 @@ export default function RiverScreen({
     try {
       const res = await authed("/api/stage");
       const body = await res.json();
-      if (!body?.success) throw new Error(body?.error || "소라를 못 불러왔어");
+      if (!body?.success) throw new Error(body?.error || "불러오기 실패");
       setProgress(body.data);
       setLoadError(null);
     } catch (e: any) {
-      setLoadError(e?.message || "소라를 못 불러왔어");
+      setLoadError(e?.message || "불러오기 실패");
     }
   }, []);
 
@@ -126,11 +126,11 @@ export default function RiverScreen({
       return;
     }
     if (day !== progress.nextDay) {
-      setFlow({ kind: "note", text: "그 소라는 아직 저 아래야. 하나씩 건너자." });
+      setFlow({ kind: "note", text: "아직 잠김\n순서대로 열림" });
       return;
     }
     if (!progress.unlocked) {
-      setFlow({ kind: "note", text: "아직 물에 잠겨 있어. 내일 올라올 거야." });
+      setFlow({ kind: "note", text: "아직 잠김\n내일 열림" });
       return;
     }
     const cfg = stageDay(day);
@@ -158,9 +158,9 @@ export default function RiverScreen({
       if (confirmed) form.append("speech_confirmed", "1");
       const up = await authed("/api/voice/upload", { method: "POST", body: form });
       const upBody = await up.json().catch(() => null);
-      if (!up.ok || !upBody?.success) throw new Error(upBody?.error || "녹음을 못 보냈어");
+      if (!up.ok || !upBody?.success) throw new Error(upBody?.error || "전송 실패");
       if (upBody.data?.no_speech) {
-        setFlow({ kind: "retry", day, part, question, text: "잘 안 들렸어. 한 번 더 해볼래?" });
+        setFlow({ kind: "retry", day, part, question, text: "잘 안 들림\n다시 녹음" });
         return;
       }
       if (upBody.data?.needs_confirm) {
@@ -168,7 +168,7 @@ export default function RiverScreen({
         return;
       }
       const entryId = upBody.data?.id;
-      if (!entryId) throw new Error("녹음 번호가 없어");
+      if (!entryId) throw new Error("전송 실패");
 
       const res = await authed("/api/stage/answer", {
         method: "POST",
@@ -176,7 +176,7 @@ export default function RiverScreen({
         body: JSON.stringify({ day, part, entryId, tone: t }),
       });
       const body = await res.json().catch(() => null);
-      if (!res.ok || !body?.success) throw new Error(body?.error || "돌에 못 새겼어");
+      if (!res.ok || !body?.success) throw new Error(body?.error || "저장 실패");
 
       setFishDrop({ day, key: Date.now() });
       if (body.data?.followUp) {
@@ -190,7 +190,7 @@ export default function RiverScreen({
         setFlow({ kind: "crossed", day });
       }
     } catch (e: any) {
-      setFlow({ kind: "retry", day, part, question, text: e?.message || "잠깐 꼬였어. 다시 해볼래?" });
+      setFlow({ kind: "retry", day, part, question, text: e?.message || "오류\n다시 시도" });
     }
   };
 
@@ -230,7 +230,7 @@ export default function RiverScreen({
         }}
         onMicFailed={() => {
           releaseMicStream();
-          setFlow({ kind: "note", text: "마이크를 못 잡았어. 브라우저에서 마이크를 허용해줄래?" });
+          setFlow({ kind: "note", text: "마이크 권한 필요\n브라우저 설정에서 허용" });
         }}
       />
     );
@@ -347,17 +347,17 @@ export default function RiverScreen({
         <div style={{ position: "absolute", left: 0, right: 0, top: `${((FOG_Y + 70) / VB_H) * 100}%`, textAlign: "center" }}>
           {progress?.finished ? (
             fogAsked ? (
-              <div style={{ fontSize: 17 }}>열리면 제일 먼저 알려줄게.</div>
+              <div style={{ fontSize: 17 }}>알림 신청 완료</div>
             ) : (
               <>
-                <div style={{ fontSize: 18, marginBottom: 10 }}>저 너머도 가볼래?</div>
+                <div style={{ fontSize: 18, marginBottom: 10 }}>다음 시즌 준비 중</div>
                 <button className="wn-sticker" style={pillBtn} onClick={askMore}>
-                  열리면 알려줘
+                  오픈 알림 받기
                 </button>
               </>
             )
           ) : (
-            <div style={{ fontSize: 15, opacity: 0.55 }}>저 너머는 아직 물안개</div>
+            <div style={{ fontSize: 15, opacity: 0.55 }}>DAY 8~ · 준비 중</div>
           )}
         </div>
       </div>
@@ -366,7 +366,7 @@ export default function RiverScreen({
       {flow.kind === "ask" && (
         <Sheet onClose={() => setFlow({ kind: "idle" })}>
           <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 6 }}>
-            {flow.day}번째 소라{flow.part === 2 ? " · 하나 더" : ""}
+            DAY {flow.day}{flow.part === 2 ? " · 추가 질문" : ""}
           </div>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 16 }}>
             <OtterFace expression={flow.part === 2 ? "sly" : "tilt"} size={60} />
@@ -380,7 +380,7 @@ export default function RiverScreen({
               setFlow({ kind: "record", day: flow.day, part: flow.part, question: flow.question });
             }}
           >
-            말로 대답할래
+            말로 답하기
           </button>
         </Sheet>
       )}
@@ -391,25 +391,25 @@ export default function RiverScreen({
             <span className="rv-wiggle">
               <Fish size={34} />
             </span>
-            <div style={{ fontSize: 19 }}>니 말로 물고기 만드는 중…</div>
+            <div style={{ fontSize: 19 }}>물고기 변환 중…</div>
           </div>
         </Sheet>
       )}
 
       {flow.kind === "confirm" && (
         <Sheet>
-          <div style={{ fontSize: 17, marginBottom: 8 }}>이렇게 말한 거 맞아?</div>
+          <div style={{ fontSize: 17, marginBottom: 8 }}>이렇게 들림. 맞아?</div>
           <div style={{ ...quoteBox, marginBottom: 14 }}>{flow.transcript || "(잘 안 들렸어)"}</div>
           <div style={{ display: "flex", gap: 10 }}>
             <button className="wn-sticker" style={{ ...pillBtn, flex: 1 }} onClick={() => send(flow.day, flow.part, flow.question, flow.blob, true)}>
-              맞아
+              맞음
             </button>
             <button
               className="wn-sticker"
               style={{ ...pillBtn, flex: 1, background: "#FFFFFF" }}
               onClick={() => setFlow({ kind: "record", day: flow.day, part: flow.part, question: flow.question })}
             >
-              다시 할래
+              다시 녹음
             </button>
           </div>
         </Sheet>
@@ -417,13 +417,13 @@ export default function RiverScreen({
 
       {flow.kind === "retry" && (
         <Sheet onClose={() => setFlow({ kind: "idle" })}>
-          <div style={{ fontSize: 18, marginBottom: 14 }}>{flow.text}</div>
+          <div style={{ fontSize: 18, marginBottom: 14, whiteSpace: "pre-line" }}>{flow.text}</div>
           <button
             className="wn-sticker"
             style={{ ...pillBtn, width: "100%" }}
             onClick={() => setFlow({ kind: "record", day: flow.day, part: flow.part, question: flow.question })}
           >
-            다시 대답할래
+            다시 녹음
           </button>
         </Sheet>
       )}
@@ -433,8 +433,10 @@ export default function RiverScreen({
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <OtterFace expression="laugh" size={60} />
             <div style={{ fontSize: 19, lineHeight: 1.35 }}>
-              건넜다. 니 말은 물고기 돼서 바다로 갔어.
-              <div style={{ fontSize: 15, opacity: 0.6, marginTop: 4 }}>다음 소라는 내일 올라와.</div>
+              DAY {flow.day} 완료
+              <div style={{ fontSize: 15, opacity: 0.6, marginTop: 4 }}>니 말 → 물고기 → 바다
+                <br />
+                다음 소라는 내일</div>
             </div>
           </div>
         </Sheet>
@@ -444,7 +446,7 @@ export default function RiverScreen({
         <Sheet onClose={() => setFlow({ kind: "idle" })}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <OtterFace expression="sleep" size={56} />
-            <div style={{ fontSize: 18, lineHeight: 1.35 }}>{flow.text}</div>
+            <div style={{ fontSize: 18, lineHeight: 1.35, whiteSpace: "pre-line" }}>{flow.text}</div>
           </div>
         </Sheet>
       )}
@@ -473,7 +475,7 @@ function LookBack({ done, tone, onReplay }: { done: DayDone; tone: StageTone; on
   const questions = [cfg?.question[tone], cfg?.followUp?.[tone]];
   return (
     <div>
-      <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 8 }}>{done.day}번째 소라</div>
+      <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 8 }}>DAY {done.day}</div>
       {done.answers.map((a, i) => (
         <div key={i} style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 15, opacity: 0.7, marginBottom: 4 }}>{questions[i]}</div>
@@ -484,14 +486,14 @@ function LookBack({ done, tone, onReplay }: { done: DayDone; tone: StageTone; on
             disabled={player.state === "loading"}
             onClick={() => player.play(`day=${done.day}&part=${i + 1}`)}
           >
-            {player.state === "playing" && player.current === `day=${done.day}&part=${i + 1}` ? "듣는 중…" : "그때 목소리 듣기"}
+            {player.state === "playing" && player.current === `day=${done.day}&part=${i + 1}` ? "듣는 중…" : "원본 듣기"}
           </button>
         </div>
       ))}
       {player.error && <div style={{ fontSize: 13, color: "#C0392B" }}>{player.error}</div>}
       {done.returnSegments && (
         <button className="wn-sticker" style={{ ...pillBtn, width: "100%", marginTop: 4 }} onClick={() => onReplay(done.returnSegments!)}>
-          그날 소라 다시 들어보기
+          그날 소라 다시 듣기
         </button>
       )}
     </div>
@@ -564,7 +566,7 @@ function ShellReturn({ segments, tone }: { segments: ReturnSegment[]; tone: Stag
               <Conch size={44} />
             </span>
           </div>
-          <div style={{ fontSize: 19, marginBottom: 14 }}>소라에서 뭐가 들려. 귀 대볼래?</div>
+          <div style={{ fontSize: 19, marginBottom: 14 }}>소라에서 뭐 들림ㅋ</div>
           <button
             className="wn-sticker"
             style={{ ...pillBtn, width: "100%" }}
@@ -621,11 +623,11 @@ function ShellReturn({ segments, tone }: { segments: ReturnSegment[]; tone: Stag
                 {live && phase === "ask" && (
                   <div className="rv-pop" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <div style={{ fontSize: 15, textAlign: "center" }}>
-                      {tone === "spicy" ? "못 믿겠지? 진짜 니 목소리 있음ㅋ" : "진짜 니 목소리로 들어볼래?"}
+                      {tone === "spicy" ? "못 믿겠지? 진짜 니 목소리 있음ㅋ" : "원본 목소리 들어볼래?"}
                     </div>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button className="wn-sticker" style={{ ...pillBtn, flex: 1, padding: "10px 14px", fontSize: 16 }} onClick={() => listen(i)}>
-                        들어볼래
+                        듣기
                       </button>
                       <button
                         className="wn-sticker"
@@ -636,7 +638,7 @@ function ShellReturn({ segments, tone }: { segments: ReturnSegment[]; tone: Stag
                           next(200);
                         }}
                       >
-                        됐어
+                        패스
                       </button>
                     </div>
                   </div>
@@ -667,7 +669,7 @@ function ShellReturn({ segments, tone }: { segments: ReturnSegment[]; tone: Stag
             );
           })}
           {player.error && <div style={{ fontSize: 13, color: "#C0392B" }}>{player.error}</div>}
-          {finished && <div style={{ fontSize: 13, opacity: 0.55, textAlign: "center", marginTop: 4 }}>대답은 홈 바다에서 마이크로 해도 돼</div>}
+          {finished && <div style={{ fontSize: 13, opacity: 0.55, textAlign: "center", marginTop: 4 }}>대답은 홈 마이크로</div>}
         </div>
       )}
     </div>
@@ -828,18 +830,18 @@ function useVoicePlayer() {
     if (hit) return hit;
     try {
       const c = ctx();
-      if (!c) throw new Error("이 기기에선 소리를 못 내");
+      if (!c) throw new Error("이 기기는 재생 불가");
       const res = await authed(`/api/stage/voice?${query}`);
       const body = await res.json();
-      if (!body?.success) throw new Error(body?.error || "그 목소리를 못 찾았어");
+      if (!body?.success) throw new Error(body?.error || "녹음 없음");
       const audio = await fetch(body.data.url);
-      if (!audio.ok) throw new Error("목소리를 못 불러왔어");
+      if (!audio.ok) throw new Error("불러오기 실패");
       const buffer = await c.decodeAudioData(await audio.arrayBuffer());
       const item = { buffer, transcript: String(body.data.transcript ?? "") };
       cache.current.set(query, item);
       return item;
     } catch (e: any) {
-      setError(e?.message || "목소리를 못 불러왔어");
+      setError(e?.message || "불러오기 실패");
       return null;
     }
   };
@@ -856,7 +858,7 @@ function useVoicePlayer() {
     try {
       setState("loading");
       const c = ctx();
-      if (!c) throw new Error("이 기기에선 소리를 못 내");
+      if (!c) throw new Error("이 기기는 재생 불가");
       await c.resume();
       const item = await load(query);
       if (!item) return;
@@ -878,7 +880,7 @@ function useVoicePlayer() {
         src.start(t0, range.start, range.length);
       });
     } catch (e: any) {
-      setError(e?.message || "목소리 재생이 안 됐어");
+      setError(e?.message || "재생 실패");
     } finally {
       setState("idle");
     }

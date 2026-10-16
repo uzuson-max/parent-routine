@@ -51,12 +51,12 @@ interface WorryData {
   ready: boolean;
 }
 
-const RESULT_LABEL: Record<WorryAnswer, string> = { hit: "맞았음", half: "반쯤", miss: "괜찮았음" };
+const RESULT_LABEL: Record<WorryAnswer, string> = { hit: "적중", half: "반적중", miss: "빗나감" };
 const RESULT_COLOR: Record<WorryAnswer, string> = { hit: "#F9C7DC", half: "#FFD26F", miss: "#74D3B4" };
 const DAY_CHOICES: { days: number; label: string }[] = [
   { days: 1, label: "내일" },
-  { days: 5, label: "이번 주" },
-  { days: 30, label: "한 달 뒤" },
+  { days: 5, label: "5일 뒤" },
+  { days: 30, label: "30일 뒤" },
 ];
 
 async function authHeader(): Promise<Record<string, string> | null> {
@@ -128,14 +128,14 @@ export default function WorriesScreen({
       if (a === "later") {
         applyServer(body.data);
         setOpenId(null);
-        say("알았어\n며칠 뒤에 다시 물어볼게");
+        say("보류 · 며칠 뒤 다시 물어봄");
         return;
       }
       const lines = WORRY_REACT[a];
       setDone({ answer: a, line: lines[Math.floor(Math.random() * lines.length)], stats: body.data?.stats ?? null });
       pending.current = body.data;
     } catch (e: any) {
-      setErr(e?.message && !/세션|fetch/i.test(e.message) ? e.message : "지금은 저장이 안 됐어\n조금 있다 다시 해볼래?");
+      setErr(e?.message && !/세션|fetch/i.test(e.message) ? e.message : "저장 실패 · 잠시 후 다시");
     } finally {
       setBusy(false);
     }
@@ -158,7 +158,7 @@ export default function WorriesScreen({
   const throwBottle = async () => {
     const t = text.trim();
     if (t.length < 2) {
-      say("걱정 한 줄만 적어줘");
+      say("한 줄 이상 입력");
       return;
     }
     setThrowing(true);
@@ -174,9 +174,9 @@ export default function WorriesScreen({
       const fresh = (body.data?.bottles as Bottle[] | undefined)?.find((b) => !before.has(b.id));
       if (fresh) setDropId(fresh.id);
       applyServer(body.data);
-      say(days === 1 ? "내일 물어볼게" : days === 5 ? "이번 주 안에 물어볼게" : "한 달 뒤에 물어볼게");
+      say(`등록 완료 · D-${days}에 물어봄`);
     } catch (e: any) {
-      say(e?.message && !/세션|fetch/i.test(e.message) ? e.message : "지금은 못 던졌어\n조금 있다 다시 해볼래?");
+      say(e?.message && !/세션|fetch/i.test(e.message) ? e.message : "실패 · 잠시 후 다시");
     } finally {
       setThrowing(false);
     }
@@ -190,11 +190,11 @@ export default function WorriesScreen({
   const copyCard = async () => {
     const line =
       rate !== null
-        ? `내 걱정 적중률 ${rate}%\n${worryVerdict(rate)}${showMissed && missed ? `\n괜찮았던 걱정: "${missed.worry}"` : ""}\n— 참견이`
-        : "참견이한테 내 걱정 적중률 재보는 중";
+        ? `내 걱정 적중률 ${rate}%\n${worryVerdict(rate)}${showMissed && missed ? `\n빗나간 걱정: "${missed.worry}"` : ""}\n— 참견이`
+        : "내 걱정 적중률 측정 중\n— 참견이";
     try {
       await navigator.clipboard.writeText(line);
-      say("복사했어");
+      say("복사됨");
     } catch {
       say(line);
     }
@@ -214,7 +214,7 @@ export default function WorriesScreen({
       {notReady ? (
         <div style={{ ...stickerCard, padding: 20, textAlign: "center" }}>
           <OtterFace expression="tilt" size={72} />
-          <p style={{ margin: "8px 0 0", fontSize: 17 }}>걱정이들 아직 준비 중이야</p>
+          <p style={{ margin: "8px 0 0", fontSize: 17 }}>준비 중</p>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -230,7 +230,7 @@ export default function WorriesScreen({
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 18, lineHeight: 1.3 }}>{worryVerdict(rate)}</div>
                     <div className="wr-count">
-                      열어본 걱정 {stats.done}개 · 떠 있는 걱정 {bottles.length}개
+                      열어본 걱정 {stats.done} · 떠 있는 걱정 {bottles.length}
                     </div>
                   </div>
                 </div>
@@ -256,9 +256,11 @@ export default function WorriesScreen({
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 18, lineHeight: 1.3 }}>
-                    {Math.max(1, MIN_FOR_RATE - (stats?.done ?? 0))}개만 더 열어보면 니 걱정 적중률 나와
+                    {Math.max(1, MIN_FOR_RATE - (stats?.done ?? 0))}개 더 열면
+                    <br />
+                    적중률 공개
                   </div>
-                  <div className="wr-count">떠 있는 걱정 {bottles.length}개</div>
+                  <div className="wr-count">떠 있는 걱정 {bottles.length}</div>
                 </div>
               </div>
             )}
@@ -266,9 +268,9 @@ export default function WorriesScreen({
 
           {/* 2) 떠 있는 병 */}
           <section className="wr-sea" aria-label="떠 있는 걱정이들">
-            <div className="wr-sea-label">{dueCount ? `열어볼 때 된 걱정 ${dueCount}개` : `떠 있는 걱정 ${bottles.length}개`}</div>
+            <div className="wr-sea-label">{dueCount ? `개봉 가능 ${dueCount}` : `떠 있는 걱정 ${bottles.length}`}</div>
             {bottles.length === 0 ? (
-              <div className="wr-sea-empty">{data === null && !failed ? "걱정이들 부르는 중…" : "바다가 조용해\n걱정 하나 던져볼래?"}</div>
+              <div className="wr-sea-empty">{data === null && !failed ? "불러오는 중…" : "걱정 0개\n평화 그 자체"}</div>
             ) : (
               <div className="wr-bottles">
                 {bottles.map((b, i) => {
@@ -286,12 +288,12 @@ export default function WorriesScreen({
                           setOpenId(b.id);
                           setDone(null);
                           setErr(null);
-                        } else say(left <= 1.2 ? "아직 안 열려\n내일쯤 물어볼게" : "아직 안 열려\n며칠 뒤에 물어볼게");
+                        } else say(`아직 잠김 · D-${Math.max(1, Math.ceil(left))}`);
                       }}
                     >
                       {b.no ? <span className="wr-no">걱정{b.no}</span> : null}
                       {bottleSvg()}
-                      <span className="wr-tag">{due ? "열어볼래?" : left <= 1.2 ? "내일" : left <= 7 ? "며칠 뒤" : "한참 뒤"}</span>
+                      <span className="wr-tag">{due ? "OPEN" : `D-${Math.max(1, Math.ceil(left))}`}</span>
                     </button>
                   );
                 })}
@@ -309,7 +311,7 @@ export default function WorriesScreen({
             }}
           >
             <label htmlFor="wr-text" style={{ fontSize: 18 }}>
-              요즘 무슨 걱정 해?
+              걱정 등록
             </label>
             <textarea
               id="wr-text"
@@ -319,8 +321,8 @@ export default function WorriesScreen({
               onChange={(e) => setText(e.target.value)}
               placeholder="예: 내일 발표 망할 듯"
             />
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }} role="group" aria-label="언제 물어볼까">
-              <span style={{ fontSize: 14, opacity: 0.6, marginRight: 2 }}>언제 물어볼까?</span>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }} role="group" aria-label="확인 시점">
+              <span style={{ fontSize: 14, opacity: 0.6, marginRight: 2 }}>확인 시점</span>
               {DAY_CHOICES.map((c) => (
                 <button key={c.days} type="button" className="wr-chip" aria-pressed={days === c.days} onClick={() => setDays(c.days)}>
                   {c.label}
@@ -328,15 +330,15 @@ export default function WorriesScreen({
               ))}
             </div>
             <button type="submit" className="wr-throw wn-sticker" disabled={throwing}>
-              {throwing ? "던지는 중…" : "바다에 던지기"}
+              {throwing ? "던지는 중…" : "던지기"}
             </button>
-            <p style={{ margin: 0, fontSize: 13, opacity: 0.55, lineHeight: 1.45 }}>평소처럼 말해도 참견이가 걱정 하나 골라서 띄워놔</p>
+            <p style={{ margin: 0, fontSize: 13, opacity: 0.55, lineHeight: 1.45 }}>녹음 속 걱정도 자동 등록</p>
           </form>
 
           {/* 4) 해변 — 열어본 병 */}
           {opened.length > 0 && (
             <section>
-              <h2 className="wr-h2">해변에 올라온 걱정이들</h2>
+              <h2 className="wr-h2">개봉 기록</h2>
               <ul className="wr-beach">
                 {opened.slice(0, 12).map((o) => (
                   <li key={o.id} style={{ ...stickerCard, boxShadow: `3px 3px 0 ${INK}` }}>
@@ -355,13 +357,13 @@ export default function WorriesScreen({
 
           {/* 5) 엽서 */}
           <section style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <h2 className="wr-h2">친구한테 보낼 엽서</h2>
+            <h2 className="wr-h2">공유 카드</h2>
             <div className="wr-card" style={{ ...stickerCard, background: "#8977B8" }}>
               <div className="wr-card-k">내 걱정 적중률</div>
               <div className="wr-card-n">{rate !== null ? `${rate}%` : "측정 중"}</div>
-              <div style={{ fontSize: 18 }}>{rate !== null ? worryVerdict(rate) : "아직 걱정 모으는 중이래"}</div>
-              {showMissed && missed && <div className="wr-card-q">괜찮았던 걱정: “{missed.worry}”</div>}
-              <div className="wr-card-foot">참견이가 세어봄</div>
+              <div style={{ fontSize: 18 }}>{rate !== null ? worryVerdict(rate) : "데이터 수집 중"}</div>
+              {showMissed && missed && <div className="wr-card-q">빗나간 걱정: “{missed.worry}”</div>}
+              <div className="wr-card-foot">by 참견이</div>
               <span className="wr-card-otter" aria-hidden>
                 <OtterFace expression={rate !== null && rate < 45 ? "laugh" : "sly"} size={74} />
               </span>
@@ -369,10 +371,10 @@ export default function WorriesScreen({
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 15, cursor: "pointer" }}>
                 <input type="checkbox" checked={showMissed} onChange={(e) => setShowMissed(e.target.checked)} style={{ width: 18, height: 18, accentColor: INK }} />
-                괜찮았던 걱정 하나 보여주기
+                빗나간 걱정 1개 포함
               </label>
               <button type="button" className="wr-chip" onClick={copyCard}>
-                문구 복사
+                복사
               </button>
             </div>
           </section>
@@ -431,7 +433,7 @@ const CSS = `
 .wr-legend i{display:inline-block;width:11px;height:11px;border:2px solid ${INK};border-radius:4px;margin-right:5px;vertical-align:-1px}
 .wr-sea{position:relative;min-height:190px;border:3px solid ${INK};border-radius:22px;box-shadow:4px 4px 0 ${INK};overflow:hidden;background:linear-gradient(#8BE0FA,#45BFEC)}
 .wr-sea-label{position:absolute;left:14px;top:10px;color:#fff;font-size:15px;text-shadow:0 1px 0 rgba(27,22,48,.35);z-index:2}
-.wr-sea-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;padding:20px;text-align:center;text-shadow:0 1px 0 rgba(27,22,48,.3)}
+.wr-sea-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px;padding:20px;text-align:center;white-space:pre-line;text-shadow:0 1px 0 rgba(27,22,48,.3)}
 .wr-bottles{display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:center;padding:42px 12px 44px}
 .wr-bottle{display:flex;flex-direction:column;align-items:center;gap:3px;width:64px;padding:0;border:0;background:none;cursor:pointer;color:${INK};font-family:'Jua',sans-serif;animation:wr-bob 3.4s ease-in-out infinite;-webkit-tap-highlight-color:transparent}
 .wr-bottle svg{width:38px;height:auto;display:block;overflow:visible;filter:drop-shadow(2px 2px 0 rgba(27,22,48,.25))}

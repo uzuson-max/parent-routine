@@ -21,7 +21,7 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
   background-color: #FBF5E8;
   color: #221C2C;
-    word-break: keep-all;      /* 한국어를 글자 중간에서 자르지 않고 단어 단위로 줄바꿈 */
+  word-break: keep-all;      /* 한국어를 글자 중간에서 자르지 않고 단어 단위로 줄바꿈 */
   overflow-wrap: break-word; /* 너무 긴 단어(링크 등)만 예외로 자름 */
   box-sizing: border-box;
 }

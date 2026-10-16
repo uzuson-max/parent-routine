@@ -25,10 +25,10 @@ export const WORRY_REACT: Record<WorryAnswer, string[]> = {
 };
 
 export function worryVerdict(rate: number): string {
-  if (rate < 30) return "걱정한 거 대부분 괜찮게 지나갔어";
-  if (rate < 45) return "걱정한 것보다 잘 풀린 게 더 많네";
-  if (rate < 65) return "반은 맞고 반은 괜찮았네";
-  return "니 촉 은근 잘 맞는다";
+  if (rate < 30) return "걱정 대부분 무사 통과";
+  if (rate < 45) return "걱정보다 잘 풀림";
+  if (rate < 65) return "딱 반반";
+  return "촉 미쳤다";
 }
 
 // 날짜 대신 흐릿하게

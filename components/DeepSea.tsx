@@ -101,11 +101,11 @@ const ACT_NAMES = Object.keys(ACTS) as PlayAct[];
 const FRIEND_ACTS: PlayAct[] = ["eat", "groom", "juggle"];
 
 const GROWTH_LINES: Record<number, string> = {
-  1: "어, 다시마 싹 났다\n니가 말한 날들이 쌓여서 그래",
-  2: "조약돌 줍기 시작했어\n니가 다시 꺼낸 얘기들이야",
-  3: "다시마 숲 생겼어\n이제 안 떠내려가",
-  4: "조개 정원 생겼다\n니 얘기 진짜 많이 쌓였네",
-  5: "여기 이제 보물 굴이야\n전부 니 얘기로 만든 거",
+  1: "NEW 다시마 싹\n니 말 쌓이는 중",
+  2: "NEW 조약돌\n다시 꺼낸 얘기들",
+  3: "NEW 다시마 숲\n이제 안 떠내려감",
+  4: "NEW 진주 존\n니 얘기 꽤 쌓임",
+  5: "NEW 보물 굴\n전부 니 얘기로 만듦",
 };
 
 // 크기 — 친구는 조금 작다
@@ -980,7 +980,7 @@ export default function DeepSea({
     const s = stageRef.current;
     clearAll();
     setMode("growth");
-    speak(GROWTH_LINES[s] ?? "여기 좀 달라졌지?", 5200);
+    speak(GROWTH_LINES[s] ?? "여기 뭔가 바뀜", 5200);
     later(() => onSeen(s), 1800); // 봤다고 기록 — 다음에 다시 열어도 같은 변화를 새것처럼 하지 않는다
     later(() => setMode("idle"), 5600);
   };
