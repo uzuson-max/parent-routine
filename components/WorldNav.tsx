@@ -160,7 +160,12 @@ const navStyle: React.CSSProperties = {
   position: "fixed",
   bottom: 0,
   left: "50%",
-  transform: "translateX(-50%)",
+   // translate3d + backfaceVisibility: 탭바를 자기만의 레이어로 띄워서, 뒤에서 움직이는 바다(물고기·기포·햇빛)가
+  // 아이폰에서 탭바 위로 비쳐 반짝거리지 않게 한다.
+  transform: "translate3d(-50%, 0, 0)",
+  WebkitBackfaceVisibility: "hidden",
+  backfaceVisibility: "hidden",
+  isolation: "isolate",
   width: "100%",
   maxWidth: "480px",
   background: "#FFFFFF",
