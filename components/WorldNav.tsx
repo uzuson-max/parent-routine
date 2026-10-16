@@ -1,10 +1,8 @@
-
+// components/WorldNav.tsx
 "use client";
 
 import { IconHome, IconRecord, IconLetter, IconGear, IconBottle } from "@/components/icons";
 import { playFx } from "@/lib/fx";
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 
 // ============================================================================
 // 어항 세계 공통 틀 — 홈과 같은 노란 도트 벽, 잉크색 굵은 외곽선, Jua.
@@ -48,8 +46,10 @@ export const stickerCard: React.CSSProperties = {
   boxShadow: `4px 4px 0 ${INK}`,
 };
 
+// 주의: 여기에 @import(폰트 등)를 넣지 말 것. <style> 안에 @import가 있으면 아이폰은 그 파일을 다 받을 때까지
+// 이 CSS 전체를 적용하지 않아서, 탭바가 잠깐 회색 기본 버튼으로 깨져 보였다(처음 켤 때 반짝임의 원인).
+// Jua 폰트는 app/layout.tsx의 <link>로 한 번만 받는다.
 export const WORLD_CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Jua&display=swap');
 button { font-family: inherit; }
 .wn-nav { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0 10px; border: 0; background: transparent; color: rgba(27,22,48,.5); font-family: 'Jua', sans-serif; font-size: 12px; cursor: pointer; -webkit-tap-highlight-color: transparent; position: relative; }
 .wn-nav:disabled { opacity: .4; cursor: default; }
@@ -70,17 +70,13 @@ export function BottomNav({
   unreadLetterCount?: number;
   disabled?: boolean;
 }) {
-  // 탭바는 화면(바다) 안이 아니라 <body> 바로 아래에 붙인다.
-  // 바다 안에 있으면 아이폰이 바다의 움직이는 레이어(기포·햇빛·물고기)와 같이 그리다가 탭바 위로 바다가 반짝 비친다.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
   const items: { tab: WorldTab; label: string; icon: JSX.Element }[] = [
     { tab: "home", label: "어항", icon: <IconHome style={{ width: 22, height: 22 }} /> },
     { tab: "river", label: "조개", icon: <IconShell style={{ width: 22, height: 22 }} /> },
     { tab: "worries", label: "걱정이", icon: <IconBottle style={{ width: 22, height: 22 }} /> },
     { tab: "letters", label: "편지", icon: <IconLetter style={{ width: 22, height: 22 }} /> },
   ];
-  const nav = (
+  return (
     <nav style={navStyle} aria-label="주요 메뉴">
       <style dangerouslySetInnerHTML={{ __html: WORLD_CSS }} />
       {items.map((it) =>
@@ -114,7 +110,6 @@ export function BottomNav({
       )}
     </nav>
   );
-  return mounted ? createPortal(nav, document.body) : nav;
 }
 
 /** 조개 탭 아이콘 — 닫힌 조개 하나 */
