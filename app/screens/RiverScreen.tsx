@@ -1,4 +1,4 @@
-// app/screens/RiverScreen.tsx
+
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -10,6 +10,7 @@ import { releaseMicStream } from "@/lib/micStream";
 import { playFx } from "@/lib/fx";
 import { STAGE_DAYS, stageDay, type ReturnSegment, type StageTone } from "@/lib/stage";
 import { readTone } from "@/lib/tone";
+import { BABBLE_STEP_MS, babble, isVoiced, type BabbleMode } from "@/lib/otterBabble";
 
 // ============================================================================
 // 조개 탭 — 조개 징검다리. (2026-10-16 "강"에서 이름·모양 바꿈, 파일/탭 키는 river 그대로)
@@ -455,7 +456,7 @@ export default function RiverScreen({
 
       {flow.kind === "return" && (
         <Sheet onClose={() => setFlow({ kind: "idle" })}>
-          <ShellReturn key={`${flow.day}-${flow.segments.length}`} segments={flow.segments} />
+                  <ShellReturn key={`${flow.day}-${flow.segments.length}`} segments={flow.segments} tone={t} />
         </Sheet>
       )}
 
@@ -496,28 +497,61 @@ function LookBack({ done, tone, onReplay }: { done: DayDone; tone: StageTone; on
   );
 }
 
-// ── 조개 열기: 말풍선 → 그때 니 목소리 → 말풍선 … ─────────────────────
-function ShellReturn({ segments }: { segments: ReturnSegment[] }) {
+// ── 조개 열기: 수달 말풍선 → 수달이 니 말 따라하기 → (원하면) 진짜 니 목소리 3초 → … ──────
+// 2026-10-17 "수달어": 사람 TTS 대신 동물의숲처럼 글자마다 뽁뽁 소리 + 말풍선 타이핑.
+// 목소리 조각은 바로 틀지 않는다 — 수달이 먼저 놀리듯 따라하고, "진짜 니 목소리 들어볼래?"에서 누를 때만 원본.
+// 원본은 통째로가 아니라 그 말이 나오는 근처 3초 정도만(전체는 "전체" 버튼).
+type VoicePhase = "loading" | "mimic" | "ask" | "playing" | "done";
+
+function ShellReturn({ segments, tone }: { segments: ReturnSegment[]; tone: StageTone }) {
   const [step, setStep] = useState(-1); // -1 = 아직 안 엶
+  const [phase, setPhase] = useState<VoicePhase>("done");
+  const [mimics, setMimics] = useState<Record<number, { text: string; quote: string }>>({});
   const player = useVoicePlayer();
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const later = (fn: () => void, ms: number) => timers.current.push(setTimeout(fn, ms));
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
+  // 목소리 조각에 들어가면: 녹음 불러오기 → 따라할 말 정하기 → 따라하기 시작
   useEffect(() => {
     if (step < 0 || step >= segments.length) return;
     const seg = segments[step];
-    if (seg.kind === "say") {
-      const ms = Math.min(4200, 1300 + seg.text.length * 45);
-      timers.current.push(setTimeout(() => setStep((s) => s + 1), ms));
-    } else {
-      player.play(voiceQuery(seg)).then(() => setStep((s) => s + 1));
-    }
+    if (seg.kind !== "voice") return;
+    let alive = true;
+    setPhase("loading");
+    player.load(voiceQuery(seg)).then((meta) => {
+      if (!alive) return;
+      const quote = seg.quote?.trim() || pickQuote(meta?.transcript ?? "");
+      if (!meta) {
+        setPhase("done");
+        later(() => setStep((s) => s + 1), 900);
+        return;
+      }
+      setMimics((m) => ({ ...m, [step]: { text: quote ? mimicLine(quote, tone) : "", quote } }));
+      setPhase(quote ? "mimic" : "ask");
+    });
+    return () => {
+      alive = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
+  const next = (ms = 700) => later(() => setStep((s) => s + 1), ms);
+
+  const listen = async (i: number) => {
+    const seg = segments[i];
+    if (seg.kind !== "voice") return;
+    playFx("buttonPress");
+    setPhase("playing");
+    await player.playClip(voiceQuery(seg), mimics[i]?.quote ?? "");
+    setPhase("done");
+    next(500);
+  };
+
   const shown = step < 0 ? [] : segments.slice(0, step + 1);
   const finished = step >= segments.length;
+  const sayMode: BabbleMode = tone === "spicy" ? "spicy" : "mild";
 
   return (
     <div>
@@ -544,37 +578,188 @@ function ShellReturn({ segments }: { segments: ReturnSegment[] }) {
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {shown.map((seg, i) =>
-            seg.kind === "say" ? (
-              <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }} className="rv-pop">
-                <OtterFace expression={i === segments.length - 1 ? "stare" : "remember"} size={40} />
-                <div style={bubble}>{seg.text}</div>
-              </div>
-            ) : (
-              <div key={i} className="rv-pop" style={voicePill}>
-                <span className={player.state === "playing" && i === step ? "rv-wave rv-wave-on" : "rv-wave"} aria-hidden>
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                </span>
-                <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                  {seg.label ?? `${seg.day}일차 니 목소리`}
-                  {seg.quote && <small style={{ fontSize: 12, opacity: 0.65, fontFamily: "system-ui, sans-serif" }}>“{seg.quote}”</small>}
-                </span>
-                {i < step && (
-                  <button className="wn-sticker" style={{ ...smallBtn, marginLeft: "auto" }} onClick={() => player.play(voiceQuery(seg))}>
-                    다시
-                  </button>
+          {shown.map((seg, i) => {
+            const live = i === step;
+            if (seg.kind === "say") {
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8 }} className="rv-pop">
+                  <OtterFace expression={i === segments.length - 1 ? "stare" : "remember"} size={40} />
+                  <TypedBubble
+                    text={seg.text}
+                    mode={sayMode}
+                    ctx={player.ctx}
+                    animate={live}
+                    onDone={() => next(Math.min(1400, 500 + seg.text.length * 12))}
+                  />
+                </div>
+              );
+            }
+            const mim = mimics[i];
+            const label = seg.label ?? `${seg.day}일차 니 목소리`;
+            return (
+              <div key={i} style={{ display: "flex", flexDirection: "column", gap: 8 }} className="rv-pop">
+                {live && phase === "loading" && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <OtterFace expression="remember" size={40} />
+                    <div style={{ ...bubble, opacity: 0.6 }}>음… 니가 뭐랬더라…</div>
+                  </div>
+                )}
+                {mim?.text && (
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                    <OtterFace expression="sly" size={40} />
+                    <TypedBubble
+                      text={mim.text}
+                      mode="mimic"
+                      ctx={player.ctx}
+                      animate={live && phase === "mimic"}
+                      onDone={() => later(() => setPhase("ask"), 450)}
+                      style={mimicBubble}
+                    />
+                  </div>
+                )}
+                {live && phase === "ask" && (
+                  <div className="rv-pop" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ fontSize: 15, textAlign: "center" }}>
+                      {tone === "spicy" ? "못 믿겠지? 진짜 니 목소리 있음ㅋ" : "진짜 니 목소리로 들어볼래?"}
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button className="wn-sticker" style={{ ...pillBtn, flex: 1, padding: "10px 14px", fontSize: 16 }} onClick={() => listen(i)}>
+                        들어볼래
+                      </button>
+                      <button
+                        className="wn-sticker"
+                        style={{ ...smallBtn, flex: "0 0 auto", padding: "10px 16px", fontSize: 16 }}
+                        onClick={() => {
+                          playFx("buttonPress");
+                          setPhase("done");
+                          next(200);
+                        }}
+                      >
+                        됐어
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {(!live || phase === "playing" || phase === "done") && (
+                  <div style={voicePill}>
+                    <span className={player.state === "playing" && player.current === voiceQuery(seg) ? "rv-wave rv-wave-on" : "rv-wave"} aria-hidden>
+                      <i />
+                      <i />
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                    <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>{label}</span>
+                    {(!live || phase === "done") && (
+                      <span style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+                        <button className="wn-sticker" style={smallBtn} onClick={() => player.playClip(voiceQuery(seg), mim?.quote ?? "")}>
+                          {mim?.quote ? "그 말만" : "듣기"}
+                        </button>
+                        <button className="wn-sticker" style={smallBtn} onClick={() => player.play(voiceQuery(seg))}>
+                          전체
+                        </button>
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
-            )
-          )}
+            );
+          })}
           {player.error && <div style={{ fontSize: 13, color: "#C0392B" }}>{player.error}</div>}
           {finished && <div style={{ fontSize: 13, opacity: 0.55, textAlign: "center", marginTop: 4 }}>대답은 홈 바다에서 마이크로 해도 돼</div>}
         </div>
       )}
+    </div>
+  );
+}
+
+// 수달이 니 말을 따라하는 한 줄 — 순한맛은 장난, 매운맛은 놀림
+function mimicLine(quote: string, tone: StageTone): string {
+  const q = quote.replace(/[.。!?…~\s]+$/, "");
+  return tone === "spicy" ? `“${q}”~ 이랬던 사람 누구게ㅋㅋ` : `니가 그때 그랬잖아~ “${q}”~`;
+}
+
+// 받아쓰기에서 따라할 짧은 말 하나 고르기 — 첫 문장(또는 앞부분)을 28자 안으로
+function pickQuote(transcript: string): string {
+  const t = transcript.replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  const sentences = t.replace(/([.!?。…])\s+/g, "$1\n").split(/\n|\s*\/\s*/).map((s) => s.trim()).filter((s) => s.length >= 4);
+  const first = sentences[0] ?? t;
+  if (first.length <= 28) return first;
+  const cut = first.slice(0, 28);
+  const sp = cut.lastIndexOf(" ");
+  return (sp > 12 ? cut.slice(0, sp) : cut) + "…";
+}
+
+// 말풍선 타이핑 + 수달어. animate=false면 처음부터 다 보이고 소리도 없다(지나간 말풍선).
+function TypedBubble({
+  text,
+  mode,
+  ctx,
+  animate,
+  onDone,
+  style,
+}: {
+  text: string;
+  mode: BabbleMode;
+  ctx: () => AudioContext | null;
+  animate: boolean;
+  onDone?: () => void;
+  style?: React.CSSProperties;
+}) {
+  const chars = Array.from(text);
+  const [n, setN] = useState(animate ? 0 : chars.length);
+  const doneRef = useRef(!animate);
+
+  useEffect(() => {
+    if (!animate) {
+      setN(chars.length);
+      return;
+    }
+    let i = 0;
+    let voiced = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const step = BABBLE_STEP_MS[mode];
+    const tick = () => {
+      i += 1;
+      setN(i);
+      const ch = chars[i - 1];
+      if (ch && isVoiced(ch)) {
+        const rise = chars[i] === "~" || (chars[i] === "”" && chars[i + 1] === "~");
+        babble(ctx(), ch, mode, voiced++, rise);
+      }
+      if (i >= chars.length) {
+        if (!doneRef.current) {
+          doneRef.current = true;
+          onDone?.();
+        }
+        return;
+      }
+      // 띄어쓰기·쉼표에서는 살짝 쉰다
+      const pause = ch === " " ? step * 0.6 : /[,.!?…]/.test(ch ?? "") ? step * 3 : 0;
+      timer = setTimeout(tick, step + pause);
+    };
+    timer = setTimeout(tick, 120);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animate, text]);
+
+  return (
+    <div
+      style={{ ...bubble, ...style }}
+      onClick={() => {
+        // 기다리기 싫으면 톡 — 바로 다 보여준다
+        if (n < chars.length) {
+          setN(chars.length);
+          if (!doneRef.current) {
+            doneRef.current = true;
+            onDone?.();
+          }
+        }
+      }}
+    >
+      {chars.slice(0, n).join("")}
+      <span style={{ visibility: "hidden" }}>{chars.slice(n).join("")}</span>
     </div>
   );
 }
@@ -584,21 +769,36 @@ function voiceQuery(seg: Extract<ReturnSegment, { kind: "voice" }>): string {
   return seg.entryId ? `entry=${encodeURIComponent(seg.entryId)}` : `day=${seg.day ?? 1}&part=1`;
 }
 
+// 받아쓰기 안에서 따라한 말이 나오는 근처만 — 글자 위치 비율로 시간 추정(정확한 단어 시각은 저장 안 돼 있음)
+function clipWindow(transcript: string, quote: string, duration: number): { start: number; length: number } {
+  if (duration <= 6) return { start: 0, length: duration };
+  const t = transcript.replace(/\s+/g, " ").trim();
+  const q = quote.replace(/[…“”~]/g, "").replace(/\s+/g, " ").trim();
+  let idx = q ? t.indexOf(q) : -1;
+  if (idx < 0 && q.length > 6) idx = t.indexOf(q.slice(0, 6));
+  if (!t || idx < 0) return { start: 0, length: Math.min(duration, 4) };
+  const start = Math.max(0, (idx / t.length) * duration - 0.4);
+  const length = Math.min(4.5, Math.max(2.5, (Math.max(q.length, 8) / t.length) * duration + 0.9));
+  return { start: Math.min(start, Math.max(0, duration - length)), length };
+}
+
 // ── 지난 목소리 재생 — Web Audio로 디코딩(아이폰 녹음이 webm 이름표를 달고 있어도 재생되게) ──────
 function useVoicePlayer() {
   const ctxRef = useRef<AudioContext | null>(null);
   const srcRef = useRef<AudioBufferSourceNode | null>(null);
+  const cache = useRef<Map<string, { buffer: AudioBuffer; transcript: string }>>(new Map());
   const [state, setState] = useState<"idle" | "loading" | "playing">("idle");
   const [current, setCurrent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const ctx = () => {
+  const ctx = useCallback((): AudioContext | null => {
     if (!ctxRef.current) {
       const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AC) return null;
       ctxRef.current = new AC();
     }
-    return ctxRef.current!;
-  };
+    return ctxRef.current;
+  }, []);
 
   useEffect(
     () => () => {
@@ -615,14 +815,36 @@ function useVoicePlayer() {
   // 사용자 터치 안에서 한 번 깨워 둔다(아이폰은 터치 없이 소리를 못 낸다)
   const unlock = () => {
     try {
-      ctx().resume();
+      ctx()?.resume();
     } catch {
       /* 무시 */
     }
   };
 
-  // query: "day=3&part=1" 또는 "entry=<id>" (/api/stage/voice)
-  const play = async (query: string): Promise<void> => {
+  // 녹음 + 받아쓰기 불러오기(한 번 불러온 건 다시 안 받는다). 실패하면 null.
+  const load = async (query: string): Promise<{ buffer: AudioBuffer; transcript: string } | null> => {
+    const hit = cache.current.get(query);
+    if (hit) return hit;
+    try {
+      const c = ctx();
+      if (!c) throw new Error("이 기기에선 소리를 못 내");
+      const res = await authed(`/api/stage/voice?${query}`);
+      const body = await res.json();
+      if (!body?.success) throw new Error(body?.error || "그 목소리를 못 찾았어");
+      const audio = await fetch(body.data.url);
+      if (!audio.ok) throw new Error("목소리를 못 불러왔어");
+      const buffer = await c.decodeAudioData(await audio.arrayBuffer());
+      const item = { buffer, transcript: String(body.data.transcript ?? "") };
+      cache.current.set(query, item);
+      return item;
+    } catch (e: any) {
+      setError(e?.message || "목소리를 못 불러왔어");
+      return null;
+    }
+  };
+
+  // start/length(초)를 주면 그 부분만. 안 주면 처음부터 끝까지.
+  const playRange = async (query: string, pick?: (item: { buffer: AudioBuffer; transcript: string }) => { start: number; length: number }) => {
     setError(null);
     setCurrent(query);
     try {
@@ -633,21 +855,26 @@ function useVoicePlayer() {
     try {
       setState("loading");
       const c = ctx();
+      if (!c) throw new Error("이 기기에선 소리를 못 내");
       await c.resume();
-      const res = await authed(`/api/stage/voice?${query}`);
-      const body = await res.json();
-      if (!body?.success) throw new Error(body?.error || "그 목소리를 못 찾았어");
-      const audio = await fetch(body.data.url);
-      if (!audio.ok) throw new Error("목소리를 못 불러왔어");
-      const buf = await c.decodeAudioData(await audio.arrayBuffer());
+      const item = await load(query);
+      if (!item) return;
       const src = c.createBufferSource();
-      src.buffer = buf;
-      src.connect(c.destination);
+      src.buffer = item.buffer;
+      // 앞뒤 끊김이 툭 튀지 않게 아주 짧게 페이드
+      const gain = c.createGain();
+      src.connect(gain).connect(c.destination);
       srcRef.current = src;
       setState("playing");
+      const range = pick ? pick(item) : { start: 0, length: item.buffer.duration };
+      const t0 = c.currentTime;
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.exponentialRampToValueAtTime(1, t0 + 0.06);
+      gain.gain.setValueAtTime(1, t0 + Math.max(0.07, range.length - 0.15));
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + range.length);
       await new Promise<void>((resolve) => {
         src.onended = () => resolve();
-        src.start();
+        src.start(t0, range.start, range.length);
       });
     } catch (e: any) {
       setError(e?.message || "목소리 재생이 안 됐어");
@@ -656,7 +883,11 @@ function useVoicePlayer() {
     }
   };
 
-  return { play, unlock, state, current, error };
+  // query: "day=3&part=1" 또는 "entry=<id>" (/api/stage/voice)
+  const play = (query: string) => playRange(query);
+  const playClip = (query: string, quote: string) => playRange(query, (item) => clipWindow(item.transcript, quote, item.buffer.duration));
+
+  return { play, playClip, load, unlock, ctx, state, current, error };
 }
 
 // ── 작은 그림들 ────────────────────────────────────────────────
@@ -788,6 +1019,11 @@ const bubble: React.CSSProperties = {
   padding: "8px 12px",
   fontSize: 17,
   lineHeight: 1.4,
+};
+// 수달이 니 말 따라할 때 — 놀리는 말풍선(살짝 기울고 노란색)
+const mimicBubble: React.CSSProperties = {
+  background: "#FFF3B0",
+  transform: "rotate(-1.5deg)",
 };
 const voicePill: React.CSSProperties = {
   display: "flex",
