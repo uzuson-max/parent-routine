@@ -283,8 +283,10 @@ export default function TimelineScreen({
     <div style={styles.container}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
 
+     // app/screens/TimelineScreen.tsx  (286~306줄 교체)
       {nightState !== null && (
-        <div className="tl-sea-in">
+        <>
+        <div>
           <Sea
             entries={entries}
             thinking={thinking}
@@ -302,6 +304,10 @@ export default function TimelineScreen({
             }}
           />
         </div>
+        {/* 처음 켤 때 바다가 스르륵 나타나는 효과 — 바다 위에 덮개를 한 겹 깔았다가 걷는다.
+            (바다 자체에 opacity 애니메이션을 걸면 아이폰에서 바다가 탭바 위로 튀어나와 반짝거린다) */}
+        <div className="tl-sea-in" aria-hidden />
+        </>
       )}
 
       {/* HEADER — 소라(물속 소리) · 로고 · MY. 바다 위에 떠 있다. */}
@@ -645,8 +651,8 @@ const CSS = `
 .tl-mic:not(:disabled):active { animation: none; transform: translate(calc(-50% + 4px), 4px); box-shadow: 1px 1px 0 ${INK}; }
 .tl-mic:focus-visible { outline: 3px dashed #fff; outline-offset: 4px; }
 .tl-sticker:focus-visible, .tl-close:focus-visible, .tl-sticker:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 ${INK} !important; }
-.tl-sea-in { animation: tlSeaIn .35s ease-out both; }
-@keyframes tlSeaIn { from { opacity: 0; } to { opacity: 1; } }
+.tl-sea-in { position: fixed; top: 0; bottom: 0; left: 50%; width: 100%; max-width: 480px; transform: translateX(-50%); z-index: 15; background: ${DEEP}; pointer-events: none; animation: tlSeaIn .35s ease-out both; }
+@keyframes tlSeaIn { from { opacity: 1; visibility: visible; } to { opacity: 0; visibility: hidden; } }
 .tl-bubble { animation: tlBubbleIn .4s ease-out both; }
 .tl-heard { animation: tlHeardIn .45s cubic-bezier(.3,1.4,.5,1) both; }
 @keyframes tlHeardIn { from { opacity: 0; transform: translateY(-14px) scale(.92) rotate(1.5deg); } to { opacity: 1; transform: rotate(1.5deg); } }
@@ -669,7 +675,7 @@ const CSS = `
 .tl-wave1 { animation: tlWave 1.6s ease-in-out infinite; }
 .tl-wave2 { animation: tlWave 1.6s ease-in-out .3s infinite; }
 @keyframes tlWave { 0%,100% { opacity: .25; } 50% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .tl-heard, .tl-sea-in, .tl-mic-idle, .tl-bubble, .tl-wave1, .tl-wave2, .tl-recall, .tl-recall-cap, .tl-recall-otter, .tl-recall-link span { animation: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .tl-sea-in { display: none; } .tl-heard, .tl-mic-idle, .tl-bubble, .tl-wave1, .tl-wave2, .tl-recall, .tl-recall-cap, .tl-recall-otter, .tl-recall-link span { animation: none; opacity: 1; } }
 `;
 
 const styles: { [key: string]: React.CSSProperties } = {
