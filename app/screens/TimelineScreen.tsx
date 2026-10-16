@@ -282,8 +282,7 @@ export default function TimelineScreen({
   return (
     <div style={styles.container}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
-
-     // app/screens/TimelineScreen.tsx  (286~306줄 교체)
+    
       {nightState !== null && (
         <>
         <div>
