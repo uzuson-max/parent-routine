@@ -6,6 +6,7 @@
 //   - 참견 받는 방법(문자·전화 / 참견 정도 / 조용한 시간)은 서버(user_memory)에 저장되고,
 //     실제 문자 발송 게이트(lib/intervention/pushGate.ts)와 전화(app/api/voice/upload)가 읽는다.
 //   - 예전 "알림" 토글은 연결된 기능(웹 푸시)이 없어서 뺐다.
+//   - 참견 맛(순한맛/매운맛): 지금은 이 기기에 저장(lib/tone.ts), 조개 스테이지 대답이 읽는다.
 //   - 내 기록: 지난 어항으로 가기 + 전체 기록 파일로 내보내기(/api/user/export).
 //   - 의견 보내기(/api/user/feedback), 이용약관(/terms), 개인정보처리방침(/privacy)은 실제로 열린다.
 //   - 회원탈퇴는 실제로 모든 데이터와 계정을 지운다(/api/user/delete).
@@ -18,6 +19,7 @@ import { requestPhoneLink, confirmPhoneCode, syncVerifiedPhoneToBackend, type Ph
 import { fetchMe, saveNickname } from "@/lib/userClient";
 import { currentSubscription, notificationPermission, pushSupport, subscribePush, unsubscribePush } from "@/lib/pushClient";
 import PeekMascot from "@/components/PeekMascot";
+import { TONE_OPTIONS, readTone, saveTone, type ChamTone } from "@/lib/tone";
 import { WorldTitle, worldPage, stickerCard, INK, YELLOW, WALL, WORLD_CSS } from "@/components/WorldNav";
 
 type InterventionLevel = "low" | "medium" | "high";
@@ -132,6 +134,7 @@ export default function MyPageScreen({
   const prefsTouched = useRef(false);
   // --- 기타 ---
   const [soundOn, setSoundOn] = useState(true);
+  const [tone, setTone] = useState<ChamTone>("mild");
   // 앱 알림 — 이 기기 기준. null = 아직 확인 중
   const [pushOn, setPushOn] = useState<boolean | null>(null);
   const [pushBusy, setPushBusy] = useState(false);
@@ -163,6 +166,7 @@ export default function MyPageScreen({
   useEffect(() => {
     try {
       setSoundOn(window.localStorage.getItem(SOUND_KEY) !== "0");
+      setTone(readTone());
     } catch {
       /* 저장소를 못 읽으면 기본(켜짐) */
     }
@@ -490,6 +494,27 @@ export default function MyPageScreen({
             />
           </>
         )}
+      </div>
+
+      {/* 참견 맛 — 한 번 고르면 참견이 대답 전체에 */}
+      <p style={s.section}>참견 맛</p>
+      <div style={{ ...stickerCard, padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        {TONE_OPTIONS.map((o) => (
+          <button
+            key={o.tone}
+            style={{ ...s.option, ...(o.tone === tone ? s.optionOn : null), marginBottom: 0 }}
+            aria-pressed={o.tone === tone}
+            onClick={() => {
+              setTone(o.tone);
+              saveTone(o.tone);
+            }}
+          >
+            <span style={s.optionLabel}>
+              {o.label} <span style={{ fontSize: 13, opacity: 0.6 }}>{o.desc}</span>
+            </span>
+            <span style={s.optionDesc}>&ldquo;{o.example}&rdquo;</span>
+          </button>
+        ))}
       </div>
 
       {/* 앱 */}

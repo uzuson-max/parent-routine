@@ -9,11 +9,13 @@ import { supabaseClient } from "@/lib/supabaseClient";
 import { releaseMicStream } from "@/lib/micStream";
 import { playFx } from "@/lib/fx";
 import { STAGE_DAYS, stageDay, type ReturnSegment, type StageTone } from "@/lib/stage";
+import { readTone } from "@/lib/tone";
 
 // ============================================================================
-// 강 탭 — 니를 찾아가는 돌다리.
+// 조개 탭 — 조개 징검다리. (2026-10-16 "강"에서 이름·모양 바꿈, 파일/탭 키는 river 그대로)
 // ----------------------------------------------------------------------------
-// 강은 위에서 아래로, 홈의 바다로 흘러간다. 돌 하나 = 질문 하나 = 하루 하나.
+// 강은 위에서 아래로, 홈의 바다로 흘러간다. 조개 하나 = 질문 하나 = 하루 하나.
+// 순한맛/매운맛은 여기서 묻지 않는다 — MY에서 고른 값(lib/tone.ts)을 읽기만 한다.
 //   - 오늘 돌: 수달이 올라가 기다린다. 누르면 질문 → 물속 녹음 화면(홈과 같은 녹음 → 바다에 물고기로도 들어감)
 //   - 돌아오는 날(4·5·6·7일): 수달이 조개를 들고 기다리다가, 답하고 나면 조개를 까서 "그때 니 목소리"를 들려준다
 //     엔진 기억이 딱 맞는 바다 자유 녹음을 찾으면 그 목소리도 같이 나온다(api/stage/answer)
@@ -48,7 +50,6 @@ type Flow =
   | { kind: "look"; done: DayDone }
   | { kind: "note"; text: string };
 
-const TONE_KEY = "chamgyeoni_stage_tone";
 const FOG_KEY = "chamgyeoni_stage_more_asked";
 const RETURN_DAYS = new Set(STAGE_DAYS.filter((d) => d.recall?.length).map((d) => d.day));
 
@@ -72,15 +73,6 @@ async function authed(path: string, init?: RequestInit) {
   });
 }
 
-function readTone(): StageTone | null {
-  try {
-    const v = localStorage.getItem(TONE_KEY);
-    return v === "mild" || v === "spicy" ? v : null;
-  } catch {
-    return null;
-  }
-}
-
 export default function RiverScreen({
   onNavigate,
   unreadLetterCount = 0,
@@ -90,15 +82,13 @@ export default function RiverScreen({
 }) {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [tone, setTone] = useState<StageTone | null>(null);
-  const [toneReady, setToneReady] = useState(false);
+  const [tone, setTone] = useState<StageTone>("mild");
   const [flow, setFlow] = useState<Flow>({ kind: "idle" });
   const [fishDrop, setFishDrop] = useState<{ day: number; key: number } | null>(null);
   const [fogAsked, setFogAsked] = useState(false);
 
   useEffect(() => {
     setTone(readTone());
-    setToneReady(true);
     try {
       setFogAsked(localStorage.getItem(FOG_KEY) === "1");
     } catch {
@@ -110,11 +100,11 @@ export default function RiverScreen({
     try {
       const res = await authed("/api/stage");
       const body = await res.json();
-      if (!body?.success) throw new Error(body?.error || "강을 못 불러왔어");
+      if (!body?.success) throw new Error(body?.error || "조개를 못 불러왔어");
       setProgress(body.data);
       setLoadError(null);
     } catch (e: any) {
-      setLoadError(e?.message || "강을 못 불러왔어");
+      setLoadError(e?.message || "조개를 못 불러왔어");
     }
   }, []);
 
@@ -122,17 +112,7 @@ export default function RiverScreen({
     load();
   }, [load]);
 
-  const pickTone = (t: StageTone) => {
-    playFx("buttonPress");
-    try {
-      localStorage.setItem(TONE_KEY, t);
-    } catch {
-      /* 저장 안 돼도 이번엔 씀 */
-    }
-    setTone(t);
-  };
-
-  const t: StageTone = tone ?? "mild";
+  const t: StageTone = tone;
 
   // ── 돌 누르기 ────────────────────────────────────────────────
   const onStone = (day: number) => {
@@ -144,7 +124,7 @@ export default function RiverScreen({
       return;
     }
     if (day !== progress.nextDay) {
-      setFlow({ kind: "note", text: "그 돌은 아직 저 아래야. 하나씩 건너자." });
+      setFlow({ kind: "note", text: "그 조개는 아직 저 아래야. 하나씩 건너자." });
       return;
     }
     if (!progress.unlocked) {
@@ -280,7 +260,7 @@ export default function RiverScreen({
   return (
     <div style={worldPage}>
       <style dangerouslySetInnerHTML={{ __html: WORLD_CSS + RIVER_CSS }} />
-      <WorldTitle>니를 찾아가는 강</WorldTitle>
+      <WorldTitle>오늘 깔 조개 하나</WorldTitle>
 
       {loadError && (
         <div style={{ ...stickerCard, padding: 16, marginBottom: 12, fontSize: 15 }}>
@@ -317,15 +297,15 @@ export default function RiverScreen({
               style={{
                 left: `${(p.x / VB_W) * 100}%`,
                 top: `${(p.y / VB_H) * 100}%`,
-                background: done ? YELLOW : today ? "#FFFFFF" : "#C9D6DE",
               }}
               onClick={() => onStone(cfg.day)}
-              aria-label={done ? `${cfg.day}일차, 건넌 돌` : today ? `${cfg.day}일차, 오늘 돌` : `${cfg.day}일차, 아직 잠긴 돌`}
+              aria-label={done ? `${cfg.day}일차, 연 조개` : today ? `${cfg.day}일차, 오늘 조개` : `${cfg.day}일차, 아직 잠긴 조개`}
             >
-              <span style={{ position: "relative", zIndex: 2 }}>{done ? <Fish size={26} /> : cfg.day}</span>
+              <ShellStone fill={done ? YELLOW : today ? "#FFC9D9" : "#C9D6DE"} open={done} />
+              <span className="rv-num">{done ? <Fish size={24} /> : cfg.day}</span>
               {RETURN_DAYS.has(cfg.day) && !done && (
                 <span className="rv-shell" aria-hidden>
-                  <Shell size={20} />
+                  <Pearl />
                 </span>
               )}
             </button>
@@ -380,32 +360,11 @@ export default function RiverScreen({
         </div>
       </div>
 
-      {/* 처음 한 번 — 순한맛/매운맛 */}
-      {toneReady && !tone && (
-        <Sheet>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-            <OtterFace expression="sly" size={60} />
-            <div style={{ fontSize: 19, lineHeight: 1.35 }}>건너기 전에 하나만. 참견, 어떤 맛으로 할까?</div>
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button className="wn-sticker" style={{ ...choiceBtn, background: "#E8F8FF" }} onClick={() => pickTone("mild")}>
-              순한맛
-              <small style={choiceSub}>궁금한 것만 물어봄</small>
-            </button>
-            <button className="wn-sticker" style={{ ...choiceBtn, background: "#FFE1DA" }} onClick={() => pickTone("spicy")}>
-              매운맛
-              <small style={choiceSub}>좀 놀림. 많이는 아님</small>
-            </button>
-          </div>
-          <div style={{ fontSize: 12, opacity: 0.55, marginTop: 10, textAlign: "center" }}>나중에 MY에서 바꿀 수 있게 할게</div>
-        </Sheet>
-      )}
-
       {/* 질문 */}
-      {tone && flow.kind === "ask" && (
+      {flow.kind === "ask" && (
         <Sheet onClose={() => setFlow({ kind: "idle" })}>
           <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 6 }}>
-            {flow.day}번째 돌{flow.part === 2 ? " · 하나 더" : ""}
+            {flow.day}번째 조개{flow.part === 2 ? " · 하나 더" : ""}
           </div>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 16 }}>
             <OtterFace expression={flow.part === 2 ? "sly" : "tilt"} size={60} />
@@ -473,7 +432,7 @@ export default function RiverScreen({
             <OtterFace expression="laugh" size={60} />
             <div style={{ fontSize: 19, lineHeight: 1.35 }}>
               건넜다. 니 말은 물고기 돼서 바다로 갔어.
-              <div style={{ fontSize: 15, opacity: 0.6, marginTop: 4 }}>다음 돌은 내일 올라와.</div>
+              <div style={{ fontSize: 15, opacity: 0.6, marginTop: 4 }}>다음 조개는 내일 올라와.</div>
             </div>
           </div>
         </Sheet>
@@ -512,7 +471,7 @@ function LookBack({ done, tone, onReplay }: { done: DayDone; tone: StageTone; on
   const questions = [cfg?.question[tone], cfg?.followUp?.[tone]];
   return (
     <div>
-      <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 8 }}>{done.day}번째 돌</div>
+      <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 8 }}>{done.day}번째 조개</div>
       {done.answers.map((a, i) => (
         <div key={i} style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 15, opacity: 0.7, marginBottom: 4 }}>{questions[i]}</div>
@@ -737,12 +696,45 @@ function Shell({ size = 24 }: { size?: number }) {
   );
 }
 
+// 징검다리 조개 — 닫힌 조개를 밟고 건너고, 대답하면 뚜껑이 살짝 열린다
+function ShellStone({ fill, open }: { fill: string; open: boolean }) {
+  return (
+    <svg viewBox="0 0 80 72" className="rv-shellstone" aria-hidden>
+      <ellipse cx={40} cy={66} rx={30} ry={5} fill={INK} opacity={0.18} />
+      {open && (
+        <path d="M8 40 Q10 14 40 12 Q70 14 72 40 Q40 46 8 40 Z" fill={fill} stroke={INK} strokeWidth={3.2} strokeLinejoin="round" transform="rotate(-24 8 40)" />
+      )}
+      <path
+        d={open ? "M8 40 Q8 64 40 66 Q72 64 72 40 Q40 46 8 40 Z" : "M6 52 Q6 10 40 6 Q74 10 74 52 Q40 66 6 52 Z"}
+        fill={fill}
+        stroke={INK}
+        strokeWidth={3.2}
+        strokeLinejoin="round"
+      />
+      {!open && <path d="M40 9 L40 60 M24 14 L29 58 M56 14 L51 58" stroke={INK} strokeWidth={2.4} strokeLinecap="round" opacity={0.55} />}
+      {!open && <rect x={31} y={57} width={18} height={8} rx={3} fill={fill} stroke={INK} strokeWidth={2.8} />}
+    </svg>
+  );
+}
+
+// 돌아오는 날 표시 — 그 조개 안엔 진주(그때 니 목소리)가 들어 있다
+function Pearl() {
+  return (
+    <svg viewBox="0 0 24 24" width={20} height={20} aria-hidden>
+      <circle cx={12} cy={12} r={8} fill="#FFFFFF" stroke={INK} strokeWidth={2.4} />
+      <circle cx={9} cy={9} r={2.4} fill="#E6F4FF" />
+    </svg>
+  );
+}
+
 // ── 스타일 ────────────────────────────────────────────────────
 const RIVER_CSS = `
-.rv-stone { position: absolute; width: 64px; height: 64px; margin: -32px 0 0 -32px; border-radius: 50%; border: 3px solid ${INK}; box-shadow: 3px 4px 0 ${INK}; font-family: 'Jua', sans-serif; font-size: 22px; color: ${INK}; display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: visible; -webkit-tap-highlight-color: transparent; z-index: 2; }
-.rv-stone:active { transform: translate(2px,2px); box-shadow: 1px 2px 0 ${INK}; }
+.rv-stone { position: absolute; width: 76px; height: 68px; margin: -34px 0 0 -38px; padding: 0; border: 0; background: transparent; font-family: 'Jua', sans-serif; font-size: 22px; color: ${INK}; display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: visible; -webkit-tap-highlight-color: transparent; z-index: 2; }
+.rv-stone:active { transform: translate(2px,2px); }
+.rv-shellstone { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.rv-num { position: relative; z-index: 2; margin-top: 6px; }
 .rv-today { animation: rvBob 2.4s ease-in-out infinite; }
-.rv-sunk { box-shadow: none; opacity: .9; }
+.rv-sunk { opacity: .9; }
 .rv-sunk::after { content: ''; position: absolute; left: -4px; right: -4px; bottom: -4px; height: 52%; background: #5CCBF2; border-top: 3px solid #9BE3FA; border-radius: 0 0 40px 40px; z-index: 1; }
 .rv-shell { position: absolute; right: -10px; top: -12px; z-index: 3; }
 .rv-otter { position: absolute; margin: -29px 0 0 -29px; z-index: 3; transition: left .8s ease, top .8s ease; pointer-events: none; animation: rvBob 3.2s ease-in-out infinite; }
@@ -780,17 +772,6 @@ const pillBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 const smallBtn: React.CSSProperties = { ...pillBtn, padding: "6px 12px", fontSize: 14, background: "#FFFFFF", boxShadow: `2px 2px 0 ${INK}` };
-const choiceBtn: React.CSSProperties = {
-  ...pillBtn,
-  flex: 1,
-  borderRadius: 18,
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  gap: 4,
-  fontSize: 20,
-};
-const choiceSub: React.CSSProperties = { fontSize: 12, opacity: 0.65 };
 const quoteBox: React.CSSProperties = {
   background: "#F4FBFF",
   border: `2px dashed ${INK}`,
