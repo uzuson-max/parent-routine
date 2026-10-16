@@ -1,8 +1,10 @@
-// components/WorldNav.tsx
+
 "use client";
 
 import { IconHome, IconRecord, IconLetter, IconGear, IconBottle } from "@/components/icons";
 import { playFx } from "@/lib/fx";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 // ============================================================================
 // 어항 세계 공통 틀 — 홈과 같은 노란 도트 벽, 잉크색 굵은 외곽선, Jua.
@@ -68,13 +70,17 @@ export function BottomNav({
   unreadLetterCount?: number;
   disabled?: boolean;
 }) {
+  // 탭바는 화면(바다) 안이 아니라 <body> 바로 아래에 붙인다.
+  // 바다 안에 있으면 아이폰이 바다의 움직이는 레이어(기포·햇빛·물고기)와 같이 그리다가 탭바 위로 바다가 반짝 비친다.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const items: { tab: WorldTab; label: string; icon: JSX.Element }[] = [
     { tab: "home", label: "어항", icon: <IconHome style={{ width: 22, height: 22 }} /> },
     { tab: "river", label: "조개", icon: <IconShell style={{ width: 22, height: 22 }} /> },
     { tab: "worries", label: "걱정이", icon: <IconBottle style={{ width: 22, height: 22 }} /> },
     { tab: "letters", label: "편지", icon: <IconLetter style={{ width: 22, height: 22 }} /> },
   ];
-  return (
+  const nav = (
     <nav style={navStyle} aria-label="주요 메뉴">
       <style dangerouslySetInnerHTML={{ __html: WORLD_CSS }} />
       {items.map((it) =>
@@ -108,6 +114,7 @@ export function BottomNav({
       )}
     </nav>
   );
+  return mounted ? createPortal(nav, document.body) : nav;
 }
 
 /** 조개 탭 아이콘 — 닫힌 조개 하나 */
@@ -160,7 +167,7 @@ const navStyle: React.CSSProperties = {
   position: "fixed",
   bottom: 0,
   left: "50%",
-   // translate3d + backfaceVisibility: 탭바를 자기만의 레이어로 띄워서, 뒤에서 움직이는 바다(물고기·기포·햇빛)가
+  // translate3d + backfaceVisibility: 탭바를 자기만의 레이어로 띄워서, 뒤에서 움직이는 바다(물고기·기포·햇빛)가
   // 아이폰에서 탭바 위로 비쳐 반짝거리지 않게 한다.
   transform: "translate3d(-50%, 0, 0)",
   WebkitBackfaceVisibility: "hidden",
