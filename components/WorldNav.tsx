@@ -9,7 +9,7 @@ import { playFx } from "@/lib/fx";
 //
 // 하단 탭은 "사용자가 앱을 여는 이유" 3가지로 나눈다:
 //   어항      — 지금 내 어항 어떻게 됐지?
-//   조개      — 조개 징검다리, 하루에 조개 하나 (2026-10-15 "강"으로 추가, 10-16 "조개"로 이름 바꿈 — app/screens/RiverScreen.tsx)
+//   소라      — 소라 징검다리, 하루에 소라 하나 (2026-10-15 "강" → 10-16 "조개" → 10-17 "소라" — app/screens/RiverScreen.tsx)
 //   걱정 병   — 니 걱정, 진짜 몇 %나 맞았어? (2026-10-14 "지난 어항" 자리를 바꿈 — 지난 어항은 MY > 기록 보기에서)
 //   편지      — 참견이가 나한테 뭐라고 했지? (편지 + 참견이가 알아챈 거)
 // 설정(MY)은 자주 안 쓰니 탭이 아니라 홈 오른쪽 위 작은 아이콘으로 둔다.
@@ -72,7 +72,7 @@ export function BottomNav({
 }) {
   const items: { tab: WorldTab; label: string; icon: JSX.Element }[] = [
     { tab: "home", label: "어항", icon: <IconHome style={{ width: 22, height: 22 }} /> },
-    { tab: "river", label: "조개", icon: <IconShell style={{ width: 22, height: 22 }} /> },
+    { tab: "river", label: "소라", icon: <IconConch style={{ width: 22, height: 22 }} /> },
     { tab: "worries", label: "걱정이", icon: <IconBottle style={{ width: 22, height: 22 }} /> },
     { tab: "letters", label: "편지", icon: <IconLetter style={{ width: 22, height: 22 }} /> },
   ];
@@ -112,13 +112,16 @@ export function BottomNav({
   );
 }
 
-/** 조개 탭 아이콘 — 닫힌 조개 하나 */
-function IconShell(props: React.SVGProps<SVGSVGElement>) {
+/** 소라 탭 아이콘 — 소라 하나(위로 작아지는 단 + 입구) */
+function IconConch(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 48 48" fill="none" {...props}>
-      <path d="M6 32 Q6 9 24 7 Q42 9 42 32 Q24 40 6 32 Z" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" />
-      <path d="M24 9 L24 37 M15 12 L18 35 M33 12 L30 35" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" />
-      <path d="M18 36 h12 v4 a2 2 0 0 1 -2 2 h-8 a2 2 0 0 1 -2 -2 Z" stroke="currentColor" strokeWidth="2.6" strokeLinejoin="round" />
+      <g transform="translate(4 5) scale(0.84) rotate(24 24 26)">
+        <path d="M10 28 Q12 17 24 16 Q36 17 38 28 Q38 42 24 44 Q10 42 10 28 Z" stroke="currentColor" strokeWidth="3.4" strokeLinejoin="round" />
+        <path d="M15 18 Q18 9 24 8 Q30 9 33 18" stroke="currentColor" strokeWidth="3.4" strokeLinejoin="round" />
+        <path d="M19 9 Q21 3 24 2 Q27 3 29 9" stroke="currentColor" strokeWidth="3.4" strokeLinejoin="round" />
+        <path d="M24 27 Q35 25 37 34 Q36 42 27 42 Q22 36 24 27 Z" stroke="currentColor" strokeWidth="3" strokeLinejoin="round" />
+      </g>
     </svg>
   );
 }
