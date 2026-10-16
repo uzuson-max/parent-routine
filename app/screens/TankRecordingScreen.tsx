@@ -293,7 +293,6 @@ const BG_BUBBLES: React.CSSProperties[] = [
 ];
 
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Jua&display=swap');
 .tr-wave { position: absolute; left: 0; top: max(76px, calc(env(safe-area-inset-top, 0px) + 66px)); animation: trWave 6s linear infinite; pointer-events: none; }
 @keyframes trWave { to { transform: translateX(-195px); } }
 .tr-ray { position: absolute; top: 0; width: 30px; height: 75%; background: rgba(255,255,255,.12); transform: rotate(16deg); transform-origin: top; animation: trShimmer 4s ease-in-out infinite alternate; pointer-events: none; }
