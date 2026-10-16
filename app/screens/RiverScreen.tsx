@@ -1,4 +1,4 @@
-
+// app/screens/RiverScreen.tsx
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -13,12 +13,13 @@ import { readTone } from "@/lib/tone";
 import { BABBLE_STEP_MS, babble, isVoiced, type BabbleMode } from "@/lib/otterBabble";
 
 // ============================================================================
-// 조개 탭 — 조개 징검다리. (2026-10-16 "강"에서 이름·모양 바꿈, 파일/탭 키는 river 그대로)
+// 소라 탭 — 소라 징검다리. (2026-10-15 "강" → 10-16 "조개" → 10-17 "소라". 파일/탭 키는 river 그대로)
+// "조개"는 "조개 까다"가 다른 뜻으로 읽힐 수 있어서 뺐다. 소라는 "귀 대면 소리 들린다"라서 목소리 기능과 딱 맞는다.
 // ----------------------------------------------------------------------------
-// 강은 위에서 아래로, 홈의 바다로 흘러간다. 조개 하나 = 질문 하나 = 하루 하나.
+// 강은 위에서 아래로, 홈의 바다로 흘러간다. 소라 하나 = 질문 하나 = 하루 하나. 대답한 소라엔 진주가 생긴다.
 // 순한맛/매운맛은 여기서 묻지 않는다 — MY에서 고른 값(lib/tone.ts)을 읽기만 한다.
 //   - 오늘 돌: 수달이 올라가 기다린다. 누르면 질문 → 물속 녹음 화면(홈과 같은 녹음 → 바다에 물고기로도 들어감)
-//   - 돌아오는 날(4·5·6·7일): 수달이 조개를 들고 기다리다가, 답하고 나면 조개를 까서 "그때 니 목소리"를 들려준다
+//   - 돌아오는 날(4·5·6·7일): 수달이 소라를 들고 기다리다가, 답하고 나면 소라에 귀 대게 해서 "그때 니 목소리"를 들려준다
 //     엔진 기억이 딱 맞는 바다 자유 녹음을 찾으면 그 목소리도 같이 나온다(api/stage/answer)
 //   - 내일 돌: 반쯤 물에 잠겨 있다(카운트다운·연속 기록 없음, 빠져도 실패 없음)
 //   - 7일 다음은 물안개 — "저 너머도 가볼래?"(다음 구간 열리면 알려주기 = 관심 신호만 모음)
@@ -101,11 +102,11 @@ export default function RiverScreen({
     try {
       const res = await authed("/api/stage");
       const body = await res.json();
-      if (!body?.success) throw new Error(body?.error || "조개를 못 불러왔어");
+      if (!body?.success) throw new Error(body?.error || "소라를 못 불러왔어");
       setProgress(body.data);
       setLoadError(null);
     } catch (e: any) {
-      setLoadError(e?.message || "조개를 못 불러왔어");
+      setLoadError(e?.message || "소라를 못 불러왔어");
     }
   }, []);
 
@@ -125,7 +126,7 @@ export default function RiverScreen({
       return;
     }
     if (day !== progress.nextDay) {
-      setFlow({ kind: "note", text: "그 조개는 아직 저 아래야. 하나씩 건너자." });
+      setFlow({ kind: "note", text: "그 소라는 아직 저 아래야. 하나씩 건너자." });
       return;
     }
     if (!progress.unlocked) {
@@ -261,7 +262,7 @@ export default function RiverScreen({
   return (
     <div style={worldPage}>
       <style dangerouslySetInnerHTML={{ __html: WORLD_CSS + RIVER_CSS }} />
-      <WorldTitle>오늘 깔 조개 하나</WorldTitle>
+      <WorldTitle>소라에 귀 대보실 분....</WorldTitle>
 
       {loadError && (
         <div style={{ ...stickerCard, padding: 16, marginBottom: 12, fontSize: 15 }}>
@@ -300,13 +301,13 @@ export default function RiverScreen({
                 top: `${(p.y / VB_H) * 100}%`,
               }}
               onClick={() => onStone(cfg.day)}
-              aria-label={done ? `${cfg.day}일차, 연 조개` : today ? `${cfg.day}일차, 오늘 조개` : `${cfg.day}일차, 아직 잠긴 조개`}
+              aria-label={done ? `${cfg.day}일차, 진주 생긴 소라` : today ? `${cfg.day}일차, 오늘 소라` : `${cfg.day}일차, 아직 잠긴 소라`}
             >
-              <ShellStone fill={done ? YELLOW : today ? "#FFC9D9" : "#C9D6DE"} open={done} />
-              <span className="rv-num">{done ? <Fish size={24} /> : cfg.day}</span>
+              <ConchStone fill={done ? YELLOW : today ? "#FFC9D9" : "#C9D6DE"} pearl={done} />
+              {!done && <span className="rv-num">{cfg.day}</span>}
               {RETURN_DAYS.has(cfg.day) && !done && (
                 <span className="rv-shell" aria-hidden>
-                  <Pearl />
+                  <EchoNote />
                 </span>
               )}
             </button>
@@ -323,7 +324,7 @@ export default function RiverScreen({
             <OtterFace expression={otterMood} size={58} />
             {otterHasShell && (
               <span style={{ position: "absolute", left: -6, bottom: -4 }}>
-                <Shell size={24} />
+                <Conch size={24} />
               </span>
             )}
           </div>
@@ -365,7 +366,7 @@ export default function RiverScreen({
       {flow.kind === "ask" && (
         <Sheet onClose={() => setFlow({ kind: "idle" })}>
           <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 6 }}>
-            {flow.day}번째 조개{flow.part === 2 ? " · 하나 더" : ""}
+            {flow.day}번째 소라{flow.part === 2 ? " · 하나 더" : ""}
           </div>
           <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 16 }}>
             <OtterFace expression={flow.part === 2 ? "sly" : "tilt"} size={60} />
@@ -433,7 +434,7 @@ export default function RiverScreen({
             <OtterFace expression="laugh" size={60} />
             <div style={{ fontSize: 19, lineHeight: 1.35 }}>
               건넜다. 니 말은 물고기 돼서 바다로 갔어.
-              <div style={{ fontSize: 15, opacity: 0.6, marginTop: 4 }}>다음 조개는 내일 올라와.</div>
+              <div style={{ fontSize: 15, opacity: 0.6, marginTop: 4 }}>다음 소라는 내일 올라와.</div>
             </div>
           </div>
         </Sheet>
@@ -472,7 +473,7 @@ function LookBack({ done, tone, onReplay }: { done: DayDone; tone: StageTone; on
   const questions = [cfg?.question[tone], cfg?.followUp?.[tone]];
   return (
     <div>
-      <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 8 }}>{done.day}번째 조개</div>
+      <div style={{ fontSize: 13, opacity: 0.6, marginBottom: 8 }}>{done.day}번째 소라</div>
       {done.answers.map((a, i) => (
         <div key={i} style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 15, opacity: 0.7, marginBottom: 4 }}>{questions[i]}</div>
@@ -490,14 +491,14 @@ function LookBack({ done, tone, onReplay }: { done: DayDone; tone: StageTone; on
       {player.error && <div style={{ fontSize: 13, color: "#C0392B" }}>{player.error}</div>}
       {done.returnSegments && (
         <button className="wn-sticker" style={{ ...pillBtn, width: "100%", marginTop: 4 }} onClick={() => onReplay(done.returnSegments!)}>
-          그날 수달이 꺼낸 조개 다시 열기
+          그날 소라 다시 들어보기
         </button>
       )}
     </div>
   );
 }
 
-// ── 조개 열기: 수달 말풍선 → 수달이 니 말 따라하기 → (원하면) 진짜 니 목소리 3초 → … ──────
+// ── 소라에 귀 대기: 수달 말풍선 → 수달이 니 말 따라하기 → (원하면) 진짜 니 목소리 3초 → … ──────
 // 2026-10-17 "수달어": 사람 TTS 대신 동물의숲처럼 글자마다 뽁뽁 소리 + 말풍선 타이핑.
 // 목소리 조각은 바로 틀지 않는다 — 수달이 먼저 놀리듯 따라하고, "진짜 니 목소리 들어볼래?"에서 누를 때만 원본.
 // 원본은 통째로가 아니라 그 말이 나오는 근처 3초 정도만(전체는 "전체" 버튼).
@@ -560,10 +561,10 @@ function ShellReturn({ segments, tone }: { segments: ReturnSegment[]; tone: Stag
           <div style={{ display: "flex", justifyContent: "center", alignItems: "flex-end", gap: 6, marginBottom: 10 }}>
             <OtterFace expression="sly" size={70} />
             <span className="rv-wiggle">
-              <Shell size={44} />
+              <Conch size={44} />
             </span>
           </div>
-          <div style={{ fontSize: 19, marginBottom: 14 }}>조개에 뭐 들어 있는데. 열어볼래?</div>
+          <div style={{ fontSize: 19, marginBottom: 14 }}>소라에서 뭐가 들려. 귀 대볼래?</div>
           <button
             className="wn-sticker"
             style={{ ...pillBtn, width: "100%" }}
@@ -573,7 +574,7 @@ function ShellReturn({ segments, tone }: { segments: ReturnSegment[]; tone: Stag
               setStep(0);
             }}
           >
-            조개 열기
+            귀 대보기
           </button>
         </div>
       ) : (
@@ -764,7 +765,7 @@ function TypedBubble({
   );
 }
 
-// 조개 속 목소리 → 재생 요청 주소(강 N일차 대답 또는 바다 자유 녹음)
+// 소라 속 목소리 → 재생 요청 주소(강 N일차 대답 또는 바다 자유 녹음)
 function voiceQuery(seg: Extract<ReturnSegment, { kind: "voice" }>): string {
   return seg.entryId ? `entry=${encodeURIComponent(seg.entryId)}` : `day=${seg.day ?? 1}&part=1`;
 }
@@ -917,43 +918,52 @@ function Fish({ size = 24 }: { size?: number }) {
   );
 }
 
-function Shell({ size = 24 }: { size?: number }) {
+// 소라(작은 것) — 수달이 들고 있거나 귀 대보기 화면에서 흔들리는 것
+function Conch({ size = 24 }: { size?: number }) {
   return (
-    <svg viewBox="0 0 40 34" width={size} height={(size * 34) / 40} aria-hidden>
-      <path d="M4 26 Q4 6 20 4 Q36 6 36 26 Q20 32 4 26 Z" fill="#FFC9D9" stroke={INK} strokeWidth={2.6} strokeLinejoin="round" />
-      <path d="M20 6 L20 29 M12 9 L15 28 M28 9 L25 28" stroke={INK} strokeWidth={2} strokeLinecap="round" />
-      <rect x={15} y={27} width={10} height={5} rx={2} fill="#FFC9D9" stroke={INK} strokeWidth={2.2} />
+    <svg viewBox="0 0 80 72" width={size} height={(size * 72) / 80} aria-hidden>
+      <ConchBody fill="#FFC9D9" pearl={false} />
     </svg>
   );
 }
 
-// 징검다리 조개 — 닫힌 조개를 밟고 건너고, 대답하면 뚜껑이 살짝 열린다
-function ShellStone({ fill, open }: { fill: string; open: boolean }) {
+// 징검다리 소라 — 소라를 밟고 건너고, 대답하면 입구에 진주가 생긴다
+function ConchStone({ fill, pearl }: { fill: string; pearl: boolean }) {
   return (
     <svg viewBox="0 0 80 72" className="rv-shellstone" aria-hidden>
-      <ellipse cx={40} cy={66} rx={30} ry={5} fill={INK} opacity={0.18} />
-      {open && (
-        <path d="M8 40 Q10 14 40 12 Q70 14 72 40 Q40 46 8 40 Z" fill={fill} stroke={INK} strokeWidth={3.2} strokeLinejoin="round" transform="rotate(-24 8 40)" />
-      )}
-      <path
-        d={open ? "M8 40 Q8 64 40 66 Q72 64 72 40 Q40 46 8 40 Z" : "M6 52 Q6 10 40 6 Q74 10 74 52 Q40 66 6 52 Z"}
-        fill={fill}
-        stroke={INK}
-        strokeWidth={3.2}
-        strokeLinejoin="round"
-      />
-      {!open && <path d="M40 9 L40 60 M24 14 L29 58 M56 14 L51 58" stroke={INK} strokeWidth={2.4} strokeLinecap="round" opacity={0.55} />}
-      {!open && <rect x={31} y={57} width={18} height={8} rx={3} fill={fill} stroke={INK} strokeWidth={2.8} />}
+      <ellipse cx={40} cy={67} rx={28} ry={4.5} fill={INK} opacity={0.18} />
+      <ConchBody fill={fill} pearl={pearl} />
     </svg>
   );
 }
 
-// 돌아오는 날 표시 — 그 조개 안엔 진주(그때 니 목소리)가 들어 있다
-function Pearl() {
+// 소라 몸통 — 아래 큰 몸 + 위로 작아지는 두 단 + 오른쪽 아래 입구(살짝 기울임)
+function ConchBody({ fill, pearl }: { fill: string; pearl: boolean }) {
+  const line = { stroke: INK, strokeWidth: 3, strokeLinejoin: "round" as const };
   return (
-    <svg viewBox="0 0 24 24" width={20} height={20} aria-hidden>
-      <circle cx={12} cy={12} r={8} fill="#FFFFFF" stroke={INK} strokeWidth={2.4} />
-      <circle cx={9} cy={9} r={2.4} fill="#E6F4FF" />
+    <g transform="rotate(28 40 40)">
+      <path d="M16 42 Q20 24 40 22 Q60 24 64 42 Q64 64 40 68 Q16 64 16 42 Z" fill={fill} {...line} />
+      <path d="M24 26 Q30 12 40 11 Q50 12 56 26 Q40 32 24 26 Z" fill={fill} {...line} />
+      <path d="M31 13 Q35 3 40 1 Q45 3 49 13 Q40 17 31 13 Z" fill={fill} {...line} />
+      <path d="M22 36 L58 36 M24 50 L56 50" stroke={INK} strokeWidth={2.2} strokeLinecap="round" strokeDasharray="1 7" opacity={0.6} />
+      <path d="M40 40 Q58 36 62 52 Q60 66 44 66 Q36 56 40 40 Z" fill="#FFF0F4" {...line} />
+      {pearl && (
+        <>
+          <circle cx={49} cy={54} r={6} fill="#FFFFFF" stroke={INK} strokeWidth={2.3} />
+          <circle cx={47} cy={52} r={1.8} fill="#DDEFFF" />
+        </>
+      )}
+    </g>
+  );
+}
+
+// 돌아오는 날 표시 — 그 소라에선 "그때 니 목소리"가 들린다
+function EchoNote() {
+  return (
+    <svg viewBox="0 0 24 22" width={22} height={20} aria-hidden>
+      <path d="M8 17 V5 L19 3 V15" stroke={INK} strokeWidth={2.4} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <ellipse cx={6} cy={17} rx={3.8} ry={3.1} fill="#FFFFFF" stroke={INK} strokeWidth={2.2} />
+      <ellipse cx={17} cy={15} rx={3.8} ry={3.1} fill="#FFFFFF" stroke={INK} strokeWidth={2.2} />
     </svg>
   );
 }
@@ -963,7 +973,7 @@ const RIVER_CSS = `
 .rv-stone { position: absolute; width: 76px; height: 68px; margin: -34px 0 0 -38px; padding: 0; border: 0; background: transparent; font-family: 'Jua', sans-serif; font-size: 22px; color: ${INK}; display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: visible; -webkit-tap-highlight-color: transparent; z-index: 2; }
 .rv-stone:active { transform: translate(2px,2px); }
 .rv-shellstone { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.rv-num { position: relative; z-index: 2; margin-top: 6px; }
+.rv-num { position: relative; z-index: 2; margin: 12px 24px 0 0; }
 .rv-today { animation: rvBob 2.4s ease-in-out infinite; }
 .rv-sunk { opacity: .9; }
 .rv-sunk::after { content: ''; position: absolute; left: -4px; right: -4px; bottom: -4px; height: 52%; background: #5CCBF2; border-top: 3px solid #9BE3FA; border-radius: 0 0 40px 40px; z-index: 1; }
