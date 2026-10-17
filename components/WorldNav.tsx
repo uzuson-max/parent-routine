@@ -1,7 +1,7 @@
 // components/WorldNav.tsx
 "use client";
 
-import { IconHome, IconRecord, IconLetter, IconGear, IconBottle } from "@/components/icons";
+import { IconHome, IconRecord, IconLetter, IconGear } from "@/components/icons";
 import { playFx } from "@/lib/fx";
 
 // ============================================================================
@@ -10,7 +10,8 @@ import { playFx } from "@/lib/fx";
 // 하단 탭은 "사용자가 앱을 여는 이유" 3가지로 나눈다:
 //   어항      — 지금 내 어항 어떻게 됐지?
 //   소라      — 소라 징검다리, 하루에 소라 하나 (2026-10-15 "강" → 10-16 "조개" → 10-17 "소라" — app/screens/RiverScreen.tsx)
-//   걱정 병   — 니 걱정, 진짜 몇 %나 맞았어? (2026-10-14 "지난 어항" 자리를 바꿈 — 지난 어항은 MY > 기록 보기에서)
+//   (걱정이 탭은 2026-10-17 내림 — 걱정만 따로 모아보는 탭은 써보니 매력이 없었다. 걱정은 녹음에서 저절로 골라져
+//    바다 수면에 뜨는 것만 남긴다. 화면 파일 app/screens/WorriesScreen.tsx와 "worries" 탭 값은 지우지 않고 둔다.)
 //   편지      — 참견이가 나한테 뭐라고 했지? (편지 + 참견이가 알아챈 거)
 // 설정(MY)은 자주 안 쓰니 탭이 아니라 홈 오른쪽 위 작은 아이콘으로 둔다.
 // ============================================================================
