@@ -74,8 +74,7 @@ export function BottomNav({
   const items: { tab: WorldTab; label: string; icon: JSX.Element }[] = [
     { tab: "home", label: "어항", icon: <IconHome style={{ width: 22, height: 22 }} /> },
     { tab: "river", label: "소라", icon: <IconConch style={{ width: 22, height: 22 }} /> },
-    { tab: "worries", label: "걱정이", icon: <IconBottle style={{ width: 22, height: 22 }} /> },
-    { tab: "letters", label: "편지", icon: <IconLetter style={{ width: 22, height: 22 }} /> },
+        { tab: "letters", label: "편지", icon: <IconLetter style={{ width: 22, height: 22 }} /> },
   ];
   return (
     <nav style={navStyle} aria-label="주요 메뉴">
