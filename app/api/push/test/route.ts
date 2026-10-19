@@ -17,9 +17,9 @@ async function handle(request: Request) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  const priv = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT || 'mailto:hello@example.com';
+   const pub = (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '').trim();
+  const priv = (process.env.VAPID_PRIVATE_KEY || '').trim();
+  const subject = (process.env.VAPID_SUBJECT || '').trim() || 'mailto:hello@example.com';
   const env = {
     hasPublicKey: !!pub,
     hasPrivateKey: !!priv,
