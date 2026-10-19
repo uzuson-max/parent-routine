@@ -7,6 +7,7 @@ import { otterSound, plop, type OtterSound } from "@/lib/seaSound";
 import { decideCue, deepTapCue, loadOtterMemory, saveOtterMemory } from "@/lib/otterCues";
 import { useSeason } from "@/lib/season";
 import { LEAF_COLORS, mapleG } from "@/components/MapleLeaf";
+import SoraNim from "@/components/SoraNim";
 
 // ============================================================================
 // 심해 — 지금 어항 바로 아래, 참견이(수달)가 사는 곳.
@@ -1293,7 +1294,10 @@ export default function DeepSea({
           ))}
         </svg>
       </div>
-
+     
+      {/* 소라님 — 수달네 아지트 옆 이웃. 끄기 전에 내려와서 물어보고 줄 당기는 곳(components/SoraNim.tsx) */}
+      <SoraNim night={night} />
+      
       {/* 친구 — 말은 안 한다. 눌러보면 빙글 */}
       <div ref={friendEl} className="ds-body ds-friend" style={{ ...bodyStyle(friend), opacity: ready ? 1 : 0 }}>
         <div className="ds-tilt" style={{ transform: `translate(-50%, -50%) rotate(${friend.tilt}deg)` }}>
