@@ -12,6 +12,7 @@ import { seaSoundPref, setSeaSoundPref, startSea, stopSea, recallChime } from "@
 import dynamic from "next/dynamic";
 import type { AlarmPrefill, DeskState, SurfaceTab } from "@/components/SurfaceSheet";
 import OtterCueView from "@/components/OtterCueView";
+import SoraTalk, { ConchIcon, FloatingConch, soraIntroQuick } from "@/components/SoraTalk";
 import { decideCue, loadOtterMemory, saveOtterMemory, type OtterCue } from "@/lib/otterCues";
 import { likelyChannel, notesApi, remindersApi } from "@/lib/deskClient";
 import { isOverdue, kstLabel } from "@/lib/reminders/rules";
@@ -61,6 +62,8 @@ interface TimelineScreenProps {
   // 마이크(또는 어항)를 누르면 물속 녹음 화면(TankRecordingScreen)으로 간다.
   // replyTo — 참견이의 말에 대답하는 녹음이면 그 말.
   onStartRecording: (replyTo?: string) => void;
+    // 소라님에게 말하기(components/SoraTalk.tsx) — 줄 당기면 이걸로 보낸다. page.tsx가 평소 녹음과 똑같이 업로드한다.
+  onSendSpeech?: (input: Blob | string, replyTo?: string) => void;
   // 녹음을 보내고 참견이가 생각하는 중 — 어항 가운데 물방울이 꿀렁거린다. page.tsx가 관리.
   thinking?: boolean;
   bubble?: HomeBubble | null;
@@ -104,6 +107,7 @@ let deskCache: DeskState = { notes: null, reminders: null, delivery: null, notes
 // ============================================================================
 export default function TimelineScreen({
   onStartRecording,
+    onSendSpeech,
   thinking = false,
   bubble,
   onBubbleChange,
@@ -245,7 +249,22 @@ export default function TimelineScreen({
     playFx("micStart");
     // 사용자 제스처 안에서 마이크 요청을 먼저 시작해둔다(iOS Safari 대비) — 녹음 화면이 같은 스트림을 이어받는다.
     acquireMicStream().catch(() => {});
-    onStartRecording(replyTo);
+      // 2026-10-19 — 물속 녹음 화면 대신 소라님(components/SoraTalk.tsx). 보내기 연결이 없으면 예전 화면으로.
+    if (!onSendSpeech) {
+      onStartRecording(replyTo);
+      return;
+    }
+    setTalk({ replyTo, quick: soraIntroQuick(), key: Date.now() });
+  };
+
+  // ---- 소라님에게 말하기 ----
+  const [talk, setTalk] = useState<{ replyTo?: string; quick: boolean; key: number } | null>(null);
+  const closeTalk = (keepBubble: boolean) => {
+    setTalk(null);
+    // 알람 제안처럼 홈에 남길 게 없으면 대답 말풍선은 내려놓는다(소라에서 이미 들었으니까)
+    if (!keepBubble && bubble) onBubbleChange(null);
+    if (soundOn) startSea(night);
+  };
   };
 
   // 화면에 보일 말풍선: 방금 대답/안내가 우선, 없으면 참견이가 먼저 꺼낸 말
@@ -498,7 +517,26 @@ export default function TimelineScreen({
         )}
       </div>
 
-      {/* 마이크 — 어디까지 내려가 있어도 늘 같은 자리 */}
+           {/* 소라님 — 첫 화면 바다에 둥둥. 누르면 노란 버튼이랑 똑같이 소라님에게 말하기 */}
+      {nightState !== null && !talk && !thinking && !fishCardOpen && !sheet.open && onSendSpeech && (
+        <FloatingConch onTap={handleMic} night={night} />
+      )}
+      {talk && onSendSpeech && (
+        <SoraTalk
+          key={talk.key}
+          quick={talk.quick}
+          replyTo={talk.replyTo}
+          thinking={thinking}
+          heard={heard}
+          bubble={bubble ?? null}
+          onSend={onSendSpeech}
+          onConfirmSpeech={onConfirmSpeech}
+          onRetrySpeech={onRetrySpeech}
+          onClose={closeTalk}
+        />
+      )}
+
+      {/* 마이크(소라) — 어디까지 내려가 있어도 늘 같은 자리 */}
             {!fishCardOpen && (
       <button
         className={thinking ? "tl-mic tl-mic-busy" : "tl-mic tl-mic-idle"}
@@ -506,11 +544,15 @@ export default function TimelineScreen({
         disabled={thinking}
         aria-label={replying ? "대답하기" : "생각 말하기"}
       >
-        <svg width="38" height="38" viewBox="0 0 24 24" aria-hidden>
-          <rect x="8.5" y="3" width="7" height="12" rx="3.5" fill="#FFFFFF" stroke={INK} strokeWidth={2.2} />
-          <path d="M5.5 11.5 C5.5 15.5 8.5 18 12 18 C15.5 18 18.5 15.5 18.5 11.5" fill="none" stroke={INK} strokeWidth={2.2} strokeLinecap="round" />
-          <path d="M12 18 V21.5" fill="none" stroke={INK} strokeWidth={2.2} strokeLinecap="round" />
-        </svg>
+              {onSendSpeech ? (
+          <ConchIcon size={46} />
+        ) : (
+          <svg width="38" height="38" viewBox="0 0 24 24" aria-hidden>
+            <rect x="8.5" y="3" width="7" height="12" rx="3.5" fill="#FFFFFF" stroke={INK} strokeWidth={2.2} />
+            <path d="M5.5 11.5 C5.5 15.5 8.5 18 12 18 C15.5 18 18.5 15.5 18.5 11.5" fill="none" stroke={INK} strokeWidth={2.2} strokeLinecap="round" />
+            <path d="M12 18 V21.5" fill="none" stroke={INK} strokeWidth={2.2} strokeLinecap="round" />
+          </svg>
+        )}
       </button>
             )}
 
