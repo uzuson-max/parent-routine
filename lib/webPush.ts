@@ -12,9 +12,9 @@ import { supabase } from '@/lib/supabase';
 let configured: boolean | null = null;
 function ensureConfigured(): boolean {
   if (configured !== null) return configured;
-  const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  const priv = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT || 'mailto:hello@example.com';
+   const pub = (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || '').trim();
+  const priv = (process.env.VAPID_PRIVATE_KEY || '').trim();
+  const subject = (process.env.VAPID_SUBJECT || '').trim() || 'mailto:hello@example.com';
   if (!pub || !priv) {
     console.error('[webPush] VAPID 키가 없어 앱 알림을 보낼 수 없음 (문자로 대신 보냄)');
     configured = false;
