@@ -127,11 +127,11 @@ export default function Home() {
   // 2단계 응답 — 서버가 받아쓰기를 끝내자마자 보내준 "방금 니가 한 말". 대답이 오면(또는 실패하면) 비운다.
   const [homeHeard, setHomeHeard] = useState<{ text: string; key: number } | null>(null);
   // 보내다 실패한 녹음 — 아직 서버에 기록되기 전에 실패했을 때만 [다시 보내기]로 같은 녹음을 다시 보낸다.
-  const [retrySpeech, setRetrySpeech] = useState<{ blob: Blob; replyTo?: string } | null>(null);
+   const [retrySpeech, setRetrySpeech] = useState<{ blob: Blob | string; replyTo?: string } | null>(null);
   // 홈 업로드 요청 번호 — 늦게 도착한 옛 요청의 결과가 새 화면을 덮지 않게.
   const uploadSeq = useRef(0);
     // "이렇게 말한 거 맞아?" 확인을 기다리는 녹음 — [맞아]를 누르면 이걸 그대로 다시 보낸다.
-  const [pendingSpeech, setPendingSpeech] = useState<{ blob: Blob; replyTo?: string } | null>(null);
+    const [pendingSpeech, setPendingSpeech] = useState<{ blob: Blob | string; replyTo?: string } | null>(null);
 
   const fetchEntries = async () => {
     try {
@@ -273,7 +273,8 @@ export default function Home() {
   };
   // 홈(어항) 안에서 녹음한 음성을 보낸다. 화면을 바꾸지 않는 게 기본이고,
   // 확인/전화처럼 전용 화면이 꼭 필요한 결과만 기존 화면으로 넘긴다.
-    const uploadFromHome = async (input: Blob, replyTo?: string, speechConfirmed = false) => {
+       // input — 녹음(Blob) 또는 소라님에게 글로 쓴 말(string). 서버는 둘 다 같은 흐름으로 처리한다(text 필드).
+    const uploadFromHome = async (input: Blob | string, replyTo?: string, speechConfirmed = false) => {
     const seq = ++uploadSeq.current;
     const isCurrent = () => seq === uploadSeq.current;
     const t0 = performance.now();
@@ -292,7 +293,8 @@ export default function Home() {
 
       const savedPhone = typeof window !== "undefined" ? localStorage.getItem("ganseobi_phone") : null;
       const form = new FormData();
-      form.append("audio", input, "recording.webm");
+            if (typeof input === "string") form.append("text", input);
+      else form.append("audio", input, "recording.webm");
       form.append("phone", savedPhone || "");
       form.append("persona", "coach");
       if (replyTo) form.append("topic", replyTo);
@@ -512,6 +514,12 @@ export default function Home() {
           onStartRecording={(replyTo) => {
             setTankReplyTo(replyTo);
             setStep("tank_recording");
+          }}
+                    onSendSpeech={(input, replyTo) => {
+            // 소라님 줄 당기기 — 물속 녹음 화면에서 돌아올 때와 똑같이 업로드한다(기억·물고기·대답 전부 그대로).
+            setHomeBubble(null);
+            setHomeThinking(true);
+            uploadFromHome(input, replyTo).finally(() => setHomeThinking(false));
           }}
                     onOpenMonth={(month) => {
             setMyOpen(false);
