@@ -7,8 +7,6 @@ import { otterSound, plop, type OtterSound } from "@/lib/seaSound";
 import { decideCue, deepTapCue, loadOtterMemory, saveOtterMemory } from "@/lib/otterCues";
 import { useSeason } from "@/lib/season";
 import { LEAF_COLORS, mapleG } from "@/components/MapleLeaf";
-import SoraNim from "@/components/SoraNim";
-
 // ============================================================================
 // 심해 — 지금 어항 바로 아래, 참견이(수달)가 사는 곳.
 // ----------------------------------------------------------------------------
@@ -279,8 +277,7 @@ export default function DeepSea({
   const friendHeld = useRef(false); // 참견이랑 노는 중 — 친구 혼자 놀기를 잠깐 멈춘다
   const friendReading = useRef(false); // 친구가 아지트에서 책 보는 중
   const [ready, setReady] = useState(false);
-    const [soraBusy, setSoraBusy] = useState(false); // 소라님 잡으러 간 동안 — 진짜 참견이는 잠깐 숨는다(components/SoraNim.tsx가 대신 헤엄침)
-  const [seen, setSeen] = useState(false); // 심해가 화면에 보이는 중
+   const [seen, setSeen] = useState(false); // 심해가 화면에 보이는 중
   const [reduce, setReduce] = useState(false);
   const mainTurning = useTurning(main.facing);
   const friendTurning = useTurning(friend.facing);
@@ -1296,9 +1293,7 @@ export default function DeepSea({
         </svg>
       </div>
      
-      {/* 소라님 — 심해를 둥둥 떠다닌다. 누르면 참견이가 슝 잡아서 니 쪽으로 쭉 내민다(components/SoraNim.tsx) */}
-      <SoraNim night={night} otterAt={{ x: main.x, y: main.y }} disabled={busy || away || !ready} onCatch={setSoraBusy} />
-      
+  
       {/* 친구 — 말은 안 한다. 눌러보면 빙글 */}
       <div ref={friendEl} className="ds-body ds-friend" style={{ ...bodyStyle(friend), opacity: ready ? 1 : 0 }}>
         <div className="ds-tilt" style={{ transform: `translate(-50%, -50%) rotate(${friend.tilt}deg)` }}>
@@ -1329,10 +1324,9 @@ export default function DeepSea({
         style={{
           transform: `translate(${main.x}px, ${main.y}px)`,
           transition: main.ms > 0 ? `transform ${main.ms}ms ${main.ease}, opacity .5s ease` : "opacity .5s ease",
-                    opacity: ready && !away && !soraBusy ? 1 : 0,
-          pointerEvents: soraBusy ? "none" : undefined,
+                    opacity: ready && !away ? 1 : 0,
         }}
-        aria-hidden={away || soraBusy}
+        aria-hidden={away}
       >
         <div className="ds-tilt" style={{ transform: `translate(-50%, -50%) rotate(${tilt}deg)` }}>
           <div className={`ds-flip ${mainTurning && pose !== "upright" ? "ds-turning" : ""}`} style={{ transform: `scaleX(${pose === "upright" && mode !== "idle" ? 1 : main.facing})` }}>
