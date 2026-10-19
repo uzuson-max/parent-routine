@@ -120,6 +120,16 @@ export type ValidationFailureReason =
   | 'ANCHOR_NOT_IN_TRANSCRIPT' // anchor_quote가 사용자 원문에 없음
   | 'SPECIFIC_CURRENT_TURN_WITHOUT_OPPORTUNITY' // 구체적 디테일이 있는 발화인데 opportunity를 none으로 냄
   | 'ANCHOR_TRUNCATED_HEAD' // 숫자로 시작하는 anchor가 앞 대상(을/를)을 잘랐고 response에서도 그 대상이 사라짐
+  // 2026-10-19 — 사용자가 대화를 마치려는데(종료 신호) 답할 질문도 없이 참견이가 질문을 붙임
+  | 'CLOSING_SIGNAL_WITH_QUESTION'
+  // 2026-10-20 (2차) — 1차 실측 회귀 대응
+  | 'UNCONFIRMED_REMINDER_PROMISE' // 알림 요청 턴에서 예약 근거 없이 "그때 알려줄게"처럼 약속함 (HARD)
+  | 'EMOTION_PRESUMED' // 사용자가 말하지 않은 지난 감정을 "놀랐겠다/힘들었겠다"로 단정 (SOFT)
+  | 'CHOICE_DROPPED' // 사용자가 "A할까 B할까"로 낸 선택지를 응답이 하나도 언급하지 않음 (SOFT)
+  | 'MEMORY_WISH_AS_PLAN' // 기억 원문은 바람/가정인데 응답이 "계획/하기로 했다"로 승격 (SOFT)
+  // 작업 B (2026-10-20) — 의견 요청
+  | 'OPINION_NOT_GIVEN' // 의견 요청 턴인데 판단·추천 표현이 하나도 없음 (SOFT)
+  | 'FIRST_PERSON_PRONOUN' // 의견 요청 턴에서 금지된 1인칭("나도/내가/나라면")으로 말함 (SOFT)
   // 2026-10-11 — 기억 선택 실패 (SOFT: 재생성 1회는 유도하지만, 재생성 후에도 남아 있으면 fallback으로 떨어뜨리지 않는다)
   | 'MEMORY_RELEVANCE_SKIPPED' // 기억 후보가 있는데 memory_relevance를 아예 비워서 냄(판단 자체를 건너뜀)
   | 'SELECTED_MEMORY_NOT_USED' // opportunity로 기억을 골라놓고(source=memory, STRONG) 정작 response에는 안 씀
@@ -132,6 +142,13 @@ export const SOFT_VALIDATION_REASONS: ReadonlySet<ValidationFailureReason> = new
   'MEMORY_RELEVANCE_SKIPPED',
   'SELECTED_MEMORY_NOT_USED',
   'FEELING_TARGET_OVER_MEMORY',
+  // 2026-10-20 (2차) — 표현 문제라 재생성 1회만 유도하고, 남아 있어도 fallback으로 떨어뜨리지 않는다.
+  'EMOTION_PRESUMED',
+  'CHOICE_DROPPED',
+  'MEMORY_WISH_AS_PLAN',
+  // 작업 B — 의견 요청 턴 표현 문제. 재생성 1회만 유도하고, 남아 있어도 fallback("다시 물어봐 줄래?")으로 떨어뜨리지 않는다.
+  'OPINION_NOT_GIVEN',
+  'FIRST_PERSON_PRONOUN',
 ]);
 
 export interface ValidationResult {
@@ -148,6 +165,8 @@ export interface ValidationContext {
   utteranceIntent?: string | null;
   userQuestion?: string | null;
   negativeTargets?: string[];
+  // 2026-10-20 (2차) — 기억 후보 id → 원문(raw_quote + content). 기억 표현 검사(MEMORY_WISH_AS_PLAN)에만 쓴다. 없으면 검사 안 함.
+  memoryTexts?: Record<number, string>;
 }
 
 export interface ResponseResult {

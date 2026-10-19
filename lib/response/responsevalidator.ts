@@ -9,7 +9,14 @@ import type {
   ValidationResult,
 } from '@/lib/response/responsetypes';
 import { WORTHY_MEMORY_RELATIONS } from '@/lib/response/responsetypes';
-import { intentNeedsAnswer, isGroundedIn, normalizeLoose, UtteranceIntent } from '@/lib/response/understanding';
+import {
+  detectClosingSignal,
+  detectQuestionRequest,
+  intentNeedsAnswer,
+  isGroundedIn,
+  normalizeLoose,
+  UtteranceIntent,
+} from '@/lib/response/understanding';
 
 // ---- Validation 내부 유틸 ----
 
@@ -313,8 +320,14 @@ export function validateResponse(result: ValidatedResult, context: ValidationCon
     reasons.push('GENERIC_QUESTION');
   }
 
+  // 2026-10-19 — 사용자가 지금 대화를 마치려는 말("먼저 잘게")을 했는가 / 질문을 해달라고 했는가.
+  // 원문만 보고 결정적으로 판정한다(명백한 경우만). transcript가 없는 예전 호출은 둘 다 false → 기존 동작 그대로.
+  const closingSignal = detectClosingSignal(context.transcript);
+  const questionRequested = detectQuestionRequest(context.transcript);
+
   // RULE 6 — CLOSING_RESPONSE
-  if (isClosingResponse(response)) {
+  // 2026-10-19 — 사용자가 대화를 마치려는 턴에서는 "잘 자." 같은 닫는 말이 정답이다. 그때만 적용하지 않는다.
+  if (!closingSignal && isClosingResponse(response)) {
     reasons.push('CLOSING_RESPONSE');
   }
 
@@ -405,7 +418,13 @@ export function validateResponse(result: ValidatedResult, context: ValidationCon
         context.utteranceIntent === 'reminder_request'
           ? !acknowledgesReminder(response, context.userQuestion)
           : isQuestionOnlyResponse(response);
-      if (selfReportedNo || notAnswered) reasons.push('QUESTION_NOT_ANSWERED');
+      // 2026-10-19 — 사용자가 "질문 하나 해줘"처럼 질문 자체를 요청했으면, 질문을 던지는 게 곧 답이다.
+      // 이때는 질문만으로 된 응답을 막지 않고, 대신 실제로 질문을 했는지(물음표)만 본다. 모델 자기 보고는 보지 않는다.
+      if (questionRequested) {
+        if (!hasQuestionMark) reasons.push('QUESTION_NOT_ANSWERED');
+      } else if (selfReportedNo || notAnswered) {
+        reasons.push('QUESTION_NOT_ANSWERED');
+      }
     }
   }
 
@@ -426,7 +445,8 @@ export function validateResponse(result: ValidatedResult, context: ValidationCon
   // opportunity를 none으로 냈으면 실패 → 기존 재생성 1회 경로로 넘어가 "다시 골라보게" 한다.
   // source='current_turn'인데 type='none'으로 온 경우도 사실상 none이라 같이 본다.
   // 구체성 신호가 없는 추상적 발화("그냥 요즘 좀 그렇다")는 none을 그대로 허용한다.
-  if (context.transcript && context.utteranceIntent && OPPORTUNITY_REQUIRED_INTENTS.has(context.utteranceIntent)) {
+  // 2026-10-19 — 대화를 마치려는 턴에는 디테일을 붙잡으라고 재생성시키지 않는다(재생성이 질문을 붙여 대화를 늘린다).
+  if (!closingSignal && context.transcript && context.utteranceIntent && OPPORTUNITY_REQUIRED_INTENTS.has(context.utteranceIntent)) {
     const opp = result.conversation_opportunity;
     const effectivelyNone = !opp || opp.source === 'none' || opp.type === 'none';
     if (effectivelyNone && detectSpecificDetails(context.transcript).length > 0) {
@@ -443,6 +463,54 @@ export function validateResponse(result: ValidatedResult, context: ValidationCon
     if (core && !normalizeLoose(response).includes(core)) {
       reasons.push('ANCHOR_TRUNCATED_HEAD');
     }
+  }
+
+  // RULE 23 — CLOSING_SIGNAL_WITH_QUESTION (2026-10-19).
+  // 사용자가 대화를 마치려는데, 답해야 할 질문/부탁도 없고 질문을 해달라고 하지도 않았는데 질문을 붙였다.
+  // 답해야 할 질문이 있는 턴("먼저 잘게. 근데 내일 비 와?")은 기존 RULE 15가 다룬다 — 이 규칙은 건드리지 않는다.
+  if (closingSignal && hasQuestionMark && !questionRequested) {
+    const mustAnswer = context.utteranceIntent
+      ? intentNeedsAnswer(context.utteranceIntent as UtteranceIntent, context.userQuestion ?? null)
+      : false;
+    if (!mustAnswer) reasons.push('CLOSING_SIGNAL_WITH_QUESTION');
+  }
+
+  // ---- 2026-10-20 (2차) — 1차 실측(LIVE) 회귀 대응 ----
+  // RULE 24 — UNCONFIRMED_REMINDER_PROMISE (HARD). 응답 엔진은 알림이 실제로 예약됐는지 알 수 없다:
+  // reminder는 사용자가 확인 화면에서 확정해야 commitment_memory에 저장되고(confirmCommitment), 그 결과는 이 경로로 들어오지 않는다.
+  // 그래서 "알려달라"는 이번 턴에서만, 물음표 없는 약속 문장("그때 알려줄게!")을 막는다. 확인 질문("그때 알려달라는 거지?")은 통과.
+  if (context.utteranceIntent === 'reminder_request' && findUnconfirmedReminderPromise(response)) {
+    reasons.push('UNCONFIRMED_REMINDER_PROMISE');
+  }
+
+  // RULE 25 — EMOTION_PRESUMED (SOFT). 사용자가 말하지 않은 "지난 감정"을 단정("놀랐겠다", "힘들었겠다").
+  // 사용자가 그 감정을 직접 말했으면("답답했어" → "답답했겠다") 통과. 사건 자체에 대한 반응("놀라운 일이네")은 대상이 아니다.
+  if (context.transcript && findPresumedEmotion(response, context.transcript)) {
+    reasons.push('EMOTION_PRESUMED');
+  }
+
+  // RULE 26 — CHOICE_DROPPED (SOFT). 사용자가 "A 먹을까 B 먹을까"처럼 직접 낸 선택지를 응답이 하나도 언급하지 않았다.
+  // 둘 다 반복하라는 규칙이 아니다 — 최소 하나라도 이름으로 붙잡으면 통과("떡볶이 쪽이 나아 보여").
+  if (context.transcript) {
+    const options = extractExplicitOptions(context.transcript);
+    if (options.length >= 2 && !options.some((o) => normalizeLoose(response).includes(normalizeLoose(o)))) {
+      reasons.push('CHOICE_DROPPED');
+    }
+  }
+
+  // RULE 27 — MEMORY_WISH_AS_PLAN (SOFT). 실제로 쓴 기억의 원문이 바람/가정("~하면 ~하고 싶다")인데 응답이 "계획/하기로 했다"로 말함.
+  // 원문을 받을 수 있을 때(context.memoryTexts)만 검사한다. 기억 내용 자체의 정확성(장소·대상이 맞는지)은 검사하지 않는다.
+  if (result.memory_unit_id_used !== null && context.memoryTexts) {
+    const memText = context.memoryTexts[result.memory_unit_id_used];
+    if (memText && isWishAsPlan(memText, response)) reasons.push('MEMORY_WISH_AS_PLAN');
+  }
+
+  // ---- 작업 B (2026-10-20) — 의견 요청 턴에서만 검사한다. 다른 대화에는 의견을 요구하지 않는다. ----
+  // RULE 28 — OPINION_NOT_GIVEN (SOFT): 판단·추천 표현이 하나도 없다. 예) "20만 원은 진짜 부담스럽네. … 나도 한 번 해보고 싶긴 한데, 고민이네."
+  // RULE 29 — FIRST_PERSON_PRONOUN (SOFT): 참견이가 "나도/내가/나라면"으로 자기 얘기를 한다(대명사 규칙 위반).
+  if (context.utteranceIntent === 'opinion_request') {
+    if (!hasOpinionJudgment(response)) reasons.push('OPINION_NOT_GIVEN');
+    if (findFirstPersonPronoun(response)) reasons.push('FIRST_PERSON_PRONOUN');
   }
 
   // ---- 2026-10-11 기억 선택 실패 3종 (SOFT — SOFT_VALIDATION_REASONS 참고) ----
@@ -478,6 +546,92 @@ export function validateResponse(result: ValidatedResult, context: ValidationCon
   }
 
   return { passed: reasons.length === 0, reasons };
+}
+
+// ---- 2026-10-20 (2차) 검사 유틸 — 전부 "명백한 경우만" 잡는다 ----
+
+// 예약을 끝낸 것처럼 약속하는 표현 (물음표로 끝나는 문장 = 제안/확인 질문은 제외)
+const REMINDER_PROMISE_RE =
+  /(알려\s*줄게|알려\s*드릴게|챙겨\s*줄게|깨워\s*줄게|문자\s*할게|전화\s*할게|연락\s*할게|알람\s*(맞춰|설정해|해)\s*(놨|놓을게|둘게|줄게|뒀)|예약\s*(했어|해\s*놨|해\s*둘게|해\s*뒀))/;
+export function findUnconfirmedReminderPromise(response: string): string | null {
+  for (const s of splitSentences(response)) {
+    if (/[?？]\s*$/.test(s)) continue;
+    if (REMINDER_PROMISE_RE.test(s)) return s;
+  }
+  return null;
+}
+
+// "지난 감정" 추정형(과거형 + 겠다/겠네/겠어/겠지). 현재형 추측("힘들겠다")은 상황 평가에 가까워 잡지 않는다(오탐 위험).
+// 각 감정은 사용자가 원문에서 직접 말했는지 볼 어간을 함께 갖는다.
+const PRESUMED_EMOTIONS: { re: RegExp; stem: RegExp }[] = [
+  { re: /놀랐겠/, stem: /놀라|놀랐|놀람|깜짝/ },
+  { re: /힘들었겠/, stem: /힘들|힘드/ },
+  { re: /고생했겠/, stem: /고생/ },
+  { re: /속상했겠/, stem: /속상/ },
+  { re: /서운했겠/, stem: /서운/ },
+  { re: /섭섭했겠/, stem: /섭섭/ },
+  { re: /피곤했겠/, stem: /피곤/ },
+  { re: /지쳤겠/, stem: /지치|지쳐|지쳤/ },
+  { re: /외로웠겠/, stem: /외로/ },
+  { re: /무서웠겠/, stem: /무서|무섭/ },
+  { re: /불안했겠/, stem: /불안/ },
+  { re: /당황했겠/, stem: /당황/ },
+  { re: /짜증났겠/, stem: /짜증/ },
+  { re: /화났겠/, stem: /화나|화났|화가/ },
+  { re: /답답했겠/, stem: /답답/ },
+  { re: /긴장했겠/, stem: /긴장/ },
+  { re: /억울했겠/, stem: /억울/ },
+];
+export function findPresumedEmotion(response: string, transcript: string): string | null {
+  for (const e of PRESUMED_EMOTIONS) {
+    const m = response.match(e.re);
+    if (m && !e.stem.test(transcript)) return m[0];
+  }
+  return null;
+}
+
+// "라면 먹을까 떡볶이 먹을까" → ["라면", "떡볶이"]. 같은 꼴(…ㄹ까)이 두 번 이상 나올 때만 선택지로 본다.
+const OPTION_RE = /(\S+?)(?:을|를|에|로|으로)?\s+(?:먹을까|갈까|할까|살까|볼까|입을까|탈까|고를까)/g;
+const OPTION_STOP = new Set(['뭐', '뭘', '어디', '그냥', '이거', '저거', '그거', '뭐라도', '좀', '또', '다시']);
+export function extractExplicitOptions(transcript: string): string[] {
+  const out: string[] = [];
+  let m: RegExpExecArray | null;
+  const re = new RegExp(OPTION_RE.source, 'g');
+  while ((m = re.exec(transcript)) !== null) {
+    const w = m[1].replace(/^[,.\s]+|[,.\s]+$/g, '');
+    if (w.length >= 1 && !OPTION_STOP.has(w) && !out.includes(w)) out.push(w);
+  }
+  return out;
+}
+
+// 기억 원문이 바람/가정이고(확정 표지 없음), 응답이 그걸 계획·결정·약속으로 말했는가.
+const WISH_MARK = /(싶|면\s*좋겠|하면|될까|볼까|까\s*생각)/;
+const PLAN_MARK_IN_MEMORY = /(하기로|할\s*거|할거|예정|계획|약속|정했)/;
+const PLAN_WORD_IN_RESPONSE = /(계획|하기로\s*(했|한)|예정이|약속(했|한))/;
+export function isWishAsPlan(memoryText: string, response: string): boolean {
+  return WISH_MARK.test(memoryText) && !PLAN_MARK_IN_MEMORY.test(memoryText) && PLAN_WORD_IN_RESPONSE.test(response);
+}
+
+// ---- 작업 B 유틸 ----
+// 판단·추천 표현 (잠정적 의견 포함). "대세인 것 같아", "부담스럽네"처럼 관찰·감상만 있는 문장은 판단으로 보지 않는다.
+const OPINION_JUDGMENT_RES: RegExp[] = [
+  /(좋을|나을|낫|괜찮을|충분할|아까울|비쌀|비싼|무리일|별로일|나쁘지\s*않을|아닐|과할|부족할|애매할)\s*(것|거)\s*같/,
+  /(는|은)\s*(게|것이|편이)\s*(좋|낫|나아|나을|괜찮)/,
+  /(할|볼|가볼|해볼|고민해볼|생각해볼|들어볼)\s*만(해|하|한|은)/,
+  /(쪽이|편이)\s*(나아|낫|좋|더\s*나|맞)|나아\s*보여|낫겠|나을\s*듯|좋을\s*듯|추천/,
+  /(안\s*가도|안\s*해도|굳이\s*안|가도\s*될|해도\s*될|안\s*가는\s*게|안\s*하는\s*게)/,
+  // 짧은 단정형 판단("GPT로 충분해", "20만 원이면 패스", "비추")
+  /(충분해|충분하지|아까워|아깝다|과해|패스|비추|말리고\s*싶|권하고\s*싶|가\s*봐도\s*(돼|괜찮)|해\s*봐도\s*(돼|괜찮))/,
+];
+export function hasOpinionJudgment(response: string): boolean {
+  return OPINION_JUDGMENT_RES.some((re) => re.test(response));
+}
+// 금지된 1인칭. 따옴표 안(사용자 말 인용)은 보지 않는다.
+const FIRST_PERSON_RE = /(^|[\s,.!?~])(나는|나도|내가|나라면|나한테|나랑|난|내\s*생각엔?)(?=[\s,.!?~]|$)/;
+export function findFirstPersonPronoun(response: string): string | null {
+  const unquoted = response.replace(/["“][^"”]*["”]|['‘][^'’]*['’]/g, ' ');
+  const m = unquoted.match(FIRST_PERSON_RE);
+  return m ? m[2] : null;
 }
 
 // question_target이 사건·결정·행동이 아니라 "기분/느낌/생각" 자체를 묻는가.

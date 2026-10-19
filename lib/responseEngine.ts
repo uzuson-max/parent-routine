@@ -249,6 +249,10 @@ export async function generateResponseCore(input: SystemPromptInput): Promise<Re
     utteranceIntent,
     userQuestion: analysis?.user_question ?? null,
     negativeTargets: negativeTargets(analysis?.stances),
+    // 2026-10-20 (2차) — 기억 표현 검사용 원문. 검색된 기억 후보에 실제로 있는 값(raw_quote/content)만 넣는다.
+    memoryTexts: Object.fromEntries(
+      relevantMemoryUnits.map((m: any) => [m.id, [m.raw_quote, m.content].filter(Boolean).join(' / ')])
+    ),
   };
 
   const finalize = (
