@@ -265,7 +265,6 @@ export default function TimelineScreen({
     if (!keepBubble && bubble) onBubbleChange(null);
     if (soundOn) startSea(night);
   };
-  };
 
   // 화면에 보일 말풍선: 방금 대답/안내가 우선, 없으면 참견이가 먼저 꺼낸 말
   const shown: { stamp: string | null; text: string; closable: boolean; recall: Recall | null } | null = bubble
