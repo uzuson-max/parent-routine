@@ -1,4 +1,4 @@
-
+// lib/memoryRetrieval.ts
 import { supabase } from '@/lib/supabase';
 import { generateMemoryEmbedding } from '@/lib/memoryEmbedding';
 import type { Stance } from '@/lib/response/understanding';
@@ -80,6 +80,25 @@ export function buildRetrievalTokens(transcript: string, topics: string[] = []):
   return new Set(tokens.filter((t) => !isRetrievalStopword(t)));
 }
 
+/**
+ * 검색 개선 A — 키워드로 "연결 신호"를 인정할 토큰. 분석이 뽑은 핵심 주제어(retrieval_topics)만 쓴다.
+ * 정규화는 buildRetrievalTokens와 같다(tokenize: 2글자 이상, 조사 뗀 형태 포함 / 불용어 제외).
+ * 원문 전체 토큰은 점수에는 그대로 쓰이지만, "많이/지금/시간" 같은 일반 단어의 우연한 일치만으로 신호를 얻지 않게 한다.
+ */
+export function buildSignalTokens(topics: string[]): Set<string> {
+  return new Set(topics.flatMap((t) => tokenize(t)).filter((t) => !isRetrievalStopword(t)));
+}
+
+/** 기억 토큰이 주제어와 같거나 주제어로 시작하면(예: 주제어 "녹음" ↔ "녹음하는") 그 기억 토큰들을 돌려준다. */
+function matchSignalTokens(contentTokens: string[], signalTokens: Set<string>): string[] {
+  const hits = new Set<string>();
+  const signalArr = Array.from(signalTokens);
+  for (const ct of contentTokens) {
+    if (signalTokens.has(ct) || signalArr.some((st) => ct.startsWith(st))) hits.add(ct);
+  }
+  return Array.from(hits);
+}
+
 export interface RankableMemoryUnit {
   id: number;
   content: string;
@@ -106,6 +125,9 @@ export interface RankInput {
   // 기억 id → 발화 원문 임베딩과의 cosine 유사도 / 상황 문장 임베딩과의 유사도
   simRawById: Map<number, number>;
   simSituationById: Map<number, number>;
+  // 검색 개선 A — 주어지면 키워드 신호는 이 토큰(핵심 주제어)과 일치/접두 일치할 때만 인정한다.
+  // 없으면(주제어 힌트가 없는 호출부) 예전처럼 원문 토큰의 정확/부분 일치가 신호가 된다.
+  signalTokens?: Set<string>;
   limit?: number;
   now?: number;
 }
@@ -115,7 +137,8 @@ function scoreCandidate(
   retrievalTokens: Set<string>,
   matchedEntityIds: Set<string>,
   semanticSimilarity: number,
-  now: number
+  now: number,
+  signalTokens?: Set<string>
 ): { score: number; reason: string; hasSignal: boolean } {
   let score = 0;
   const reasons: string[] = [];
@@ -131,7 +154,7 @@ function scoreCandidate(
   const exactOverlap = new Set(contentTokens.filter((t) => retrievalTokens.has(t)));
   if (exactOverlap.size > 0) {
     score += exactOverlap.size;
-    hasSignal = true;
+    if (!signalTokens) hasSignal = true;
     reasons.push(`keyword_overlap:${Array.from(exactOverlap).join(',')}`);
   }
 
@@ -147,8 +170,17 @@ function scoreCandidate(
   }
   if (partialOverlap.size > 0) {
     score += partialOverlap.size * 0.5;
-    hasSignal = true;
+    if (!signalTokens) hasSignal = true;
     reasons.push(`partial_overlap:${Array.from(partialOverlap).join(',')}`);
+  }
+
+  // 검색 개선 A — 주제어가 주어진 호출에서는 키워드 신호를 주제어 일치/접두 일치로만 인정한다(점수에는 영향 없음).
+  if (signalTokens) {
+    const topicHits = matchSignalTokens(contentTokens, signalTokens);
+    if (topicHits.length > 0) {
+      hasSignal = true;
+      reasons.push(`topic_signal:${topicHits.join(',')}`);
+    }
   }
 
   score += typeof m.importance === 'number' ? m.importance : 0.5;
@@ -217,7 +249,8 @@ export function rankMemoryCandidates<T extends RankableMemoryUnit>(
       input.retrievalTokens,
       input.matchedEntityIds,
       Math.max(simRaw, simSituation),
-      now
+      now,
+      input.signalTokens
     );
     // 1차 수정 — 이번 발화와 연결 신호가 전혀 없는 기억은 후보에서 뺀다 (importance/최근성 가산점만으로는 안 올라온다).
     if (!hasSignal) {
@@ -482,6 +515,8 @@ export async function retrieveRelevantMemoriesWithTrace(
       matchedEntityIds,
       simRawById,
       simSituationById,
+      // 검색 개선 A — 주제어 힌트가 넘어온 호출(녹음 업로드)만 주제어 기반 신호를 쓴다. 힌트 없는 호출은 기존 동작.
+      signalTokens: Array.isArray(hints?.topics) ? buildSignalTokens(topics) : undefined,
       limit,
     });
     trace.dropped_no_signal = droppedNoSignal;
