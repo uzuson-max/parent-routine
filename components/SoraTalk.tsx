@@ -848,7 +848,7 @@ const CSS = `
 .st-say-row{align-self:stretch;min-height:44px;margin-right:56px;display:flex;align-items:center}
 .st-say{background:#FFF6E5;border:2.5px solid ${INK};border-radius:16px;padding:7px 12px;font-size:16px;word-break:keep-all;animation:st-pop .3s cubic-bezier(.3,1.5,.5,1) both}
 .st-replyto{align-self:stretch;margin-top:6px;font-size:13px;color:#DCE6FF;font-family:'Gowun Dodum',sans-serif}
-.st-stage{position:relative;z-index:1;width:300px;height:330px;flex:none;margin-top:4px}
+.st-stage{position:relative;z-index:1;left:26px;width:300px;height:330px;flex:none;margin-top:auto}
 .st-halo{position:absolute;left:125px;top:-20px;width:230px;height:230px;margin-left:-115px;border-radius:50%;background:radial-gradient(circle,rgba(255,243,176,.35),rgba(255,243,176,0) 70%);transition:opacity 1s ease,transform 1s ease;opacity:.6}
 .st-halo-on{opacity:1;transform:scale(1.25);animation:st-breathe 1.1s ease-in-out infinite}
 .st-arm{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;transition:opacity .4s ease;filter:drop-shadow(0 8px 8px rgba(0,0,0,.35))}
