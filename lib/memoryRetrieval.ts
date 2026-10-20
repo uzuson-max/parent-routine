@@ -1,4 +1,4 @@
-// lib/memoryRetrieval.ts
+
 import { supabase } from '@/lib/supabase';
 import { generateMemoryEmbedding } from '@/lib/memoryEmbedding';
 import type { Stance } from '@/lib/response/understanding';
