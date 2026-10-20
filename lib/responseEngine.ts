@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { RelevantMemoryUnit } from '@/lib/memoryRetrieval';
+import { RelevantMemoryUnit, tokenize, isRetrievalStopword } from '@/lib/memoryRetrieval';
 import { RelevantInsight } from '@/lib/insightEngine';
 
 import type {
@@ -256,24 +256,38 @@ export async function generateResponseCore(input: SystemPromptInput): Promise<Re
   };
 
   const finalize = (
-    result: GeneratedResult,
+    rawResult: GeneratedResult,
     extra: Pick<ResponseResult, 'validation_passed' | 'validation_failure_reason' | 'regeneration_count'> & {
       repaired: boolean;
       anchorDiscarded: boolean;
     }
-  ): ResponseResult => ({
-    ...result,
-    validation_passed: extra.validation_passed,
-    validation_failure_reason: extra.validation_failure_reason,
-    regeneration_count: extra.regeneration_count,
-    closes_conversation: isClosingResponse(result.response),
-    repeated_memory_detected: computeRepeatedMemoryDetected(result.memory_unit_id_used, result.response, previousTurnForValidation),
-    fallback_used: false,
-    utterance_intent: utteranceIntent,
-    repaired: extra.repaired,
-    fallback_kind: null,
-    anchor_discarded: extra.anchorDiscarded,
-  });
+  ): ResponseResult => {
+    // 2026-10-21 — 기억 표시 정합성(반환 직전). 검증·repair·재생성이 모두 끝난 뒤라 재생성을 일으키지 않는다.
+    // 표시된 기억과 본문 사이에 근거가 없으면 기억 표시 3개만 함께 정리한다(본문·opportunity·relevance·anchor는 그대로).
+    // 홈의 기억 소환 연출(response.recalled)과 결과 화면의 "참견이가 떠올린 기억"이 이 값들을 쓴다.
+    const clearedMemoryId = memoryFlagLacksEvidence(
+      rawResult.memory_unit_id_used,
+      rawResult.response,
+      transcript,
+      validationContext.memoryTexts
+    );
+    const result: GeneratedResult =
+      clearedMemoryId === null ? rawResult : { ...rawResult, memory_unit_id_used: null, memory_used: false, memory_reference: null };
+    return {
+      ...result,
+      validation_passed: extra.validation_passed,
+      validation_failure_reason: extra.validation_failure_reason,
+      regeneration_count: extra.regeneration_count,
+      closes_conversation: isClosingResponse(result.response),
+      repeated_memory_detected: computeRepeatedMemoryDetected(result.memory_unit_id_used, result.response, previousTurnForValidation),
+      fallback_used: false,
+      utterance_intent: utteranceIntent,
+      repaired: extra.repaired,
+      fallback_kind: null,
+      anchor_discarded: extra.anchorDiscarded,
+      ...(clearedMemoryId !== null ? { memory_flag_cleared: clearedMemoryId } : {}),
+    };
+  };
 
   const build = (parsed: any) =>
     buildGeneratedResult(parsed, callAllowed, relevantMemoryUnits, relevantInsights, relationshipLevel, validMemoryUnitIds, validInsightIds);
@@ -425,6 +439,50 @@ export async function generateResponseCore(input: SystemPromptInput): Promise<Re
 }
 
 type GeneratedResult = ReturnType<typeof buildGeneratedResult>;
+
+// ==================================================
+// 2026-10-21 — 기억 표시 정합성 검사 (최소 버전)
+// ==================================================
+// 표시된 기억(memory_unit_id_used)의 원문/요약과 응답 본문 사이에 아래 근거가 하나도 없으면 그 id를 돌려준다(→ 표시 해제).
+//   ① 본문과 기억이 공유하는 의미 단어 중 오늘 발화에는 없는 단어가 있다
+//   ② "저번에/했잖아/다며/기억나" 같은 과거 지칭 문장 안에 기억과 공유하는 단어가 있다
+// 단어는 검색 엔진과 같은 정리(tokenize: 조사 제거, isRetrievalStopword: 불용어 제외)를 쓴다.
+// 알려진 한계(실측 31건 수동 라벨 기준): 오늘 한 말을 과거 기억처럼 말했는데 같은 대상 단어가 기억에도 있으면 통과한다(미탐),
+// "~다녀왔던 기억이 나네"처럼 근거 단어가 오늘 발화와 겹치는 약한 연결은 해제될 수 있다(오탐 — 잘못된 소환 대신 소환 연출만 빠진다).
+// 기억 원문을 받을 수 없으면 판단 근거가 없으므로 해제한다(잘못된 소환을 보여주지 않는 쪽).
+const PAST_REFERENCE_MARK = /(저번에|예전에|지난번|전에|그때|했잖아|했었|했던|다며|라며|다더니|라더니|다던|라던|다고\s*했|라고\s*했|했다며|하던|기억나)/;
+
+function meaningTokens(text: string): string[] {
+  return Array.from(new Set(tokenize(text).filter((t) => !isRetrievalStopword(t))));
+}
+
+function sameOrPrefix(a: string, b: string): boolean {
+  return a === b || (a.length >= 2 && b.length >= 2 && (a.startsWith(b) || b.startsWith(a)));
+}
+
+function sharedTokens(a: string[], b: string[]): string[] {
+  return a.filter((x) => b.some((y) => sameOrPrefix(x, y)));
+}
+
+export function memoryFlagLacksEvidence(
+  memoryUnitIdUsed: number | null,
+  response: string,
+  transcript: string,
+  memoryTexts: Record<number, string> | undefined
+): number | null {
+  if (memoryUnitIdUsed === null) return null;
+  const memText = memoryTexts?.[memoryUnitIdUsed];
+  if (!memText || !memText.trim()) return memoryUnitIdUsed;
+  const memTokens = meaningTokens(memText);
+  const transcriptTokens = meaningTokens(transcript);
+  const notInTranscript = sharedTokens(meaningTokens(response), memTokens).filter(
+    (t) => !transcriptTokens.some((y) => sameOrPrefix(t, y))
+  );
+  if (notInTranscript.length > 0) return null;
+  const sentences = response.split(/(?<=[.!?？~])\s*/).filter((s) => s.trim().length > 0);
+  const pastLinked = sentences.some((s) => PAST_REFERENCE_MARK.test(s) && sharedTokens(meaningTokens(s), memTokens).length > 0);
+  return pastLinked ? null : memoryUnitIdUsed;
+}
 
 // 2026-10-11 — SOFT(기억 선택 실패) 사유를 뺀 나머지. 기존 규칙의 통과/실패 기준은 이 목록으로 판단한다.
 function hardReasons(reasons: ValidationFailureReason[]): ValidationFailureReason[] {
