@@ -234,6 +234,8 @@ export interface ResponseResult {
   repaired?: boolean;
   fallback_kind?: 'intent_template' | 'stt_failed' | 'error' | null;
   anchor_discarded?: boolean;
+  // 2026-10-21 — 반환 직전 기억 표시 정합성 검사에서 근거가 없어 해제한 기억 id(진단용). 해제하지 않았으면 없음.
+  memory_flag_cleared?: number;
   // 2026-09-29 — 관찰용 기록만. repair(keepOneQuestion)가 실제로 실행될 때마다 그 입력/출력을 남긴다.
   // 동작에는 영향이 없다(값을 읽는 곳 없음). 예전 행에는 없다.
   repair_log?: RepairLogEntry[];
