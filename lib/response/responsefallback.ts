@@ -199,6 +199,30 @@ function dropQuestions(text: string): string {
     .join(' ');
 }
 
+// 2026-10-21 (D) — 기억을 썼다고 표시된 응답(memory_unit_id_used)에서 문장을 걷어낼 때, 걷어낸 문장이 그 기억을 담고 있었을
+// 가능성이 조금이라도 있으면 수정하지 않는다(→ 엔진의 기존 재생성 경로). 실측: R08 — 기억이 든 질문 문장이 지워졌는데
+// memory_unit_id_used=171은 그대로 남았다.
+// "기억 문장이 남았는가"를 정확히 판정할 방법은 없다(같은 뜻을 다른 말로 쓸 수 있다). 그래서 이 검사는 한 방향으로만 쓴다:
+// 의심되면 수정을 "거절"할 뿐, 기억 표시를 지우거나 본문을 고치지 않는다. 오판의 비용은 불필요한 재생성 1회다.
+// 의심 기준: 걷어낸 문장이 ① 과거 발화를 가리키는 표현을 쓰거나 ② 기억 원문/요약과 2글자 조각이 3개 이상 겹치거나
+// ③ 기억 원문을 받을 수 없는 경우(판단 불가 → 보수적으로 거절).
+const PAST_REFERENCE = /(저번에|예전에|지난번|전에|그때|했잖아|했었|했던|다며|라며|다더니|라더니|다던|라던|다고\s*했|라고\s*했|했다며|하던)/;
+const MEMORY_OVERLAP_MIN = 3;
+function droppedSentences(original: string, repaired: string): string[] {
+  const kept = new Set(splitSentences(repaired).map((s) => normalizeLoose(s)));
+  return splitSentences(original).filter((s) => {
+    const n = normalizeLoose(s);
+    // 문장부호만 바뀐 경우(양자택일 합치기 "A야? 아니면 B야?" → "A야, 아니면 B야?", 되받아치기 "?" → "!")는 지운 게 아니다.
+    return !kept.has(n) && !normalizeLoose(repaired).includes(n);
+  });
+}
+function mayDropMemory(original: string, repaired: string, memoryText: string | undefined): boolean {
+  const dropped = droppedSentences(original, repaired);
+  if (dropped.length === 0) return false;
+  if (!memoryText) return true;
+  return dropped.some((s) => PAST_REFERENCE.test(s) || bigramOverlap(s, memoryText) >= MEMORY_OVERLAP_MIN);
+}
+
 export function tryRepair(
   c: FallbackCandidate,
   ctx: ValidationContext
@@ -216,6 +240,11 @@ export function tryRepair(
     : reduceQuestions(c.result.response, opp.question_target, ctx.transcript ?? null);
   // 2026-10-19 — 형식(물음표 개수)을 맞추려고 의미를 망가뜨린 축약은 쓰지 않는다.
   if (response === null || (response !== c.result.response && !isSafeReduction(c.result.response, response, ctx.transcript ?? null))) return null;
+  // (D) 기억을 쓴 응답에서 기억이 든 문장을 지웠을 수 있으면 수정하지 않는다 — memory_unit_id_used와 본문이 어긋나는 것을 막는다.
+  const usedMemoryId = c.result.memory_unit_id_used;
+  if (usedMemoryId !== null && response !== c.result.response && mayDropMemory(c.result.response, response, ctx.memoryTexts?.[usedMemoryId])) {
+    return null;
+  }
   const repaired: GeneratedResult = {
     ...c.result,
     response,
