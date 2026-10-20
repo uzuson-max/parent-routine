@@ -694,7 +694,7 @@ export default function SoraTalk({
             <div className="st-hint">{recording ? `${mmss(recorder.elapsedMs)} · 다 말했으면 줄 당겨` : recorder.state === "starting" ? "듣는 중…" : ""}</div>
             <div className="st-row">
               <button className="st-btn st-btn-small" onClick={toType}>
-                글로 쓰기
+                녹음 말고 글로 쓰기
               </button>
               {recorder.state === "idle" && (
                 <button className="st-btn st-btn-yellow" onClick={toRec}>
