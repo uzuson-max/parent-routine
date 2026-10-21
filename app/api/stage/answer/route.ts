@@ -106,11 +106,13 @@ export async function POST(request: Request) {
       candidates,
     });
 
+    // 10-21 흐름: 오늘 대답에 먼저 반응 → "근데 저번에…" → 그때 니 목소리 중 오늘과 이어지는 한두 문장 → 잇는 질문 하나
     const intros = cfg.intro[tone];
     const segments: ReturnSegment[] = [];
+    if (out.react) segments.push({ kind: 'say', text: out.react });
     cfg.recall.forEach((d, i) => {
       if (intros[i]) segments.push({ kind: 'say', text: intros[i] });
-      segments.push({ kind: 'voice', day: d, label: `${d}일차 니 목소리` });
+      segments.push({ kind: 'voice', day: d, label: `${d}일차 니 목소리`, quote: out.quotes[d] || undefined });
     });
     const picked = out.memoryId != null ? candidates.find((c) => c.id === out.memoryId) : undefined;
     if (picked?.entryId) {
@@ -192,12 +194,15 @@ async function makeOutro(input: {
   todayWhat: string;
   todayText: string;
   candidates: SeaMemory[];
-}): Promise<{ line: string; memoryId: number | null }> {
-  const system = `너는 '참견이'라는 수달 캐릭터야. 사용자의 지난 대답(목소리)을 방금 들려준 직후, 마지막 한마디를 한다.
+}): Promise<{ react: string; quotes: Record<number, string>; line: string; memoryId: number | null }> {
+  const system = `너는 '참견이'라는 수달 캐릭터야. 사용자가 방금 오늘 질문에 대답했다. 세 가지를 만든다.
+1) react: 오늘 대답에 대한 짧은 첫 반응. 25자 이내, 질문 금지, 재진술 금지. 대답 속 구체적인 말 하나에 반응한다(예: "스카이다이빙? 오 생각보다 과감한데").
+2) quotes: 지난 대답(일차별 받아쓰기)에서 오늘 대답과 가장 이어지는 부분을 "원문 그대로" 1~2문장(60자 이내) 잘라온다. 고치거나 요약하지 않는다. 받아쓰기 그대로 복사한다. 이 부분만 사용자 목소리로 다시 들려준다.
+3) line: 그 목소리를 들려준 직후의 마지막 한마디. 오늘 대답과 그때 말을 잇는 질문 하나.
 말투 규칙:
 - 반말. 사용자는 항상 "니"/"니가"로 부른다. 참견이 자신은 "나" 대신 주어를 생략한다.
 - 명령형 금지("해", "말해봐", "골라 봐", "~해야 해" 금지). 과공손체 금지.
-- 1~2문장, 70자 이내. 마지막은 한 번에 답할 수 있는 질문 하나로 끝낸다.
+- line은 1~2문장, 70자 이내. 마지막은 한 번에 답할 수 있는 질문 하나로 끝낸다.
 - 사용자가 실제로 한 말만 근거로 쓴다. 안 한 말·감정을 지어내지 않는다. 남들의 실제 생각을 아는 척하지 않는다.
 - 상담사 말투, "~구나" 재진술, 감성적인 시 같은 문장 금지.
 톤: ${
@@ -211,7 +216,7 @@ async function makeOutro(input: {
 [바다 기억] 사용자가 평소에 바다(자유 녹음)에 던져둔 말 후보가 주어질 수 있다.
 - 오늘 대답이나 지난 대답과 "직접" 이어지는 게 있을 때만 하나 고른다(같은 대상·같은 행동·정반대의 말 등). 주제만 비슷하면 고르지 않는다. 애매하면 null.
 - 고르면 그 목소리를 한마디 직전에 들려준다. 한마디에 그 내용을 자연스럽게 엮는다(날짜나 "기록에 따르면" 같은 말 금지).
-JSON으로만 답한다: {"line": "마지막 한마디", "memory_id": 숫자 또는 null}`;
+JSON으로만 답한다: {"react": "첫 반응", "quotes": {"일차숫자": "그때 원문 그대로"}, "line": "마지막 한마디", "memory_id": 숫자 또는 null}`;
 
   const user = [
     ...input.past.map((p) => `[${p.day}일차 · ${p.what}] ${p.text || '(대답 없음)'}`),
@@ -227,7 +232,7 @@ JSON으로만 답한다: {"line": "마지막 한마디", "memory_id": 숫자 또
     const res = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       temperature: 0.8,
-      max_tokens: 200,
+      max_tokens: 350,
       response_format: { type: 'json_object' },
       messages: [
         { role: 'system', content: system },
@@ -239,9 +244,24 @@ JSON으로만 답한다: {"line": "마지막 한마디", "memory_id": 숫자 또
       .trim()
       .replace(/^["'“”]+|["'“”]+$/g, '');
     const id = typeof parsed?.memory_id === 'number' && input.candidates.some((c) => c.id === parsed.memory_id) ? parsed.memory_id : null;
-    return { line: line && line.length <= 120 ? line : FALLBACK[input.tone], memoryId: id };
+    const react = String(parsed?.react ?? '')
+      .trim()
+      .replace(/^["'“”]+|["'“”]+$/g, '');
+    // 원문에 실제로 있는 말만 — 지어낸 문장이면 버린다(화면이 알아서 짧게 고름)
+    const norm = (x: string) => x.replace(/\s+/g, ' ').trim();
+    const quotes: Record<number, string> = {};
+    for (const p of input.past) {
+      const q = norm(String(parsed?.quotes?.[p.day] ?? parsed?.quotes?.[String(p.day)] ?? '')).replace(/^["'“”]+|["'“”]+$/g, '');
+      if (q && q.length <= 90 && norm(p.text).includes(q)) quotes[p.day] = q;
+    }
+    return {
+      react: react && react.length <= 40 && !/[?？]$/.test(react) ? react : '',
+      quotes,
+      line: line && line.length <= 120 ? line : FALLBACK[input.tone],
+      memoryId: id,
+    };
   } catch (err: any) {
     console.error('[api/stage/answer] 한마디 생성 실패:', err?.message);
-    return { line: FALLBACK[input.tone], memoryId: null };
+    return { react: '', quotes: {}, line: FALLBACK[input.tone], memoryId: null };
   }
 }
