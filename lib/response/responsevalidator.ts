@@ -119,10 +119,16 @@ function isGenericEncouragement(response: string): boolean {
 //   ③ 마지막 문장이 평가·바람형 어미로 끝난다
 //   ④ 사용자가 같은 표현을 직접 쓰지 않았다(되받기 허용)
 //   ⑤ 그 문장 본문이 사용자 원문과 거의 겹치지 않는다(원문 디테일을 담은 문장은 구체적이라 본다)
+//   ⑥ (안전성 점검) 본문 자체가 내용 없음 — 지시어로 앞 말을 되받거나("그걸/그게") 막연한 다짐어("극복/열심히/잘 되")뿐이거나
+//      거의 비어 있다. 어미만 보고 지우지 않는다: 행동·정보("우산 챙겨 가면")가 있으면 유지한다.
+//   ⑦ (안전성 점검) 아픔·어려움에 대한 배려("빨리 나으시면", "푹 쉬었으면")는 유지한다.
 const GENERIC_TAIL_RE =
   /(좋겠어|좋겠다|좋겠네|바라|바랄게|응원할게|응원해|중요한\s*(거야|거지|걸|것\s*같아)|중요해|자연스러운\s*(거야|거지|것\s*같아|일이야)|자연스러워|좋은\s*생각이네|좋은\s*생각이야|멋지다|멋져|대단하다|대단해|잘\s*될\s*거야|잘할\s*수\s*있을\s*거야)$/;
 const TAIL_PAST_REFERENCE = /(저번에|예전에|지난번|전에|그때|했잖아|했었|했던|다며|라며|다더니|라더니)/;
 const TAIL_CONTENT_OVERLAP_MIN = 3;
+const TAIL_CARE_RE = /(나으|나아|낫|회복|쾌차|무사|건강|아프|안\s*아|다치|조심|푹|편히|쉬|잠\s*좀|자고|덜\s*힘)/;
+const TAIL_GENERIC_BODY_RE = /(^(그|이)(걸|게|거|건|런|렇게)(\s|$))|극복|이겨내|해내|이뤄|이루|노력|힘내|잘\s*(되|풀|해|하|할|될)|열심히|꾸준히|계속|앞으로도/;
+const TAIL_EMPTY_BODY_MAX = 4;
 function tailBigramOverlap(a: string, b: string): number {
   const na = normalizeLoose(a);
   const nb = normalizeLoose(b);
@@ -143,7 +149,8 @@ export function isGenericTail(response: string, transcript: string | null | unde
   if (t && t.includes(normalizeLoose(m[0]).slice(0, 2))) return false;
   const body = core.slice(0, core.length - m[0].length);
   if (t && tailBigramOverlap(body, t) >= TAIL_CONTENT_OVERLAP_MIN) return false;
-  return true;
+  if (TAIL_CARE_RE.test(body)) return false;
+  return normalizeLoose(body).length <= TAIL_EMPTY_BODY_MAX || TAIL_GENERIC_BODY_RE.test(body.trim());
 }
 
 // MEMORY_REFERENCE 전략인데 memory_unit_id_used가 없는데도 "전에/예전에/저번에 ~했잖아" 식으로
