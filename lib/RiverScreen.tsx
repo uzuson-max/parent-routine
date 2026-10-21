@@ -114,7 +114,8 @@ export default function RiverScreen({
     load();
   }, [load]);
 
-  const t: StageTone = tone;
+  // 10-21: 소라 강은 순한맛만(매운맛 문장이 부자연스러워 비활성). 다시 켜려면 `= tone`으로.
+  const t: StageTone = "mild";
 
   // ── 돌 누르기 ────────────────────────────────────────────────
   const onStone = (day: number) => {
