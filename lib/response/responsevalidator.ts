@@ -112,6 +112,40 @@ function isGenericEncouragement(response: string): boolean {
   });
 }
 
+// 2026-10-21 — RULE 30 GENERIC_TAIL.
+// 마지막 문장 "하나"만 본다. 아래를 모두 만족할 때만 true — 공감 자체를 막는 규칙이 아니다.
+//   ① 문장이 2개 이상(꼬리를 걷어내도 본문이 남는다 — 한 문장짜리는 기존 RULE 6/7 담당)
+//   ② 마지막 문장에 물음표가 없고, 과거 기억을 가리키는 표현이 없다(기억 문장은 건드리지 않는다)
+//   ③ 마지막 문장이 평가·바람형 어미로 끝난다
+//   ④ 사용자가 같은 표현을 직접 쓰지 않았다(되받기 허용)
+//   ⑤ 그 문장 본문이 사용자 원문과 거의 겹치지 않는다(원문 디테일을 담은 문장은 구체적이라 본다)
+const GENERIC_TAIL_RE =
+  /(좋겠어|좋겠다|좋겠네|바라|바랄게|응원할게|응원해|중요한\s*(거야|거지|걸|것\s*같아)|중요해|자연스러운\s*(거야|거지|것\s*같아|일이야)|자연스러워|좋은\s*생각이네|좋은\s*생각이야|멋지다|멋져|대단하다|대단해|잘\s*될\s*거야|잘할\s*수\s*있을\s*거야)$/;
+const TAIL_PAST_REFERENCE = /(저번에|예전에|지난번|전에|그때|했잖아|했었|했던|다며|라며|다더니|라더니)/;
+const TAIL_CONTENT_OVERLAP_MIN = 3;
+function tailBigramOverlap(a: string, b: string): number {
+  const na = normalizeLoose(a);
+  const nb = normalizeLoose(b);
+  if (na.length < 2 || nb.length < 2) return 0;
+  let hit = 0;
+  for (let i = 0; i < na.length - 1; i++) if (nb.includes(na.slice(i, i + 2))) hit++;
+  return hit;
+}
+export function isGenericTail(response: string, transcript: string | null | undefined): boolean {
+  const sentences = splitSentences(response);
+  if (sentences.length < 2) return false;
+  const last = sentences[sentences.length - 1];
+  if (/[?？]/.test(last) || TAIL_PAST_REFERENCE.test(last)) return false;
+  const core = last.replace(/[\s.!~…ㅋㅎ]+$/g, '');
+  const m = core.match(GENERIC_TAIL_RE);
+  if (!m) return false;
+  const t = normalizeLoose(transcript ?? '');
+  if (t && t.includes(normalizeLoose(m[0]).slice(0, 2))) return false;
+  const body = core.slice(0, core.length - m[0].length);
+  if (t && tailBigramOverlap(body, t) >= TAIL_CONTENT_OVERLAP_MIN) return false;
+  return true;
+}
+
 // MEMORY_REFERENCE 전략인데 memory_unit_id_used가 없는데도 "전에/예전에/저번에 ~했잖아" 식으로
 // 과거 사실을 확정적으로 언급하는, 명백한 경우만 잡는다. 자연어를 완벽하게 판정하려 하지 않는다
 // (스펙 17절 — "명백한 경우만 검사한다").
@@ -334,6 +368,12 @@ export function validateResponse(result: ValidatedResult, context: ValidationCon
   // RULE 7 — GENERIC_ENCOURAGEMENT
   if (isGenericEncouragement(response)) {
     reasons.push('GENERIC_ENCOURAGEMENT');
+  }
+
+  // RULE 30 — GENERIC_TAIL (2026-10-21). 구체적인 반응 뒤에 "~하면 좋겠어" / "그게 중요한 걸" 같은 내용 없는
+  // 평가·바람 문장으로 정리하는 꼬리. 대화를 마치려는 턴(closingSignal)에는 적용하지 않는다.
+  if (!closingSignal && isGenericTail(response, context.transcript ?? null)) {
+    reasons.push('GENERIC_TAIL');
   }
 
   // RULE 8 — MEMORY_RELEVANCE_MISMATCH (스펙 11절의 5개 조건 전부)

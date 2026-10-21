@@ -42,7 +42,16 @@ const REPAIRABLE: ReadonlySet<ValidationFailureReason> = new Set<ValidationFailu
   'ANCHOR_NOT_IN_TRANSCRIPT',
   // 2026-10-19 — 종료 턴에 붙은 질문 문장만 걷어낸다. 남는 문장이 없거나 불완전하면 수정하지 않는다(재생성으로).
   'CLOSING_SIGNAL_WITH_QUESTION',
+  // 2026-10-21 — 내용 없는 평가·바람 꼬리 문장. 마지막 문장 하나만 걷어낸다(남는 문장이 없으면 수정하지 않는다).
+  'GENERIC_TAIL',
 ]);
+
+// 2026-10-21 — GENERIC_TAIL 수정용. 마지막 문장만 뺀다. 문장이 하나뿐이면 null(재생성으로).
+function dropLastSentence(text: string): string | null {
+  const sentences = splitSentences(text);
+  if (sentences.length < 2) return null;
+  return sentences.slice(0, -1).join(' ');
+}
 
 function splitSentences(text: string): string[] {
   return text
@@ -235,9 +244,10 @@ export function tryRepair(
     opp = { ...opp, anchor_quote: null, anchor_fact: null };
     anchorDiscarded = true;
   }
-  const response = c.reasons.includes('CLOSING_SIGNAL_WITH_QUESTION')
+  let response = c.reasons.includes('CLOSING_SIGNAL_WITH_QUESTION')
     ? dropQuestions(c.result.response)
     : reduceQuestions(c.result.response, opp.question_target, ctx.transcript ?? null);
+  if (response !== null && c.reasons.includes('GENERIC_TAIL')) response = dropLastSentence(response);
   // 2026-10-19 — 형식(물음표 개수)을 맞추려고 의미를 망가뜨린 축약은 쓰지 않는다.
   if (response === null || (response !== c.result.response && !isSafeReduction(c.result.response, response, ctx.transcript ?? null))) return null;
   // (D) 기억을 쓴 응답에서 기억이 든 문장을 지웠을 수 있으면 수정하지 않는다 — memory_unit_id_used와 본문이 어긋나는 것을 막는다.

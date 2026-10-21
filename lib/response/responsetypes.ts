@@ -133,7 +133,9 @@ export type ValidationFailureReason =
   // 2026-10-11 — 기억 선택 실패 (SOFT: 재생성 1회는 유도하지만, 재생성 후에도 남아 있으면 fallback으로 떨어뜨리지 않는다)
   | 'MEMORY_RELEVANCE_SKIPPED' // 기억 후보가 있는데 memory_relevance를 아예 비워서 냄(판단 자체를 건너뜀)
   | 'SELECTED_MEMORY_NOT_USED' // opportunity로 기억을 골라놓고(source=memory, STRONG) 정작 response에는 안 씀
-  | 'FEELING_TARGET_OVER_MEMORY'; // 꺼낼 가치가 있는 기억(worthy relation)이 있는데 말하지 않은 기분/생각을 묻는 쪽을 고름
+  | 'FEELING_TARGET_OVER_MEMORY' // 꺼낼 가치가 있는 기억(worthy relation)이 있는데 말하지 않은 기분/생각을 묻는 쪽을 고름
+  // 2026-10-21 — 구체적인 말 뒤에 내용 없는 평가·바람 문장("~하면 좋겠어", "그게 중요한 걸")으로 끝남 (HARD, 코드로 마지막 문장만 걷어냄)
+  | 'GENERIC_TAIL';
 
 // 2026-10-11 — SOFT 사유. 재생성 1회의 계기는 되지만, 재생성 결과에 이 사유만 남았다면 그 결과를 그대로 내보낸다
 // (fallback 템플릿보다 GPT 문장이 낫다). 첫 생성이 이 사유만으로 실패했는데 재생성이 다른(HARD) 이유로 망가지면
