@@ -114,7 +114,8 @@ export default function RiverScreen({
     load();
   }, [load]);
 
-  const t: StageTone = tone;
+  // 10-21: 소라 강은 순한맛만(매운맛 문장이 부자연스러워 비활성). 다시 켜려면 `= tone`으로.
+  const t: StageTone = "mild";
 
   // ── 돌 누르기 ────────────────────────────────────────────────
   const onStone = (day: number) => {
@@ -500,57 +501,57 @@ function LookBack({ done, tone, onReplay }: { done: DayDone; tone: StageTone; on
   );
 }
 
-// ── 소라에 귀 대기: 수달 말풍선 → 수달이 니 말 따라하기 → (원하면) 진짜 니 목소리 3초 → … ──────
-// 2026-10-17 "수달어": 사람 TTS 대신 동물의숲처럼 글자마다 뽁뽁 소리 + 말풍선 타이핑.
-// 목소리 조각은 바로 틀지 않는다 — 수달이 먼저 놀리듯 따라하고, "진짜 니 목소리 들어볼래?"에서 누를 때만 원본.
-// 원본은 통째로가 아니라 그 말이 나오는 근처 3초 정도만(전체는 "전체" 버튼).
-type VoicePhase = "loading" | "mimic" | "ask" | "playing" | "done";
+// ── 소라에 귀 대기 (10-21 개편): 한 번에 소리 하나만 ──────────────────────
+// 수달 반응 → "근데 저번에…" → (조용) → 오늘 대답과 이어지는 그때 니 목소리 한두 문장 자동 재생 → (정적) → 잇는 질문 하나.
+// 목소리가 나오는 동안엔 수달어·효과음 없음. 버튼으로 묻지 않는다. 전체 원본은 끝난 뒤 작은 "전체" 버튼으로만.
+type VoicePhase = "loading" | "hush" | "playing" | "done";
 
 function ShellReturn({ segments, tone }: { segments: ReturnSegment[]; tone: StageTone }) {
   const [step, setStep] = useState(-1); // -1 = 아직 안 엶
   const [phase, setPhase] = useState<VoicePhase>("done");
-  const [mimics, setMimics] = useState<Record<number, { text: string; quote: string }>>({});
+  const [quotes, setQuotes] = useState<Record<number, string>>({});
   const player = useVoicePlayer();
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const later = (fn: () => void, ms: number) => timers.current.push(setTimeout(fn, ms));
 
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
-  // 목소리 조각에 들어가면: 녹음 불러오기 → 따라할 말 정하기 → 따라하기 시작
+  const next = (ms = 700) => later(() => setStep((s) => s + 1), ms);
+
+  // 목소리 조각: 불러오기 → 잠깐 조용 → 그 말만 재생(짧은 대답은 통째로) → 정적 → 다음
   useEffect(() => {
     if (step < 0 || step >= segments.length) return;
     const seg = segments[step];
     if (seg.kind !== "voice") return;
     let alive = true;
     setPhase("loading");
-    player.load(voiceQuery(seg)).then((meta) => {
+    const q = voiceQuery(seg);
+    player.load(q).then((meta) => {
       if (!alive) return;
-      const quote = seg.quote?.trim() || pickQuote(meta?.transcript ?? "");
       if (!meta) {
         setPhase("done");
-        later(() => setStep((s) => s + 1), 900);
+        next(900);
         return;
       }
-      setMimics((m) => ({ ...m, [step]: { text: quote ? mimicLine(quote, tone) : "", quote } }));
-      setPhase(quote ? "mimic" : "ask");
+      const short = meta.buffer.duration <= 12;
+      const quote = seg.quote?.trim() || (short ? meta.transcript.trim() : pickQuote(meta.transcript));
+      setQuotes((m) => ({ ...m, [step]: quote }));
+      setPhase("hush");
+      later(async () => {
+        if (!alive) return;
+        setPhase("playing");
+        if (short && !seg.quote?.trim()) await player.play(q);
+        else await player.playClip(q, quote);
+        if (!alive) return;
+        setPhase("done");
+        next(1200);
+      }, 900);
     });
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
-
-  const next = (ms = 700) => later(() => setStep((s) => s + 1), ms);
-
-  const listen = async (i: number) => {
-    const seg = segments[i];
-    if (seg.kind !== "voice") return;
-    playFx("buttonPress");
-    setPhase("playing");
-    await player.playClip(voiceQuery(seg), mimics[i]?.quote ?? "");
-    setPhase("done");
-    next(500);
-  };
 
   const shown = step < 0 ? [] : segments.slice(0, step + 1);
   const finished = step >= segments.length;
@@ -566,7 +567,7 @@ function ShellReturn({ segments, tone }: { segments: ReturnSegment[]; tone: Stag
               <Conch size={44} />
             </span>
           </div>
-          <div style={{ fontSize: 19, marginBottom: 14 }}>소라에서 뭐 들림ㅋ</div>
+          <div style={{ fontSize: 19, marginBottom: 14 }}>소라에서 뭐 들려…</div>
           <button
             className="wn-sticker"
             style={{ ...pillBtn, width: "100%" }}
@@ -597,53 +598,17 @@ function ShellReturn({ segments, tone }: { segments: ReturnSegment[]; tone: Stag
                 </div>
               );
             }
-            const mim = mimics[i];
+            const quote = quotes[i];
             const label = seg.label ?? `${seg.day}일차 니 목소리`;
+            const waiting = live && (phase === "loading" || phase === "hush");
             return (
               <div key={i} style={{ display: "flex", flexDirection: "column", gap: 8 }} className="rv-pop">
-                {live && phase === "loading" && (
+                {waiting ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <OtterFace expression="remember" size={40} />
-                    <div style={{ ...bubble, opacity: 0.6 }}>음… 니가 뭐랬더라…</div>
+                    <div style={{ ...bubble, opacity: 0.5 }}>…</div>
                   </div>
-                )}
-                {mim?.text && (
-                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                    <OtterFace expression="sly" size={40} />
-                    <TypedBubble
-                      text={mim.text}
-                      mode="mimic"
-                      ctx={player.ctx}
-                      animate={live && phase === "mimic"}
-                      onDone={() => later(() => setPhase("ask"), 450)}
-                      style={mimicBubble}
-                    />
-                  </div>
-                )}
-                {live && phase === "ask" && (
-                  <div className="rv-pop" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ fontSize: 15, textAlign: "center" }}>
-                      {tone === "spicy" ? "못 믿겠지? 진짜 니 목소리 있음ㅋ" : "원본 목소리 들어볼래?"}
-                    </div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button className="wn-sticker" style={{ ...pillBtn, flex: 1, padding: "10px 14px", fontSize: 16 }} onClick={() => listen(i)}>
-                        듣기
-                      </button>
-                      <button
-                        className="wn-sticker"
-                        style={{ ...smallBtn, flex: "0 0 auto", padding: "10px 16px", fontSize: 16 }}
-                        onClick={() => {
-                          playFx("buttonPress");
-                          setPhase("done");
-                          next(200);
-                        }}
-                      >
-                        패스
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {(!live || phase === "playing" || phase === "done") && (
+                ) : (
                   <div style={voicePill}>
                     <span className={player.state === "playing" && player.current === voiceQuery(seg) ? "rv-wave rv-wave-on" : "rv-wave"} aria-hidden>
                       <i />
@@ -652,12 +617,12 @@ function ShellReturn({ segments, tone }: { segments: ReturnSegment[]; tone: Stag
                       <i />
                       <i />
                     </span>
-                    <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>{label}</span>
+                    <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                      <span>{label}</span>
+                      {quote && <span style={{ fontSize: 13, opacity: 0.65 }}>“{quote}”</span>}
+                    </span>
                     {(!live || phase === "done") && (
                       <span style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
-                        <button className="wn-sticker" style={smallBtn} onClick={() => player.playClip(voiceQuery(seg), mim?.quote ?? "")}>
-                          {mim?.quote ? "그 말만" : "듣기"}
-                        </button>
                         <button className="wn-sticker" style={smallBtn} onClick={() => player.play(voiceQuery(seg))}>
                           전체
                         </button>
@@ -674,12 +639,6 @@ function ShellReturn({ segments, tone }: { segments: ReturnSegment[]; tone: Stag
       )}
     </div>
   );
-}
-
-// 수달이 니 말을 따라하는 한 줄 — 순한맛은 장난, 매운맛은 놀림
-function mimicLine(quote: string, tone: StageTone): string {
-  const q = quote.replace(/[.。!?…~\s]+$/, "");
-  return tone === "spicy" ? `“${q}”~ 이랬던 사람 누구게ㅋㅋ` : `니가 그때 그랬잖아~ “${q}”~`;
 }
 
 // 받아쓰기에서 따라할 짧은 말 하나 고르기 — 첫 문장(또는 앞부분)을 28자 안으로
@@ -781,7 +740,7 @@ function clipWindow(transcript: string, quote: string, duration: number): { star
   if (idx < 0 && q.length > 6) idx = t.indexOf(q.slice(0, 6));
   if (!t || idx < 0) return { start: 0, length: Math.min(duration, 4) };
   const start = Math.max(0, (idx / t.length) * duration - 0.4);
-  const length = Math.min(4.5, Math.max(2.5, (Math.max(q.length, 8) / t.length) * duration + 0.9));
+  const length = Math.min(9, Math.max(2.5, (Math.max(q.length, 8) / t.length) * duration + 1.2));
   return { start: Math.min(start, Math.max(0, duration - length)), length };
 }
 
@@ -1033,10 +992,6 @@ const bubble: React.CSSProperties = {
   lineHeight: 1.4,
 };
 // 수달이 니 말 따라할 때 — 놀리는 말풍선(살짝 기울고 노란색)
-const mimicBubble: React.CSSProperties = {
-  background: "#FFF3B0",
-  transform: "rotate(-1.5deg)",
-};
 const voicePill: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
