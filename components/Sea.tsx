@@ -79,8 +79,9 @@ const SINK_DAYS = 40; // 이만큼 조용하면 거의 바닥까지 가라앉는
 const SEEN_LOCAL_KEY = "ganseobi_sea_seen_v1"; // SQL 실행 전(서버에 못 남길 때)만 쓰는 "심해에서 본 단계"
 
 // 깊어질수록 물색
-const WATER_DAY = ["#8BE0FA", "#45BFEC", "#2E9BD6"];
-const WATER_NIGHT = ["#3E8FCB", "#2C78B6", "#225F98"];
+// 10-22 깊이 개편: 수면은 밝은 청록 → 아래로 갈수록 남색. 마지막 색이 심해(DeepSea) 시작색.
+const WATER_DAY = ["#9BEAF0", "#4FC3D9", "#2C8FB8", "#2A5E9A"];
+const WATER_NIGHT = ["#4A9BC9", "#2F7AB0", "#255F96", "#22457E"];
 
 function fuzzyAgo(iso: string): string {
   const days = (Date.now() - new Date(iso).getTime()) / 86_400_000;
@@ -718,7 +719,7 @@ export default function Sea({
       <section
         ref={nowRef}
         className="sea-now"
-        style={{ background: `linear-gradient(${water[0]} 0%, ${water[1]} 38%, ${water[2]} 100%)` }}
+        style={{ background: `linear-gradient(${water[0]} 0%, ${water[1]} 22%, ${water[2]} 58%, ${water[3]} 100%)` }}
         aria-label="지금 바다"
       >
         {/* 바다 위 — 하늘, 섬, 노 젓는 조각배 */}
@@ -1094,7 +1095,7 @@ export default function Sea({
       {/* ================= 심해 — 참견이가 사는 곳 ================= */}
       <DeepSea
         night={night}
-        topColor={water[2]}
+        topColor={water[3]}
         growth={growth}
         fishCount={(lineages ?? []).length + (school.length > 0 ? 1 : 0)}
         busy={!!thinking || sheet !== null}

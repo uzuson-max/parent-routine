@@ -247,8 +247,9 @@ export default function DeepSea({
 }) {
   const stage = growth?.stage ?? 0;
   const pending = !!growth && growth.fresh && growth.stage > growth.seen;
-  const deep = night ? "#0F2E57" : "#14457A";
-  const mid = night ? "#173F70" : "#1E5C98";
+  // 10-22 깊이 개편: 내려갈수록 남색 → 라벤더 → 잉크(오래된 기억일수록 빛이 안 닿는 곳)
+  const deep = night ? "#1A1530" : "#2A2350";
+  const mid = night ? "#22356A" : "#36437E";
 
   const [mode, setMode] = useState<Mode>("idle");
   const [say, setSay] = useState<{ text: string; key: number } | null>(null);

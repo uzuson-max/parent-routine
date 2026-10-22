@@ -52,12 +52,12 @@ export const stickerCard: React.CSSProperties = {
 // Jua 폰트는 app/layout.tsx의 <link>로 한 번만 받는다.
 export const WORLD_CSS = `
 button { font-family: inherit; }
-.wn-nav { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0 10px; border: 0; background: transparent; color: rgba(27,22,48,.5); font-family: 'Jua', sans-serif; font-size: 12px; cursor: pointer; -webkit-tap-highlight-color: transparent; position: relative; }
+.wn-nav { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 52px; padding: 0 4px; border: 0; background: transparent; color: rgba(255,246,229,.82); font-family: 'Jua', sans-serif; font-size: 15px; cursor: pointer; -webkit-tap-highlight-color: transparent; position: relative; white-space: nowrap; }
 .wn-nav:disabled { opacity: .4; cursor: default; }
-.wn-nav-on { color: ${INK}; }
-.wn-nav-on svg { background: ${YELLOW}; border: 2.5px solid ${INK}; border-radius: 12px; padding: 2px 10px; box-sizing: content-box; }
+.wn-nav-on { color: ${YELLOW}; }
 .wn-sticker:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 ${INK} !important; }
-.wn-nav:focus-visible, .wn-sticker:focus-visible { outline: 3px dashed ${INK}; outline-offset: 4px; }
+.wn-sticker:focus-visible { outline: 3px dashed ${INK}; outline-offset: 4px; }
+.wn-nav:focus-visible { outline: 2px dashed ${YELLOW}; outline-offset: -6px; border-radius: 18px; }
 `;
 
 export function BottomNav({
@@ -71,10 +71,11 @@ export function BottomNav({
   unreadLetterCount?: number;
   disabled?: boolean;
 }) {
-  const items: { tab: WorldTab; label: string; icon: JSX.Element }[] = [
-    { tab: "home", label: "어항", icon: <IconHome style={{ width: 22, height: 22 }} /> },
-    { tab: "river", label: "소라", icon: <IconConch style={{ width: 22, height: 22 }} /> },
-        { tab: "letters", label: "편지", icon: <IconLetter style={{ width: 22, height: 22 }} /> },
+  // 10-22: 아이콘 대신 이름만 — 어두운 바다 위에 떠 있는 둥근 탭바
+  const items: { tab: WorldTab; label: string }[] = [
+    { tab: "home", label: "어항" },
+    { tab: "river", label: "소라 징검다리" },
+    { tab: "letters", label: "참견이 편지" },
   ];
   return (
     <nav style={navStyle} aria-label="주요 메뉴">
@@ -82,7 +83,6 @@ export function BottomNav({
       {items.map((it) =>
         it.tab === active ? (
           <div key={it.tab} className="wn-nav wn-nav-on" aria-current="page">
-            {it.icon}
             <span>{it.label}</span>
           </div>
         ) : (
@@ -98,7 +98,6 @@ export function BottomNav({
               it.tab === "letters" && unreadLetterCount > 0 ? `편지, 안 읽은 편지 ${unreadLetterCount}통` : it.label
             }
           >
-            {it.icon}
             <span>{it.label}</span>
             {it.tab === "letters" && unreadLetterCount > 0 && (
               <span style={badgeStyle} aria-hidden>
@@ -163,7 +162,7 @@ export function MyButton({ onClick, disabled }: { onClick: () => void; disabled?
 
 const navStyle: React.CSSProperties = {
   position: "fixed",
-  bottom: 0,
+  bottom: "calc(14px + env(safe-area-inset-bottom, 0px))",
   left: "50%",
   // translate3d + backfaceVisibility: 탭바를 자기만의 레이어로 띄워서, 뒤에서 움직이는 바다(물고기·기포·햇빛)가
   // 아이폰에서 탭바 위로 비쳐 반짝거리지 않게 한다.
@@ -171,19 +170,24 @@ const navStyle: React.CSSProperties = {
   WebkitBackfaceVisibility: "hidden",
   backfaceVisibility: "hidden",
   isolation: "isolate",
-  width: "100%",
-  maxWidth: "480px",
-  background: "#FFFFFF",
-  borderTop: `3px solid ${INK}`,
+  width: "calc(100% - 32px)",
+  maxWidth: "448px",
+  boxSizing: "border-box",
+  background: "rgba(30,26,38,.78)",
+  border: "2px solid rgba(255,246,229,.25)",
+  borderRadius: 24,
+  boxShadow: "0 8px 24px rgba(10,8,30,.35)",
+  WebkitBackdropFilter: "blur(8px)",
+  backdropFilter: "blur(8px)",
   display: "flex",
-  paddingBottom: "env(safe-area-inset-bottom, 0px)",
+  padding: "6px",
   zIndex: 100,
 };
 
 const badgeStyle: React.CSSProperties = {
   position: "absolute",
-  top: 4,
-  left: "calc(50% + 10px)",
+  top: 2,
+  right: 2,
   minWidth: 18,
   height: 18,
   padding: "0 4px",
