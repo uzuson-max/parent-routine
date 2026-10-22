@@ -2,7 +2,8 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { getUserIdFromRequest } from '@/lib/auth';
-import { analyzeAndSchedule } from '@/lib/analysis';
+import { analyzeAndSchedule, confirmCommitment } from '@/lib/analysis';
+import { sanitizeDueAt } from '@/lib/intervention/commitmentSchedule';
 import { generateResponse } from '@/lib/responseEngine';
 import { updateUserMemory } from '@/lib/memoryEngine';
 import { runMemoryPipeline } from '@/lib/memoryPipeline';
@@ -401,6 +402,18 @@ async function handleUpload(request: Request, onTranscript?: (t: TranscriptReady
       // goal만 있고 commitment가 null인 경우(생각/고민/감정 발화)는 여기로 오면 안 됨.
       // ConfirmScreen은 "기억해달라고 할 만한 실제 commitment"가 있을 때만 노출한다.
       currentCallState = 'awaiting_confirmation';
+      // 홈(바다)은 확인 화면(ConfirmScreen)을 건너뛴다 → 그대로 두면 약속이 commitment_memory에 안 들어가서
+      // 약속 확인 참견(앱 알림/문자)이 영영 안 나간다. 사용자가 분명하게 선언한 약속(explicit+high)만 자동 저장한다.
+      // 막연한 약속(inferred)은 받아쓰기 오류 위험 때문에 저장하지 않는다.
+      if (analysisResult.commitment_type === 'explicit' && analysisResult.commitment_confidence === 'high') {
+        const autoKind = analysisResult.commitment_kind === 'reminder' ? 'reminder' : 'commitment';
+        const autoDue = sanitizeDueAt(analysisResult.commitment_due_at, new Date());
+        const autoText = analysisResult.commitment;
+        const autoEntryId = entry.id;
+        later('auto-confirm-commitment', () =>
+          confirmCommitment(autoEntryId, userId, effectivePhone, autoText, 'explicit', 'high', null, autoKind, autoDue)
+        );
+      }
     } else {
       currentCallState = 'no_action';
     }
