@@ -261,7 +261,7 @@ export default function RiverScreen({
   })();
 
   return (
-    <div style={worldPage}>
+    <div style={riverPage}>
       <style dangerouslySetInnerHTML={{ __html: WORLD_CSS + RIVER_CSS }} />
       <WorldTitle>소라에 귀 대보실 분....</WorldTitle>
 
@@ -276,14 +276,23 @@ export default function RiverScreen({
 
       <div style={{ position: "relative", width: "100%", aspectRatio: `${VB_W} / ${VB_H}` }}>
         <svg viewBox={`0 0 ${VB_W} ${VB_H}`} style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }} aria-hidden>
-          <path d={riverPath} fill="none" stroke={INK} strokeWidth={84} strokeLinecap="round" />
-          <path d={riverPath} fill="none" stroke="#5CCBF2" strokeWidth={76} strokeLinecap="round" />
-          <path d={riverPath} fill="none" stroke="#9BE3FA" strokeWidth={3} strokeDasharray="10 26" strokeLinecap="round" className="rv-flow" />
+          {/* 10-22 깊이 개편: 햇빛 줄기 + 바닷속 물길(밝은 해류) */}
+          <defs>
+            <linearGradient id="rvRay" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="#FFFFFF" stopOpacity={0.4} />
+              <stop offset="1" stopColor="#FFFFFF" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <polygon points={`40,0 80,0 200,${VB_H * 0.5} 140,${VB_H * 0.5}`} fill="url(#rvRay)" opacity={0.5} />
+          <polygon points={`200,0 226,0 310,${VB_H * 0.38} 270,${VB_H * 0.38}`} fill="url(#rvRay)" opacity={0.35} />
+          <path d={riverPath} fill="none" stroke="#FFFFFF" strokeOpacity={0.14} strokeWidth={92} strokeLinecap="round" />
+          <path d={riverPath} fill="none" stroke="#9BEAF0" strokeOpacity={0.22} strokeWidth={70} strokeLinecap="round" />
+          <path d={riverPath} fill="none" stroke="#FFFFFF" strokeOpacity={0.7} strokeWidth={3} strokeDasharray="10 26" strokeLinecap="round" className="rv-flow" />
           {/* 물안개 */}
           <g className="rv-fog">
-            <ellipse cx={120} cy={FOG_Y + 70} rx={120} ry={46} fill="#FFFFFF" opacity={0.92} />
-            <ellipse cx={250} cy={FOG_Y + 90} rx={130} ry={50} fill="#FFFFFF" opacity={0.92} />
-            <ellipse cx={180} cy={FOG_Y + 130} rx={170} ry={56} fill="#FFFFFF" opacity={0.95} />
+            <ellipse cx={120} cy={FOG_Y + 70} rx={120} ry={46} fill="#D9D2F0" opacity={0.92} />
+            <ellipse cx={250} cy={FOG_Y + 90} rx={130} ry={50} fill="#D9D2F0" opacity={0.92} />
+            <ellipse cx={180} cy={FOG_Y + 130} rx={170} ry={56} fill="#E6E0F7" opacity={0.95} />
           </g>
         </svg>
 
@@ -892,7 +901,7 @@ function Conch({ size = 24 }: { size?: number }) {
 function ConchStone({ fill, pearl }: { fill: string; pearl: boolean }) {
   return (
     <svg viewBox="0 0 80 72" className="rv-shellstone" aria-hidden>
-      <ellipse cx={40} cy={67} rx={28} ry={4.5} fill={INK} opacity={0.18} />
+      <ellipse cx={40} cy={68} rx={30} ry={5.5} fill="#0B1B33" opacity={0.35} />
       <ConchBody fill={fill} pearl={pearl} />
     </svg>
   );
@@ -930,6 +939,14 @@ function EchoNote() {
 }
 
 // ── 스타일 ────────────────────────────────────────────────────
+// 10-22 깊이 개편: 노란 도트 벽 대신 깊어지는 바다 — 위(1일차)는 수면, 아래(물안개 너머)로 갈수록 깊고 어둡다.
+const riverPage: React.CSSProperties = {
+  ...worldPage,
+  backgroundColor: "#2A5E9A",
+  backgroundImage: "linear-gradient(#9BEAF0 0%, #4FC3D9 12%, #2C8FB8 36%, #2A5E9A 60%, #36437E 82%, #2A2350 100%)",
+  backgroundSize: "100% 100%",
+};
+
 const RIVER_CSS = `
 .rv-stone { position: absolute; width: 76px; height: 68px; margin: -34px 0 0 -38px; padding: 0; border: 0; background: transparent; font-family: 'Jua', sans-serif; font-size: 22px; color: ${INK}; display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: visible; -webkit-tap-highlight-color: transparent; z-index: 2; }
 .rv-stone:active { transform: translate(2px,2px); }
@@ -937,7 +954,7 @@ const RIVER_CSS = `
 .rv-num { position: relative; z-index: 2; margin: 12px 24px 0 0; }
 .rv-today { animation: rvBob 2.4s ease-in-out infinite; }
 .rv-sunk { opacity: .9; }
-.rv-sunk::after { content: ''; position: absolute; left: -4px; right: -4px; bottom: -4px; height: 52%; background: #5CCBF2; border-top: 3px solid #9BE3FA; border-radius: 0 0 40px 40px; z-index: 1; }
+.rv-sunk::after { content: ''; position: absolute; left: -4px; right: -4px; bottom: -4px; height: 52%; background: rgba(44,143,184,.88); border-top: 3px solid rgba(155,234,240,.9); border-radius: 0 0 40px 40px; z-index: 1; }
 .rv-shell { position: absolute; right: -10px; top: -12px; z-index: 3; }
 .rv-otter { position: absolute; margin: -29px 0 0 -29px; z-index: 3; transition: left .8s ease, top .8s ease; pointer-events: none; animation: rvBob 3.2s ease-in-out infinite; }
 .rv-flow { animation: rvFlow 3s linear infinite; }
