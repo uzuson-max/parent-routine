@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
+import { handleOAuthReturn, isProtectedUser } from "@/lib/socialAuthClient";
 import TimelineScreen, { type RecordEntry, type HomeBubble, type ProactiveLine } from "./screens/TimelineScreen";
 import LandingScreen from "./screens/LandingScreen";
 import RecordingScreen from "./screens/RecordingScreen";
@@ -200,6 +201,17 @@ export default function Home() {
     const ensureSession = async () => {
       // 온보딩 여부는 로컬 값이라 네트워크를 기다릴 필요가 없다 — 첫 사용자는 홈이 잠깐 비쳤다가
       // 넘어가지 않도록 세션 확인보다 먼저 온보딩으로 보낸다.
+      // 카카오/구글/애플 화면에서 막 돌아온 경우. 이미 다른 계정에 연결된 소셜이면 그 계정으로
+      // 다시 이동하니(true) 여기서 멈춘다.
+      const fromOAuth = typeof window !== "undefined" && new URL(window.location.href).searchParams.has("auth");
+      if (await handleOAuthReturn()) return;
+      // 체크리스트 도중 소셜 로그인으로 나갔다 온 첫 실행 사용자는 체크리스트로 바로 복귀.
+      const resumeChecklist = fromOAuth && typeof window !== "undefined" && sessionStorage.getItem("ganseobi_first_run") === "1";
+      if (resumeChecklist) {
+        setIsFirstRun(true);
+        setStep("setup_checklist");
+      }
+
       const onboardingDone = typeof window !== "undefined" && localStorage.getItem(ONBOARDING_KEY);
       if (!onboardingDone) setStep("onboarding");
 
@@ -223,7 +235,8 @@ export default function Home() {
       // 들어가면 저장공간이 초기화되며 새 익명 계정이 생기는" 상황이라, 여기서 반드시 잡아야 한다.
       if (onboardingDone) {
         const { data: { user } } = await supabaseClient.auth.getUser();
-        if (!user?.phone) {
+        // 익명 그대로인 계정(소셜도 번호도 연결 안 됨)만 체크리스트로 보낸다.
+        if (!isProtectedUser(user)) {
           setStep("setup_checklist");
         }
       }
@@ -472,13 +485,20 @@ export default function Home() {
             // 바로 홈으로 보내지 않고 필수 체크리스트(마이크+전화인증) → 첫 녹음으로 이어지는
             // 첫 실행 흐름을 태운다.
             setIsFirstRun(true);
+            // 체크리스트에서 소셜 로그인으로 페이지를 떠났다 와도 첫 실행 흐름을 이어가려고.
+            if (typeof window !== "undefined") sessionStorage.setItem("ganseobi_first_run", "1");
             setStep("setup_checklist");
           }}
         />
       )}
 
       {step === "setup_checklist" && (
-        <OnboardingChecklistScreen onDone={() => afterSetupChecklist()} />
+        <OnboardingChecklistScreen
+          onDone={() => {
+            if (typeof window !== "undefined") sessionStorage.removeItem("ganseobi_first_run");
+            afterSetupChecklist();
+          }}
+        />
       )}
 
       {step === "first_talk" && (

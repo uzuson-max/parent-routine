@@ -1,7 +1,7 @@
 // app/screens/OnboardingChecklistScreen.tsx
 //
 // 어항 들어가기 전 마지막 단계 — 숨비의 로그인 시트처럼, 아직 비어 있는 어항 위로 시트가 올라온다.
-// 시트 안에서: 마이크(선택) → 번호로 계정 지키기(필수) → 약관·개인정보 동의(필수) → 어항으로 들어가기.
+// 시트 안에서: 마이크(선택) → 카카오/구글/애플로 계정 지키기(필수, 번호도 가능) → 약관·개인정보 동의(필수) → 어항으로 들어가기.
 //
 // 동작은 예전 체크리스트 그대로다:
 // - 전화번호 인증을 필수로 둔 이유: 저장공간이 리셋되며 새 익명 계정이 생기는 상황(홈 화면 아이콘 등)에서도
@@ -11,8 +11,10 @@
 // - 전화번호·음성을 받고 해외 서비스(OpenAI 등)로 처리하므로 시작 전에 동의를 받는다.
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { requestPhoneLink, confirmPhoneCode, syncVerifiedPhoneToBackend, type PhoneLinkVerifyType } from "@/lib/phoneAuthClient";
+import { startSocialLink, providersForLocale, PROVIDER_LABEL, isProtectedUser, type SocialProvider } from "@/lib/socialAuthClient";
+import { supabaseClient } from "@/lib/supabaseClient";
 import { acquireMicStream } from "@/lib/micStream";
 import PeekMascot from "@/components/PeekMascot";
 import { worldPage, INK, YELLOW, WORLD_CSS } from "@/components/WorldNav";
@@ -31,6 +33,28 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
   const [phoneDone, setPhoneDone] = useState(false);
   const [phoneBusy, setPhoneBusy] = useState(false);
   const [phoneError, setPhoneError] = useState<string | null>(null);
+  const [showPhone, setShowPhone] = useState(false);
+  const [socialBusy, setSocialBusy] = useState<SocialProvider | null>(null);
+  const [buttons, setButtons] = useState<{ main: SocialProvider[]; more: SocialProvider[] }>({ main: [], more: [] });
+
+  // 소셜 로그인 화면에서 돌아온 경우: 이미 연결된 계정이면 체크 표시.
+  useEffect(() => {
+    setButtons(providersForLocale());
+    supabaseClient.auth.getUser().then(({ data: { user } }) => {
+      if (isProtectedUser(user)) setPhoneDone(true);
+    });
+  }, []);
+
+  const social = async (p: SocialProvider) => {
+    setSocialBusy(p);
+    setPhoneError(null);
+    const { error } = await startSocialLink(p);
+    if (error) {
+      setSocialBusy(null);
+      setPhoneError(error);
+    }
+    // 성공이면 페이지가 카카오 등으로 이동한다.
+  };
 
   const requestMic = async () => {
     setMicBusy(true);
@@ -121,9 +145,28 @@ export default function OnboardingChecklistScreen({ onDone }: { onDone: () => vo
             {phoneDone ? "✓" : ""}
           </span>
           <div style={{ ...s.rowMain, flex: 1 }}>
-            <span style={s.rowTitle}>번호로 내 어항 지키기</span>
+            <span style={s.rowTitle}>내 어항 지키기</span>
             <span style={s.rowSub}>폰을 바꾸거나 홈 화면에 추가해도 기록이 그대로 남아</span>
-            {!phoneDone && (
+            {!phoneDone && !showPhone && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                {buttons.main.map((p) => (
+                  <button key={p} className="wn-sticker" style={{ ...s.socialBtn, ...SOCIAL_STYLE[p] }} onClick={() => social(p)} disabled={!!socialBusy}>
+                    {socialBusy === p ? "잠깐만..." : PROVIDER_LABEL[p]}
+                  </button>
+                ))}
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {buttons.more.map((p) => (
+                    <button key={p} style={s.textLink} onClick={() => social(p)} disabled={!!socialBusy}>
+                      {p === "apple" ? "Apple" : "Google"}
+                    </button>
+                  ))}
+                  <button style={s.textLink} onClick={() => setShowPhone(true)}>
+                    전화번호로
+                  </button>
+                </div>
+              </div>
+            )}
+            {!phoneDone && showPhone && (
               <div style={s.inputRow}>
                 {phoneStage === "idle" ? (
                   <input
@@ -264,6 +307,15 @@ const s: { [k: string]: React.CSSProperties } = {
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
+  socialBtn: {
+    minHeight: 46,
+    borderRadius: 14,
+    border: `2.5px solid ${INK}`,
+    boxShadow: `3px 3px 0 ${INK}`,
+    fontSize: 16,
+    cursor: "pointer",
+  },
+  textLink: { background: "none", border: "none", padding: "4px 2px", fontSize: 13.5, color: "rgba(27,22,48,.6)", textDecoration: "underline", cursor: "pointer", fontFamily: "inherit" },
   error: { marginTop: 6, fontSize: 13, color: "#C24444" },
   consent: { display: "flex", alignItems: "flex-start", gap: 10, fontSize: 13.5, lineHeight: 1.5, cursor: "pointer", padding: "0 2px" },
   consentBox: { width: 20, height: 20, marginTop: 1, flexShrink: 0, accentColor: INK },
@@ -279,4 +331,10 @@ const s: { [k: string]: React.CSSProperties } = {
     cursor: "pointer",
   },
   ctaOff: { opacity: 0.45, cursor: "not-allowed", boxShadow: "none" },
+};
+
+const SOCIAL_STYLE: Record<SocialProvider, React.CSSProperties> = {
+  kakao: { background: "#FEE500", color: "#191600" },
+  google: { background: "#FFFFFF", color: INK },
+  apple: { background: "#000000", color: "#FFFFFF" },
 };

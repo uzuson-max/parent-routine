@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
+import { startSocialLink, enabledProviders, linkedProviders, type SocialProvider } from "@/lib/socialAuthClient";
 import { requestPhoneLink, confirmPhoneCode, syncVerifiedPhoneToBackend, type PhoneLinkVerifyType } from "@/lib/phoneAuthClient";
 import { fetchMe, saveNickname } from "@/lib/userClient";
 import { currentSubscription, notificationPermission, pushSupport, subscribePush, unsubscribePush } from "@/lib/pushClient";
@@ -63,7 +64,7 @@ async function authed(path: string, init?: RequestInit): Promise<Response | null
 }
 // 설정 시트를 열 때마다 서버를 기다리지 않게, 한 번 받은 값은 앱을 켜둔 동안 기억해둔다.
 // 홈에 들어오면 page.tsx가 prefetchMyPage()로 미리 채워둔다. 시트가 열리면 뒤에서 다시 최신으로 맞춘다.
-const myCache: { prefs?: Prefs; nickname?: string | null; phone?: string | null } = {};
+const myCache: { prefs?: Prefs; nickname?: string | null; phone?: string | null; social?: SocialProvider[] } = {};
 let myInflight: Promise<void> | null = null;
 
 async function loadMyPage(): Promise<void> {
@@ -74,6 +75,7 @@ async function loadMyPage(): Promise<void> {
   await Promise.all([
     supabaseClient.auth.getUser().then(({ data: { user } }) => {
       myCache.phone = user?.phone ?? null;
+      myCache.social = linkedProviders(user);
     }),
     fetchMe(session.access_token).then((p) => {
       if (p) myCache.nickname = p.nickname;
@@ -119,6 +121,19 @@ export default function MyPageScreen({
     const [nickname, setNickname] = useState<string | null>(() => myCache.nickname ?? null);
   const [nickEdit, setNickEdit] = useState<string | null>(null); // null = 보기 모드
     const [currentPhone, setCurrentPhone] = useState<string | null>(() => myCache.phone ?? null);
+
+  // --- 소셜 로그인 연결(지금 계정에 붙임 → 기록 그대로) ---
+  const [social, setSocial] = useState<SocialProvider[]>(() => myCache.social ?? []);
+  const [socialError, setSocialError] = useState<string | null>(null);
+  useEffect(() => {
+    refreshMyPage().then(() => setSocial(myCache.social ?? []));
+  }, []);
+  const linkSocial = async (p: SocialProvider) => {
+    setSocialError(null);
+    const { error } = await startSocialLink(p);
+    if (error) setSocialError(error);
+  };
+  const SOCIAL_NAME: Record<SocialProvider, string> = { kakao: "카카오", google: "Google", apple: "Apple" };
 
   // --- 전화번호 인증(기존 로직 그대로) ---
   const [phoneMode, setPhoneMode] = useState<PhoneMode>("view");
@@ -414,6 +429,19 @@ export default function MyPageScreen({
       </div>
 
       <div style={{ ...stickerCard, ...s.group }}>
+        {enabledProviders().map((p) => (
+          <Row
+            key={p}
+            label={`${SOCIAL_NAME[p]} 로그인`}
+            value={social.includes(p) ? "연결됨" : "연결하기 ›"}
+            disabled={social.includes(p)}
+            onClick={() => linkSocial(p)}
+          />
+        ))}
+        {socialError && <p style={s.error}>{socialError}</p>}
+      </div>
+
+      <div style={{ ...stickerCard, ...s.group }}>
         {phoneMode === "view" ? (
           <Row
             label="전화번호"
@@ -634,7 +662,9 @@ export default function MyPageScreen({
               <>
                 <p style={s.sheetTitle}>로그아웃할래?</p>
                 <p style={s.sheetDesc}>
-                  {currentPhone
+                  {social.length
+                    ? `다시 들어올 땐 ${SOCIAL_NAME[social[0]]}로 로그인하면 기록이 그대로 있어`
+                    : currentPhone
                     ? "다시 들어올 땐 같은 전화번호로 인증하면 기록이 그대로 있어"
                     : "전화번호가 등록 안 돼 있어서, 로그아웃하면 지금 기록을 다시 못 찾을 수 있어\n먼저 번호를 등록하는 걸 추천해"}
                 </p>
