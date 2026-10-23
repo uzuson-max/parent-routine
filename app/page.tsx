@@ -23,6 +23,7 @@ import LettersScreen from "./screens/LettersScreen";
 import ArchiveScreen from "./screens/ArchiveScreen";
 import WorriesScreen from "./screens/WorriesScreen";
 import RiverScreen from "./screens/RiverScreen";
+import SplashScreen from "@/components/SplashScreen";
 import type { WorldTab } from "@/components/WorldNav";
 import TankRecordingScreen from "./screens/TankRecordingScreen";
 import { BRAND, pageBackground } from "@/lib/theme";
@@ -468,6 +469,9 @@ export default function Home() {
         minHeight: "100dvh",
       }}
     >
+      {/* 앱을 켤 때 한 번만 나오는 시작 화면 (민트 + 수달 → 바다색 + hello, 닉네임) */}
+      <SplashScreen />
+
       {error && (
         <div style={errorBannerStyle}>
           문제가 생겼어: {error}
