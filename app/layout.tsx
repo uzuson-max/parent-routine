@@ -43,7 +43,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* 어항 세계 폰트(Jua)를 화면 그리기 전에 미리 받아둔다 */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Nanum+Myeongjo:wght@700;800&display=swap" />
       </head>
       <body style={{ margin: 0 }}>
         <PwaRegister />

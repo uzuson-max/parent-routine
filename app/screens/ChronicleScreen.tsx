@@ -56,8 +56,9 @@ export default function ChronicleScreen({ onHero }: { onHero: () => void }) {
 
   return (
     <div style={S.page}>
+      <style dangerouslySetInnerHTML={{ __html: ".narr, .narr * { font-family: 'Nanum Myeongjo', serif !important; }" }} />
       <header style={S.header}>
-        <h1 style={S.title}>지난 이야기</h1>
+        <h1 className="narr" style={S.title}>지난 이야기</h1>
         <p style={S.sub}>참견이가 적어둔 주인공의 날들</p>
       </header>
 
@@ -67,7 +68,7 @@ export default function ChronicleScreen({ onHero }: { onHero: () => void }) {
       {groups.map((g) => (
         <section key={g.day} style={S.section}>
           <div style={S.chapterRow}>
-            <span style={S.chapter}>제{g.day - firstDay + 1}장</span>
+            <span className="narr" style={S.chapter}>제{g.day - firstDay + 1}장</span>
             <span style={S.date}>{g.label}</span>
           </div>
           {g.items
@@ -75,7 +76,7 @@ export default function ChronicleScreen({ onHero }: { onHero: () => void }) {
             .reverse()
             .map((e) => (
               <article key={e.id} style={S.card}>
-                <p style={S.narration}>{e.responseText}</p>
+                <p className="narr" style={S.narration}>{e.responseText}</p>
                 <p style={S.quote}>주인공: “{e.transcript}”</p>
               </article>
             ))}
@@ -97,14 +98,14 @@ const S: Record<string, React.CSSProperties> = {
     padding: "20px 16px calc(80px + env(safe-area-inset-bottom, 0px))",
   },
   header: { marginBottom: 18 },
-  title: { margin: 0, fontSize: 26, fontWeight: 400 },
+  title: { margin: 0, fontSize: 26, fontWeight: 800 },
   sub: { margin: "4px 0 0", fontSize: 14, color: "rgba(247,240,223,0.55)" },
   empty: { fontSize: 16, color: "rgba(247,240,223,0.72)", lineHeight: 1.5, marginTop: 40, textAlign: "center", wordBreak: "keep-all" },
   section: { marginBottom: 22 },
   chapterRow: { display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8 },
-  chapter: { fontSize: 17, color: "#FFD26F" },
+  chapter: { fontSize: 17, fontWeight: 800, color: "#FFD26F" },
   date: { fontSize: 13, color: "rgba(247,240,223,0.5)" },
   card: { background: "rgba(20,16,25,0.55)", border: "1px solid rgba(247,240,223,0.14)", borderRadius: 12, padding: "12px 14px", marginBottom: 8 },
-  narration: { margin: 0, fontSize: 17, lineHeight: 1.5, wordBreak: "keep-all" },
+  narration: { margin: 0, fontSize: 18, fontWeight: 800, lineHeight: 1.55, wordBreak: "keep-all" },
   quote: { margin: "6px 0 0", fontSize: 13, lineHeight: 1.4, color: "rgba(247,240,223,0.55)", wordBreak: "keep-all" },
 };
