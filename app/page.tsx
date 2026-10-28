@@ -175,6 +175,9 @@ export default function Home() {
         text: r?.response || "주인공은 무언가를 말했다. 참견이는 일단 들어두었다.",
         expression: asExpression(r?.expression),
         recalled: r?.recalled ? { quote: r.recalled.quote, at: r.recalled.at } : null,
+        // 해설이 받아친 말과 새 다짐 — 화면에 "행적 → 해설 → 선언"으로 이어 보인다(서버 응답에 이미 있는 값)
+        said: typeof body.data?.transcript === "string" ? body.data.transcript : null,
+        vow: r?.vow?.what ? { what: r.vow.what, target: r.vow.target ?? null, deadline_label: r.vow.deadline_label ?? null } : null,
       });
     } catch (e: any) {
       console.error("[Home] upload failed:", e?.message);

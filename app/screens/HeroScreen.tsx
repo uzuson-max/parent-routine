@@ -19,6 +19,8 @@ export interface NarratorLine {
   expression: CloseUpExpression;
   key: number;
   recalled?: { quote: string; at: string } | null;
+  said?: string | null; // 이 해설이 받아친 주인공의 말(방금 녹음/글). 오프닝 해설엔 없음
+  vow?: { what: string; target: number | null; deadline_label: string | null } | null; // 이번에 새로 선언한 다짐
 }
 
 export type HeroAction = { kind: "confirm"; text: string } | { kind: "retry" } | null;
@@ -168,7 +170,7 @@ export default function HeroScreen({ chapter, line, heard, thinking, action, onS
 
       {/* 상단 — 제 N장 / 설정 */}
       <div style={S.top}>
-        <span style={S.chapter}>{chapter ? `제${chapter}장` : " "}</span>
+        <span />
         <button aria-label="설정" style={S.gear} onClick={onOpenMy}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={C.cream} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3" />
@@ -189,29 +191,14 @@ export default function HeroScreen({ chapter, line, heard, thinking, action, onS
           onPointerCancel={pressEnd}
           onPointerLeave={pressEnd}
         >
-          <OtterCloseUp expression={expression} width={270} />
+          <OtterCloseUp expression={expression} width={196} />
         </button>
         <div style={S.pressHint}>{recording ? `듣는 중 ${sec}초 · 손을 떼면 끝` : thinking ? " " : "참견이를 꾹 누르고 말하기"}</div>
       </div>
 
-      {/* 그때 주인공의 말 (기억 회수) */}
-      {!thinking && shown?.recalled && doneTyping && (
-        <div className="hero-fade" style={S.recall}>
-          <div style={S.recallLabel}>{agoText(shown.recalled.at)}, 주인공의 말</div>
-          <div style={S.recallQuote}>“{shown.recalled.quote}”</div>
-        </div>
-      )}
-
-      {/* 방금 주인공이 한 말 (받아쓰기가 먼저 오면) */}
-      {thinking && heard && (
-        <div className="hero-fade" style={S.heard}>
-          주인공: “{heard}”
-        </div>
-      )}
-
-      {/* 대화창 */}
+      {/* 해설 카드 — 화면의 중심. 위: 주인공의 지난 말/방금 한 말(행적) → 가운데: 해설 → 아래: 선언 기록 */}
       <div style={S.dialogWrap}>
-        <div style={S.nameTag}>참견이</div>
+        <div style={S.nameTag}>{chapter ? `제${chapter}장` : "서장"}</div>
         <div
           style={S.dialog}
           onClick={() => {
@@ -219,6 +206,17 @@ export default function HeroScreen({ chapter, line, heard, thinking, action, onS
             if (!doneTyping) setTyped(fullText.length);
           }}
         >
+          {/* 행적 — 해설이 무엇을 두고 하는 말인지 */}
+          {!thinking && shown?.recalled && (
+            <p style={S.trace}>
+              <span style={S.traceWhen}>{agoText(shown.recalled.at)} · 주인공</span> “{shown.recalled.quote}”
+            </p>
+          )}
+          {(thinking ? heard : shown?.said) && (
+            <p style={S.trace}>
+              <span style={S.traceWhen}>방금 · 주인공</span> “{thinking ? heard : shown?.said}”
+            </p>
+          )}
           {thinking ? (
             <span className="hero-dots" style={S.text}>
               참견이가 붓을 들었다<span>.</span>
@@ -230,6 +228,16 @@ export default function HeroScreen({ chapter, line, heard, thinking, action, onS
               {fullText.slice(0, typed) || (shown ? "" : " ")}
               {doneTyping && fullText && <span className="hero-caret">▼</span>}
             </span>
+          )}
+
+          {/* 선언 기록 — 다짐이 데이터가 아니라 이야기의 시작으로 남는다 */}
+          {!thinking && doneTyping && shown?.vow && (
+            <div className="hero-fade" style={S.vow}>
+              <span style={S.vowLabel}>선언</span>
+              {shown.vow.what}
+              {shown.vow.target ? ` · ${shown.vow.target}회` : ""}
+              {shown.vow.deadline_label ? ` · ${shown.vow.deadline_label}까지` : " · 기한 없음"}
+            </div>
           )}
 
           {action?.kind === "confirm" && !thinking && (
@@ -327,16 +335,15 @@ const S: Record<string, React.CSSProperties> = {
     overflow: "hidden",
   },
   top: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px 0" },
-  chapter: { fontSize: 15, letterSpacing: 1, color: C.creamSoft, border: `1.5px solid ${C.creamFaint}`, borderRadius: 999, padding: "4px 12px" },
   gear: { background: "transparent", border: "none", padding: 6, cursor: "pointer" },
   stage: { position: "relative", flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", minHeight: 260 },
   ring: { position: "absolute", left: "50%", top: "55%", width: 260, height: 260, borderRadius: "50%", border: `4px solid ${C.accent}`, pointerEvents: "none" },
   otterBtn: { background: "transparent", border: "none", padding: 0, cursor: "pointer", touchAction: "none", WebkitTapHighlightColor: "transparent" },
   pressHint: { marginTop: 8, fontSize: 13, color: C.creamFaint, minHeight: 18 },
-  recall: { margin: "10px 20px 0", background: "rgba(247,240,223,0.1)", border: `1px dashed ${C.creamFaint}`, borderRadius: 10, padding: "8px 12px" },
-  recallLabel: { fontSize: 12, color: C.creamFaint, marginBottom: 2 },
-  recallQuote: { fontSize: 15, color: C.cream, lineHeight: 1.4 },
-  heard: { margin: "10px 20px 0", fontSize: 14, color: C.creamSoft, lineHeight: 1.4 },
+  trace: { margin: "0 0 6px", fontSize: 13, lineHeight: 1.45, color: C.creamFaint, wordBreak: "keep-all", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" },
+  traceWhen: { color: C.creamSoft, marginRight: 4 },
+  vow: { marginTop: 12, paddingTop: 10, borderTop: `1px solid ${C.creamFaint}`, fontSize: 14, color: C.accent, wordBreak: "keep-all" },
+  vowLabel: { display: "inline-block", fontSize: 12, color: C.ink, background: C.accent, borderRadius: 4, padding: "1px 6px", marginRight: 8 },
   dialogWrap: { position: "relative", margin: "18px 14px 0" },
   nameTag: { position: "absolute", top: -14, left: 16, background: C.tag, color: C.ink, fontSize: 14, padding: "3px 12px", borderRadius: 6, border: `2px solid ${C.ink}`, zIndex: 1 },
   dialog: {
@@ -344,11 +351,11 @@ const S: Record<string, React.CSSProperties> = {
     border: `3px solid ${C.cream}`,
     boxShadow: `0 0 0 3px ${C.ink}, 0 10px 24px rgba(0,0,0,0.35)`,
     borderRadius: 12,
-    padding: "22px 18px 16px",
-    minHeight: 104,
+    padding: "24px 18px 18px",
+    minHeight: 120,
     cursor: "pointer",
   },
-  text: { fontSize: 19, lineHeight: 1.55, color: C.cream, wordBreak: "keep-all", whiteSpace: "pre-wrap" },
+  text: { display: "block", marginTop: 4, fontSize: 22, lineHeight: 1.5, letterSpacing: -0.3, color: C.cream, wordBreak: "keep-all", whiteSpace: "pre-wrap" },
   actionBox: { marginTop: 12 },
   actionText: { fontSize: 15, color: C.creamSoft, lineHeight: 1.45 },
   actionRow: { display: "flex", gap: 10, marginTop: 10 },
