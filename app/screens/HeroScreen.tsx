@@ -4,7 +4,7 @@
 // 첫 화면 — 참견이(수달 내레이터)와 마주 보는 옛날 게임 대화 화면 (2026-10-28)
 // ----------------------------------------------------------------------------
 // - 큰 수달 얼굴 + 아래 대화창. 대화가 위로 쌓이지 않는다 — 지금 해설 한 줄만 보인다.
-// - 수달을 꾹 누르고 있는 동안 녹음, 손을 떼면 보낸다(무전기 방식). ✎로 글로도 쓸 수 있다.
+// - 수달을 한 번 누르면 녹음 시작, 한 번 더 누르면 보낸다(10-28: 꾹 누르기 → 탭). ✎로 글로도 쓸 수 있다.
 // - 지난 해설은 두 번째 탭(지난 이야기)에서만 본다.
 // 어항/심해/소라 징검다리 화면은 쓰지 않는다(파일은 그대로 보관 — ARCHIVE.md).
 // ============================================================================
@@ -13,6 +13,7 @@ import OtterCloseUp, { type CloseUpExpression } from "@/components/OtterCloseUp"
 import { useTankRecorder } from "@/lib/useTankRecorder";
 import { BABBLE_STEP_MS, babble } from "@/lib/otterBabble";
 import { playFx } from "@/lib/fx";
+import { releaseMicStream } from "@/lib/micStream";
 
 export interface NarratorLine {
   text: string;
@@ -48,9 +49,8 @@ const C = {
 };
 
 const LOCAL = {
-  empty: "주인공은 아무 말도 하지 않았다. 참견이를 꾹 누른 채로 말해야 한다.",
+  empty: "주인공은 입을 열려다 말았다. 참견이는 아무것도 듣지 못했다.",
   micFail: "참견이의 귀가 막혔다. 마이크를 쓸 수 없어 글로 듣기로 했다.",
-  hint: "참견이는 꾹 눌러야 듣는다. 짧게 누르면 그냥 간지럽다.",
 };
 
 function agoText(iso: string): string {
@@ -65,7 +65,6 @@ export default function HeroScreen({ chapter, line, heard, thinking, action, onS
   const [writing, setWriting] = useState(false);
   const [draft, setDraft] = useState("");
   const audioRef = useRef<AudioContext | null>(null);
-  const pressRef = useRef<{ down: boolean; at: number }>({ down: false, at: 0 });
 
   const recorder = useTankRecorder((r) => {
     // 3분 자동 정지
@@ -114,42 +113,36 @@ export default function HeroScreen({ chapter, line, heard, thinking, action, onS
 
   const say = (text: string, expression: CloseUpExpression = "hmm") => setLocal({ text, expression, key: Date.now() });
 
-  // ---- 꾹 눌러 말하기 -----------------------------------------------------
-  const pressStart = async (e: React.PointerEvent) => {
-    e.preventDefault();
+  // ---- 눌러서 말하기 (탭 한 번 = 시작, 한 번 더 = 끝) -------------------------
+  // 꾹 누르기 방식은 권한 팝업이 뜨는 순간 손가락이 떨어져 녹음이 꼬였다 → 탭 토글로 바꿨다.
+  const busyRef = useRef(false);
+  const toggleRecord = async () => {
     wakeAudio();
-    if (thinking || recording) return;
-    pressRef.current = { down: true, at: Date.now() };
-    playFx("micStart");
-    const ok = await recorder.start();
-    if (!ok) {
-      pressRef.current.down = false;
-      say(LOCAL.micFail, "soft");
-      setWriting(true);
-      return;
+    if (thinking || busyRef.current) return;
+    busyRef.current = true;
+    try {
+      if (recorder.state === "recording") {
+        const r = await recorder.finish();
+        playFx("micStop");
+        releaseMicStream(); // 끝나면 마이크를 바로 꺼둔다(주황 점 꺼짐, 다음엔 팝업 없이 다시 켜짐)
+        if (r.kind === "audio") {
+          setLocal(null);
+          onSend(r.blob);
+        } else {
+          say(LOCAL.empty, "hmm");
+        }
+        return;
+      }
+      if (recorder.state !== "idle") return;
+      playFx("micStart");
+      const ok = await recorder.start();
+      if (!ok) {
+        say(LOCAL.micFail, "soft");
+        setWriting(true);
+      }
+    } finally {
+      busyRef.current = false;
     }
-    // 시작되기 전에 이미 손을 뗐다
-    if (!pressRef.current.down) finishPress(true);
-  };
-
-  const finishPress = async (released: boolean) => {
-    const short = Date.now() - pressRef.current.at < 450;
-    const r = await recorder.finish();
-    playFx("micStop");
-    if (r.kind === "audio") {
-      setLocal(null);
-      onSend(r.blob);
-    } else if (released && short) {
-      say(LOCAL.hint, "hmm");
-    } else {
-      say(LOCAL.empty, "hmm");
-    }
-  };
-
-  const pressEnd = () => {
-    if (!pressRef.current.down) return;
-    pressRef.current.down = false;
-    if (recorder.state === "recording") finishPress(true);
   };
 
   const sendText = () => {
@@ -197,19 +190,16 @@ export default function HeroScreen({ chapter, line, heard, thinking, action, onS
         </button>
       </header>
 
-      {/* 무대 — 집중선 + 갓 쓴 내레이터 수달. 꾹 누르면 듣는다 */}
+      {/* 무대 — 집중선 + 갓 쓴 내레이터 수달. 누르면 듣는다 */}
       <div style={S.stage}>
         <SpeedLines active={!!zap || recording} />
         {zap ? <div key={zap} className="hero-slash" style={S.slash} /> : null}
         {recording && <div className="hero-ring" style={S.ring} />}
         <button
-          aria-label="꾹 누르고 말하기"
+          aria-label={recording ? "말 끝내기" : "눌러서 말하기"}
           className={zap ? "hero-otter hero-otter-zap" : recording ? "hero-otter hero-otter-on" : "hero-otter"}
           style={S.otterBtn}
-          onPointerDown={pressStart}
-          onPointerUp={pressEnd}
-          onPointerCancel={pressEnd}
-          onPointerLeave={pressEnd}
+          onClick={toggleRecord}
         >
           <div style={{ position: "relative", width: OTTER_W }}>
             <OtterCloseUp expression={expression} width={OTTER_W} />
@@ -232,13 +222,13 @@ export default function HeroScreen({ chapter, line, heard, thinking, action, onS
           </p>
         )}
         {thinking ? (
-          <p className="narr hero-dots" style={S.narr}>
+          <p className="hero-dots" style={S.narr}>
             참견이가 붓을 들었다<span>.</span>
             <span>.</span>
             <span>.</span>
           </p>
         ) : (
-          <p className="narr" style={S.narr}>
+          <p style={S.narr}>
             {fullText.slice(0, typed) || " "}
             {doneTyping && fullText && <span className="hero-caret">▼</span>}
           </p>
@@ -267,7 +257,7 @@ export default function HeroScreen({ chapter, line, heard, thinking, action, onS
         )}
       </section>
 
-      {/* 말하기 — 꾹 누르기 안내 + 글로 쓰기 */}
+      {/* 말하기 — 누르기 안내 + 글로 쓰기 */}
       {writing ? (
         <div style={S.writeRow}>
           <input
@@ -289,7 +279,7 @@ export default function HeroScreen({ chapter, line, heard, thinking, action, onS
         </div>
       ) : (
         <div style={S.inputRow}>
-          <span style={recording ? S.hintOn : S.hint}>{recording ? `듣는 중 ${sec}초 · 손을 떼면 끝` : "수달을 꾹 눌러 말하기"}</span>
+          <span style={recording ? S.hintOn : S.hint}>{recording ? `듣는 중 ${sec}초 · 수달을 다시 누르면 끝` : "수달을 눌러 말하기"}</span>
           <button style={S.writeToggle} onClick={() => setWriting(true)}>
             ✎ 글로 쓰기
           </button>
@@ -305,7 +295,7 @@ const OTTER_W = 256;
 // 이런 말이 들어간 해설은 "찌릿" 연출을 붙인다(가끔만 터지게).
 const DRAMA_WORDS = ["선언", "강호", "단전", "검", "결전", "봉인", "수련", "소문", "고수", "해냈다", "결국", "마침내", "끝내"];
 
-// 만화식 집중선 — 빈 화면을 채우고, 비장한 순간엔 진해진다.
+// 만화식 집중선 — 평소엔 숨기고, 녹음 중·비장한 순간에만 보인다(10-28 정리).
 function SpeedLines({ active }: { active: boolean }) {
   const rays = Array.from({ length: 44 }, (_, i) => {
     const a = (i / 44) * Math.PI * 2 + (i % 2 ? 0.02 : 0);
@@ -315,7 +305,7 @@ function SpeedLines({ active }: { active: boolean }) {
     return `M${p(a - w, 600)} L${p(a, r0)} L${p(a + w, 600)} Z`;
   });
   return (
-    <svg viewBox="0 0 400 400" preserveAspectRatio="xMidYMid slice" style={{ ...S.speed, opacity: active ? 0.32 : 0.09 }} aria-hidden>
+    <svg viewBox="0 0 400 400" preserveAspectRatio="xMidYMid slice" style={{ ...S.speed, opacity: active ? 0.3 : 0 }} aria-hidden>
       {rays.map((d, i) => (
         <path key={i} d={d} fill="#F7F0DF" />
       ))}
@@ -356,7 +346,7 @@ export function HeroTabs({ active, onHero, onChronicle }: { active: "hero" | "ch
   );
 }
 
-// 해설·장 제목만 명조체 — 전역 폰트(!important)보다 우선하도록 클래스로 지정한다.
+// 장 제목만 명조체(해설 본문은 앱 기본 글씨로 통일 — 10-28) — 전역 폰트(!important)보다 우선하도록 클래스로 지정한다.
 const CSS = `
 .narr, .narr * { font-family: 'Nanum Myeongjo', serif !important; }
 .hero-otter { animation: heroBob 3.6s ease-in-out infinite; transition: transform .15s ease; }
@@ -391,7 +381,7 @@ const S: Record<string, React.CSSProperties> = {
     userSelect: "none",
     WebkitUserSelect: "none",
     WebkitTouchCallout: "none",
-    paddingBottom: "calc(60px + env(safe-area-inset-bottom, 0px))",
+    paddingBottom: "calc(52px + max(8px, env(safe-area-inset-bottom, 0px) - 14px))",
     overflow: "hidden",
   },
   // 상단 안전영역 — env()가 0으로 잡히는 기기도 있어서 최소 32px(다른 화면과 같은 방식)
@@ -406,17 +396,14 @@ const S: Record<string, React.CSSProperties> = {
   otterBtn: { position: "relative", zIndex: 1, background: "transparent", border: "none", padding: "40px 0 0", cursor: "pointer", touchAction: "none", WebkitTapHighlightColor: "transparent" },
   card: {
     margin: "0 14px",
-    background: "rgba(12,10,16,0.92)",
-    borderTop: `1px solid ${C.creamFaint}`,
-    borderBottom: `1px solid ${C.creamFaint}`,
-    boxShadow: "0 -12px 30px rgba(0,0,0,0.25)",
-    borderRadius: 6,
+    background: "rgba(12,10,16,0.72)",
+    borderRadius: 16,
     padding: "18px 20px 18px",
     minHeight: 132,
     cursor: "pointer",
   },
-  trace: { margin: "0 0 10px", fontSize: 13, lineHeight: 1.45, color: C.creamFaint, wordBreak: "keep-all", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" },
-  narr: { margin: 0, fontSize: 20, fontWeight: 700, lineHeight: 1.75, letterSpacing: -0.2, color: C.cream, wordBreak: "keep-all", whiteSpace: "pre-wrap" },
+  trace: { margin: "0 0 8px", fontSize: 12, lineHeight: 1.4, color: "rgba(247,240,223,0.38)", wordBreak: "keep-all", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical", overflow: "hidden" },
+  narr: { margin: 0, fontSize: 18, fontWeight: 400, lineHeight: 1.6, letterSpacing: -0.2, color: C.cream, wordBreak: "keep-all", whiteSpace: "pre-wrap" },
   vow: { margin: "12px 0 0", fontSize: 13, color: "rgba(255,210,111,0.8)", wordBreak: "keep-all" },
   actionBox: { marginTop: 12 },
   actionText: { fontSize: 15, color: C.creamSoft, lineHeight: 1.45 },
@@ -438,9 +425,10 @@ const S: Record<string, React.CSSProperties> = {
     display: "flex",
     background: "rgba(12,10,16,0.97)",
     borderTop: `1px solid rgba(247,240,223,0.12)`,
-    paddingBottom: "env(safe-area-inset-bottom, 0px)",
+    // 홈 인디케이터 영역을 통째로 더하면 탭이 두 줄처럼 길어 보인다 → 조금 덜어낸다(최소 8px)
+    paddingBottom: "max(8px, calc(env(safe-area-inset-bottom, 0px) - 14px))",
     zIndex: 50,
   },
-  tab: { flex: 1, height: 54, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", color: C.creamFaint, fontFamily: "Jua, sans-serif", fontSize: 16, cursor: "pointer" },
+  tab: { flex: 1, height: 48, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: "none", color: C.creamFaint, fontFamily: "Jua, sans-serif", fontSize: 16, cursor: "pointer" },
   tabOn: { color: C.accent },
 };
