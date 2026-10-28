@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { getUserIdFromRequest } from '@/lib/auth';
 import { analyzeAndSchedule, confirmCommitment } from '@/lib/analysis';
 import { sanitizeDueAt } from '@/lib/intervention/commitmentSchedule';
-import { generateResponse } from '@/lib/responseEngine';
+import { generateNarration as generateResponse } from '@/lib/narrator'; // 2026-10-28 내레이터 엔진으로 교체 (예전: @/lib/responseEngine)
 import { updateUserMemory } from '@/lib/memoryEngine';
 import { runMemoryPipeline } from '@/lib/memoryPipeline';
 import { createWorryBottleFromEntry } from '@/lib/worryBottles';
