@@ -125,6 +125,19 @@ export default function Home() {
     if (step !== "hero") releaseMicStream();
   }, [step]);
 
+  // 화면 바깥(홈 인디케이터 아래·스크롤 끝) 색 — 전역 크림색이 흰 줄로 비치지 않게 앱 배경색으로 맞춘다.
+  // (예전엔 어항 화면이 같은 일을 했다 — TimelineScreen)
+  useEffect(() => {
+    const html = document.documentElement.style.backgroundColor;
+    const body = document.body.style.backgroundColor;
+    document.documentElement.style.backgroundColor = "#13321F";
+    document.body.style.backgroundColor = "#13321F";
+    return () => {
+      document.documentElement.style.backgroundColor = html;
+      document.body.style.backgroundColor = body;
+    };
+  }, []);
+
   // ---- 말(녹음/글) 보내기 -------------------------------------------------
   const upload = async (input: Blob | string, speechConfirmed = false) => {
     const seq = ++uploadSeq.current;

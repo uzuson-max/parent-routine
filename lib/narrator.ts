@@ -231,12 +231,11 @@ function cleanNarration(s: unknown): string | null {
   if (typeof s !== 'string') return null;
   let t = s.replace(/^["'“”‘’\s]+|["'“”‘’\s]+$/g, '').replace(/\s+/g, ' ').trim();
   if (!t) return null;
-  if (t.length > 120) {
-    // 너무 길면 문장 단위로 앞에서 두 문장까지만
-    const parts = t.split(/(?<=[.!?。…])\s+/);
-    t = parts.slice(0, 2).join(' ');
-    if (t.length > 120) t = t.slice(0, 118) + '…';
-  }
+  // 해설은 짧아야 읽힌다 — 항상 앞에서 두 문장까지만, 그래도 길면 한 문장만.
+  const parts = t.split(/(?<=[.!?。…])\s+/);
+  t = parts.slice(0, 2).join(' ');
+  if (t.length > 80 && parts.length > 1) t = parts[0];
+  if (t.length > 90) t = t.slice(0, 88) + '…';
   return t;
 }
 

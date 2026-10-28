@@ -95,7 +95,9 @@ const S: Record<string, React.CSSProperties> = {
     background: "linear-gradient(180deg, #13321F 0%, #1D4A2F 100%)",
     color: "#F7F0DF",
     fontFamily: "Jua, sans-serif",
-    padding: "20px 16px calc(80px + env(safe-area-inset-bottom, 0px))",
+    padding: "0 16px calc(80px + env(safe-area-inset-bottom, 0px))",
+    // 상단 안전영역(시계와 겹치지 않게) — env()가 0으로 잡히는 기기도 있어서 최소 32px
+    paddingTop: "max(32px, calc(env(safe-area-inset-top, 0px) + 20px))",
   },
   header: { marginBottom: 18 },
   title: { margin: 0, fontSize: 26, fontWeight: 800 },
@@ -105,7 +107,7 @@ const S: Record<string, React.CSSProperties> = {
   chapterRow: { display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8 },
   chapter: { fontSize: 17, fontWeight: 800, color: "#FFD26F" },
   date: { fontSize: 13, color: "rgba(247,240,223,0.5)" },
-  card: { background: "rgba(20,16,25,0.55)", border: "1px solid rgba(247,240,223,0.14)", borderRadius: 12, padding: "12px 14px", marginBottom: 8 },
-  narration: { margin: 0, fontSize: 18, fontWeight: 800, lineHeight: 1.55, wordBreak: "keep-all" },
-  quote: { margin: "6px 0 0", fontSize: 13, lineHeight: 1.4, color: "rgba(247,240,223,0.55)", wordBreak: "keep-all" },
+  card: { background: "rgba(20,16,25,0.55)", border: "1px solid rgba(247,240,223,0.14)", borderRadius: 12, padding: "14px 16px", marginBottom: 10 },
+  narration: { margin: 0, fontSize: 16, fontWeight: 700, lineHeight: 1.75, wordBreak: "keep-all" },
+  quote: { margin: "8px 0 0", fontSize: 13, lineHeight: 1.45, color: "rgba(247,240,223,0.5)", wordBreak: "keep-all", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" },
 };

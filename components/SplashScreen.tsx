@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
 
 const MINT = "#74D3B4"; // 앱 아이콘 배경색과 같음
-const SEA = "#1B5A96"; // 홈 바다(tankWallBackground)와 같음
+const SEA = "#13321F"; // 첫 화면(참견이) 배경과 같음 — 2026-10-28 바다 → 초록
 
 const PHASE1_MS = 900; // 로고만 보이는 최소 시간
 const NICK_WAIT_MAX_MS = 1800; // 닉네임을 이 이상은 기다리지 않음
